@@ -1,0 +1,49 @@
+# Unity generated folders
+/Library/
+/Temp/
+/Obj/
+/Build/
+/Builds/
+/Logs/
+/UserSettings/
+/.utmp/
+/build/
+/Data/
+
+# Unity generated project files
+/*.csproj
+/*.sln
+/*.slnx
+/*.user
+/*.pidb
+/*.booproj
+/*.svd
+/*.pdb
+/*.mdb
+/*.opendb
+/*.VC.db
+
+# IDE/editor folders
+/.vscode/
+/.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build outputs and archives
+*.apk
+*.aab
+*.unitypackage
+*.zip
+
+# Signing keys and local secrets
+*.keystore
+*.jks
+*.p12
+*.pfx
+
+# Unity crash/debug artifacts
+sysinfo.txt
+crashlytics-build.properties

@@ -1942,11 +1942,18 @@ namespace BrickStacker
 
             var clip = Resources.Load<AudioClip>("BrickStacker/gameplay_music");
             if (clip == null)
+            {
+                Debug.LogWarning("BLOCKFALL audio missing: Resources/BrickStacker/gameplay_music");
                 return;
+            }
+
+            if (clip.loadState == AudioDataLoadState.Unloaded)
+                clip.LoadAudioData();
 
             musicSource.clip = clip;
             musicSource.loop = true;
             musicSource.playOnAwake = false;
+            musicSource.mute = false;
             musicSource.volume = 0.18f;
             musicSource.spatialBlend = 0f;
             musicSource.Play();
@@ -1997,6 +2004,7 @@ namespace BrickStacker
         {
             if (uiSwitchClip == null)
                 uiSwitchClip = Resources.Load<AudioClip>("BrickStacker/ui_switch");
+            PrepareAudioClip(uiSwitchClip, "Resources/BrickStacker/ui_switch");
             PlayGlobalClip(uiSwitchClip, 0.42f);
         }
 
@@ -2004,7 +2012,20 @@ namespace BrickStacker
         {
             if (gameOverClip == null)
                 gameOverClip = Resources.Load<AudioClip>("BrickStacker/game_over_negative");
+            PrepareAudioClip(gameOverClip, "Resources/BrickStacker/game_over_negative");
             PlayGlobalClip(gameOverClip, 0.70f);
+        }
+
+        static void PrepareAudioClip(AudioClip clip, string path)
+        {
+            if (clip == null)
+            {
+                Debug.LogWarning("BLOCKFALL audio missing: " + path);
+                return;
+            }
+
+            if (clip.loadState == AudioDataLoadState.Unloaded)
+                clip.LoadAudioData();
         }
 
         static void PlayGlobalClip(AudioClip clip, float volume)

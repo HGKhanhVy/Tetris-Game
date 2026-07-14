@@ -2499,7 +2499,7 @@ namespace BrickStacker
             Ui.Rect(widget, new Vector2(0.790f, 0.062f), new Vector2(0.960f, 0.252f), new Vector2(0, 0));
             var widgetImage = widget.GetComponent<Image>();
             widgetImage.sprite = RuntimeArt.CreateWoodPanelSprite();
-            widgetImage.type = Image.Tpe.Slicedy;
+            widgetImage.type = Image.Type.Sliced;
             widgetImage.color = new Color(0.54f, 0.31f, 0.14f, 0.98f);
 
             var title = Ui.Text(widget.transform, "Bàn chiến thuật", font, 18, new Color(1f, 0.91f, 0.68f), TextAnchor.MiddleCenter);

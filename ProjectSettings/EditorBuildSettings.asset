@@ -9,6 +9,9 @@ EditorBuildSettings:
     path: Assets/BrickStacker/Scenes/BrickMenu.unity
     guid: e0d0d7a729cb404f971f061f2a62b2aa
   - enabled: 1
+    path: Assets/BrickStacker/Scenes/BrickLevel.unity
+    guid: aecafe05d7b0e1f4298aa6f9754f4fe6
+  - enabled: 1
     path: Assets/BrickStacker/Scenes/BrickGame.unity
     guid: 11420fb00f7c44de8041e2b546199940
   m_configObjects:

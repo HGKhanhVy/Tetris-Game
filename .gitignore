@@ -47,3 +47,6 @@ Desktop.ini
 # Unity crash/debug artifacts
 sysinfo.txt
 crashlytics-build.properties
+
+# Repo con rieng (policy page co git rieng)
+/PolicyPage/

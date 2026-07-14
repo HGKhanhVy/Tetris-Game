@@ -5,112 +5,598 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using TMPro;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
 
 namespace BrickStacker
 {
+    public enum TacticalBoardStatus
+    {
+        Running,
+        Won,
+        Failed
+    }
+
+    public abstract class TacticalPiece
+    {
+        public Vector2Int Position;
+
+        protected TacticalPiece(Vector2Int position)
+        {
+            Position = position;
+        }
+    }
+
+    public class PlayerPiece : TacticalPiece
+    {
+        public PlayerPiece(Vector2Int position) : base(position) { }
+    }
+
+    public class EnemyPiece : TacticalPiece
+    {
+        public EnemyPiece(Vector2Int position) : base(position) { }
+    }
+
+    public class MonsterPiece : TacticalPiece
+    {
+        public MonsterPiece(Vector2Int position) : base(position) { }
+    }
+
+    [Serializable]
+    public class TacticalLevelData
+    {
+        public int LevelId;
+        public int BoardWidth;
+        public int BoardHeight;
+        public Vector2Int PlayerStartPosition;
+        public Vector2Int EnemyStartPosition;
+        public Vector2Int MonsterStartPosition;
+        public List<Vector2Int> WallPositions = new List<Vector2Int>();
+        public int ThreeStarMoveLimit;
+        public int TwoStarMoveLimit;
+        public float InitialFallSpeed;
+        public int LineToMoveRate = 1;
+        public int CoinReward;
+        public bool UnlockNextLevel = true;
+        public int MonsterStepsPerTurn = 2;
+
+        public static TacticalLevelData Create(int level)
+        {
+            const int width = 8;
+            const int height = 8;
+            var data = new TacticalLevelData
+            {
+                LevelId = Mathf.Max(1, level),
+                BoardWidth = width,
+                BoardHeight = height,
+                PlayerStartPosition = new Vector2Int(2, 2),
+                EnemyStartPosition = new Vector2Int(5, 5),
+                MonsterStartPosition = new Vector2Int(2, 6),
+                ThreeStarMoveLimit = Mathf.Max(6, 8 + level / 3),
+                TwoStarMoveLimit = Mathf.Max(10, 13 + level / 2),
+                InitialFallSpeed = Mathf.Max(0.34f, 0.82f - Mathf.Min(level, 30) * 0.010f),
+                LineToMoveRate = 1,
+                CoinReward = 45 + level * 5,
+                UnlockNextLevel = true
+            };
+
+            int pattern = (level - 1) % 6;
+            if (pattern == 1)
+            {
+                data.MonsterStartPosition = new Vector2Int(1, 6);
+                data.WallPositions.Add(new Vector2Int(2, 3));
+                data.WallPositions.Add(new Vector2Int(5, 6));
+            }
+            else if (pattern == 2)
+            {
+                data.PlayerStartPosition = new Vector2Int(1, 1);
+                data.EnemyStartPosition = new Vector2Int(6, 5);
+                data.MonsterStartPosition = new Vector2Int(3, 6);
+                data.WallPositions.Add(new Vector2Int(1, 4));
+                data.WallPositions.Add(new Vector2Int(5, 2));
+            }
+            else if (pattern == 3)
+            {
+                data.MonsterStartPosition = new Vector2Int(1, 5);
+                data.WallPositions.Add(new Vector2Int(3, 2));
+                data.WallPositions.Add(new Vector2Int(3, 3));
+                data.WallPositions.Add(new Vector2Int(4, 5));
+            }
+            else if (pattern == 4)
+            {
+                data.EnemyStartPosition = new Vector2Int(6, 6);
+                data.MonsterStartPosition = new Vector2Int(4, 2);
+                data.WallPositions.Add(new Vector2Int(1, 1));
+                data.WallPositions.Add(new Vector2Int(6, 3));
+            }
+            else if (pattern == 5)
+            {
+                data.PlayerStartPosition = new Vector2Int(1, 0);
+                data.EnemyStartPosition = new Vector2Int(6, 6);
+                data.MonsterStartPosition = new Vector2Int(3, 4);
+                data.WallPositions.Add(new Vector2Int(0, 4));
+                data.WallPositions.Add(new Vector2Int(7, 4));
+            }
+            else
+            {
+                data.WallPositions.Add(new Vector2Int(1, 5));
+                data.WallPositions.Add(new Vector2Int(5, 5));
+                data.WallPositions.Add(new Vector2Int(3, 1));
+                data.WallPositions.Add(new Vector2Int(7, 0));
+            }
+
+            // Quái luôn đi 2 bước — độ khó nằm ở cách bố trí tường và vị trí xuất phát,
+            // không nằm ở tốc độ quái.
+            data.MonsterStepsPerTurn = 2;
+
+            // Drop pattern walls that collide with start positions first — a wall on a
+            // start cell makes the connectivity check in AddProgressiveWalls always fail.
+            data.RemoveInvalidWalls();
+            data.AddProgressiveWalls(level);
+            return data;
+        }
+
+        // Adds extra obstacles as levels progress. Placement is deterministic per
+        // level (seeded) and never allowed to cut the board apart: every tentative
+        // wall is reverted if the three pieces can no longer reach each other.
+        void AddProgressiveWalls(int level)
+        {
+            int extra = Mathf.Min(1 + (level - 1) / 3, 8);
+            if (extra <= 0)
+                return;
+
+            var rng = new System.Random(level * 7919 + 17);
+            int placed = 0;
+            int attempts = 0;
+            while (placed < extra && attempts < 200)
+            {
+                attempts++;
+                var cell = new Vector2Int(rng.Next(0, BoardWidth), rng.Next(0, BoardHeight));
+                if (WallPositions.Contains(cell))
+                    continue;
+                // Keep a breathing ring around the start positions so nobody spawns trapped.
+                if (NearStart(cell, PlayerStartPosition) || NearStart(cell, EnemyStartPosition) || NearStart(cell, MonsterStartPosition))
+                    continue;
+
+                WallPositions.Add(cell);
+                if (BoardIsConnected())
+                    placed++;
+                else
+                    WallPositions.RemoveAt(WallPositions.Count - 1);
+            }
+        }
+
+        bool NearStart(Vector2Int cell, Vector2Int start)
+        {
+            return Mathf.Abs(cell.x - start.x) + Mathf.Abs(cell.y - start.y) <= 1;
+        }
+
+        // BFS from the player start: player, enemy and monster must share one open region.
+        bool BoardIsConnected()
+        {
+            var wallSet = new HashSet<Vector2Int>(WallPositions);
+            var visited = new HashSet<Vector2Int>();
+            var queue = new Queue<Vector2Int>();
+            queue.Enqueue(PlayerStartPosition);
+            visited.Add(PlayerStartPosition);
+            Vector2Int[] dirs = { Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left };
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                foreach (var dir in dirs)
+                {
+                    var next = current + dir;
+                    if (next.x < 0 || next.x >= BoardWidth || next.y < 0 || next.y >= BoardHeight)
+                        continue;
+                    if (wallSet.Contains(next) || !visited.Add(next))
+                        continue;
+                    queue.Enqueue(next);
+                }
+            }
+            return visited.Contains(EnemyStartPosition) && visited.Contains(MonsterStartPosition);
+        }
+
+        void RemoveInvalidWalls()
+        {
+            for (int i = WallPositions.Count - 1; i >= 0; i--)
+            {
+                var wall = WallPositions[i];
+                bool invalid = wall.x < 0 || wall.x >= BoardWidth || wall.y < 0 || wall.y >= BoardHeight;
+                invalid |= wall == PlayerStartPosition || wall == EnemyStartPosition || wall == MonsterStartPosition;
+                if (invalid)
+                    WallPositions.RemoveAt(i);
+            }
+        }
+    }
+
+    public class TacticalBoardManager
+    {
+        public TacticalLevelData Data { get; private set; }
+        public Vector2Int PlayerPosition { get; private set; }
+        public Vector2Int EnemyPosition { get; private set; }
+        public Vector2Int MonsterPosition { get; private set; }
+        public int MoveBank { get; private set; }
+        public int MovesUsed { get; private set; }
+        public TacticalBoardStatus Status { get; private set; }
+        public string LastMessage { get; set; }
+
+        readonly HashSet<Vector2Int> walls = new HashSet<Vector2Int>();
+        static readonly Vector2Int[] Directions =
+        {
+            Vector2Int.up,
+            Vector2Int.right,
+            Vector2Int.down,
+            Vector2Int.left
+        };
+
+        public TacticalBoardManager(TacticalLevelData data)
+        {
+            Reset(data);
+        }
+
+        public void Reset(TacticalLevelData data)
+        {
+            Data = data ?? TacticalLevelData.Create(1);
+            PlayerPosition = Data.PlayerStartPosition;
+            EnemyPosition = Data.EnemyStartPosition;
+            MonsterPosition = Data.MonsterStartPosition;
+            MoveBank = 0;
+            MovesUsed = 0;
+            Status = TacticalBoardStatus.Running;
+            LastMessage = "Xóa dòng để nhận lượt di chuyển.";
+            walls.Clear();
+            for (int i = 0; i < Data.WallPositions.Count; i++)
+                walls.Add(Data.WallPositions[i]);
+        }
+
+        public int AddMovesForClearedLines(int clearedLines, bool comboBonus)
+        {
+            int gained = 0;
+            if (clearedLines == 1)
+                gained = 1;
+            else if (clearedLines == 2)
+                gained = 2;
+            else if (clearedLines >= 3)
+                gained = 4 + Mathf.Max(0, clearedLines - 3);
+
+            gained *= Mathf.Max(1, Data.LineToMoveRate);
+            if (comboBonus && gained > 0)
+                gained += 1;
+
+            MoveBank += gained;
+            if (gained > 0)
+                LastMessage = "+ " + gained + " lượt chiến thuật.";
+            return gained;
+        }
+
+        public TacticalBoardStatus MovePlayer(Vector2Int direction)
+        {
+            if (Status != TacticalBoardStatus.Running)
+                return Status;
+
+            if (MoveBank <= 0)
+            {
+                LastMessage = "Chưa có lượt. Hãy xóa dòng để kiếm lượt.";
+                return Status;
+            }
+
+            var target = PlayerPosition + direction;
+            if (!IsWalkableForPlayer(target))
+            {
+                LastMessage = "Không thể đi vào ô đó.";
+                return Status;
+            }
+
+            PlayerPosition = target;
+            MoveBank--;
+            MovesUsed++;
+            if (Evaluate() != TacticalBoardStatus.Running)
+                return Status;
+
+            // Enemy đứng yên — không né quái. Quái bước vào ô enemy là thắng ngay
+            // (Evaluate chạy sau từng bước trong MoveMonster). Độ khó đến từ layout.
+            MoveMonster();
+            Evaluate();
+            return Status;
+        }
+
+        public bool IsWall(Vector2Int cell)
+        {
+            return walls.Contains(cell);
+        }
+
+        public bool IsPlayerMoveTarget(Vector2Int cell)
+        {
+            return Status == TacticalBoardStatus.Running && IsWalkableForPlayer(cell) && Manhattan(cell, PlayerPosition) == 1;
+        }
+
+        public bool IsInside(Vector2Int cell)
+        {
+            return cell.x >= 0 && cell.x < Data.BoardWidth && cell.y >= 0 && cell.y < Data.BoardHeight;
+        }
+
+        bool IsWalkable(Vector2Int cell)
+        {
+            return IsInside(cell) && !walls.Contains(cell);
+        }
+
+        bool IsWalkableForPlayer(Vector2Int cell)
+        {
+            return IsWalkable(cell) && cell != EnemyPosition && cell != MonsterPosition;
+        }
+
+        void MoveMonster()
+        {
+            int steps = Data != null ? Mathf.Max(1, Data.MonsterStepsPerTurn) : 2;
+            for (int step = 0; step < steps; step++)
+            {
+                if (Evaluate() != TacticalBoardStatus.Running)
+                    return;
+
+                Vector2Int target  = MonsterTarget();
+                bool huntingPlayer = target == PlayerPosition;
+                Vector2Int next    = NextStepMonster(MonsterPosition, target, huntingPlayer);
+                if (next == MonsterPosition)
+                    return;
+                MonsterPosition = next;
+            }
+        }
+
+        Vector2Int MonsterTarget()
+        {
+            int enemyDistance  = PathDistance(MonsterPosition, EnemyPosition,  blockPlayer: false);
+            int playerDistance = PathDistance(MonsterPosition, PlayerPosition, blockPlayer: false);
+            // Prefer enemy; chase player only if enemy is farther or unreachable.
+            return enemyDistance <= playerDistance ? EnemyPosition : PlayerPosition;
+        }
+
+        // BFS từ start đến target, trả về bước đầu tiên trên đường ngắn nhất.
+        // Khi đuổi enemy, không đi qua player (tránh thua oan).
+        Vector2Int NextStepMonster(Vector2Int start, Vector2Int target, bool huntingPlayer)
+        {
+            if (start == target) return start;
+
+            var queue   = new Queue<Vector2Int>();
+            var prev    = new Dictionary<Vector2Int, Vector2Int>();
+            queue.Enqueue(start);
+            prev[start] = start;
+
+            while (queue.Count > 0)
+            {
+                var cell = queue.Dequeue();
+                foreach (var dir in Directions)
+                {
+                    var next = cell + dir;
+                    if (!IsWalkable(next) || prev.ContainsKey(next))
+                        continue;
+                    if (!huntingPlayer && next == PlayerPosition && next != target)
+                        continue;
+                    prev[next] = cell;
+                    if (next == target)
+                    {
+                        // Trace back to find first step.
+                        var step = next;
+                        while (prev[step] != start)
+                            step = prev[step];
+                        return step;
+                    }
+                    queue.Enqueue(next);
+                }
+            }
+            return start; // không tìm được đường
+        }
+
+        TacticalBoardStatus Evaluate()
+        {
+            if (MonsterPosition == EnemyPosition)
+            {
+                Status = TacticalBoardStatus.Won;
+                LastMessage = "Quái đã bắt được đối thủ!";
+            }
+            else if (MonsterPosition == PlayerPosition)
+            {
+                Status = TacticalBoardStatus.Failed;
+                LastMessage = "Quái đã bắt được bạn.";
+            }
+            return Status;
+        }
+
+        int PathDistance(Vector2Int from, Vector2Int to, bool blockPlayer = false)
+        {
+            if (from == to)
+                return 0;
+
+            var queue = new Queue<Vector2Int>();
+            var distance = new Dictionary<Vector2Int, int>();
+            queue.Enqueue(from);
+            distance[from] = 0;
+
+            while (queue.Count > 0)
+            {
+                var cell = queue.Dequeue();
+                int nextDistance = distance[cell] + 1;
+                for (int i = 0; i < Directions.Length; i++)
+                {
+                    var next = cell + Directions[i];
+                    if (!IsWalkable(next) || distance.ContainsKey(next))
+                        continue;
+                    if (blockPlayer && next == PlayerPosition && next != to)
+                        continue;
+                    if (next == to)
+                        return nextDistance;
+                    distance[next] = nextDistance;
+                    queue.Enqueue(next);
+                }
+            }
+
+            return 1000 + Manhattan(from, to);
+        }
+
+        int Manhattan(Vector2Int a, Vector2Int b)
+        {
+            return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
+        }
+    }
+
     public static class GameSession
     {
         public static int SelectedLevel = 1;
+        public static int JourneyLevel = 1;
+    }
+
+    public static class LevelProgress
+    {
+        public const int MaxLevels = 10;
+        // Giá trị chuỗi key giữ nguyên tên "TOWER" cũ để không mất save hiện có.
+        public const string UnlockedLevelKey = "BLOCKFALL_TOWER_UNLOCKED_FLOOR";
+        public const string CoinsKey = "BLOCKFALL_COINS";
+        public const string TotalLinesClearedKey = "BLOCKFALL_TOTAL_LINES_CLEARED";
+
+        public static int CurrentUnlockedLevel => Mathf.Clamp(PlayerPrefs.GetInt(UnlockedLevelKey, 1), 1, MaxLevels);
+
+        public static string StarKey(int level)
+        {
+            return "BLOCKFALL_TOWER_FLOOR_" + Mathf.Clamp(level, 1, MaxLevels) + "_STARS";
+        }
+
+        public static string BestScoreKeyForLevel(int level)
+        {
+            return "BLOCKFALL_TOWER_LEVEL_" + Mathf.Clamp(level, 1, MaxLevels) + "_BEST_SCORE";
+        }
+
+        public static int Coins => PlayerPrefs.GetInt(CoinsKey, 0);
+
+        public static void AddCoins(int amount)
+        {
+            PlayerPrefs.SetInt(CoinsKey, Mathf.Max(0, Coins + amount));
+        }
+
+        public static int StarsForLevel(int level)
+        {
+            return Mathf.Clamp(PlayerPrefs.GetInt(StarKey(level), 0), 0, 3);
+        }
+
+        public static int TotalStars()
+        {
+            int total = 0;
+            for (int level = 1; level <= MaxLevels; level++)
+                total += StarsForLevel(level);
+            return total;
+        }
+
+        public static void SaveLevelResult(int level, int stars)
+        {
+            level = Mathf.Clamp(level, 1, MaxLevels);
+            stars = Mathf.Clamp(stars, 1, 3);
+            if (stars > StarsForLevel(level))
+                PlayerPrefs.SetInt(StarKey(level), stars);
+
+            PlayerPrefs.SetInt(UnlockedLevelKey, Mathf.Max(CurrentUnlockedLevel, Mathf.Min(MaxLevels, level + 1)));
+            PlayerPrefs.Save();
+        }
+
+        public static void SaveLevelBestScore(int level, int score)
+        {
+            string key = BestScoreKeyForLevel(level);
+            if (score > PlayerPrefs.GetInt(key, 0))
+                PlayerPrefs.SetInt(key, score);
+        }
     }
 
     [Serializable]
     public class LevelRules
     {
-        public string Name;
-        public string Tagline;
-        public Color BackgroundA;
         public Color BackgroundB;
         public float FallInterval;
         public float SpeedRampSeconds;
         public float MaxFallSpeedMultiplier = 1f;
-        public int TargetLines;
         public int GarbageEveryPieces;
         public float SurpriseGarbageChance;
         public int ScoreMultiplier;
         public int ForcedPieceType = -1;
         public bool AllowSpecialBlocks = true;
+        public bool GhostPreview = true;
+        public bool FastBlocks;
+        public bool HasStoneBlocks;
+        public bool HasFixedObstacles;
+        public int RotationLimit;
+        public int RisingDangerSeconds;
+        public int CoinReward = 50;
+        public TacticalLevelData TacticalData;
 
-        public static LevelRules Create(int level)
+        public static LevelRules CreateJourney(int level)
         {
-            if (level == 3)
+            int stage = Mathf.Max(1, level);
+            var rules = new LevelRules
             {
-                return new LevelRules
-                {
-                    Name = "Hard",
-                    Tagline = "Nhanh hon, co hang rac bat ngo.",
-                    BackgroundA = new Color(0.02f, 0.03f, 0.09f),
-                    BackgroundB = new Color(0.0f, 0.32f, 0.42f),
-                    FallInterval = 0.72f,
-                    SpeedRampSeconds = 180f,
-                    MaxFallSpeedMultiplier = 2.5f,
-                    TargetLines = 0,
-                    GarbageEveryPieces = 0,
-                    SurpriseGarbageChance = 0.16f,
-                    ScoreMultiplier = 1
-                };
-            }
-
-            if (level == 4)
-            {
-                return new LevelRules
-                {
-                    Name = "T-Block Trial",
-                    Tagline = "Chi co khoi T, toc do tang dan.",
-                    BackgroundA = new Color(0.05f, 0.02f, 0.08f),
-                    BackgroundB = new Color(0.35f, 0.08f, 0.16f),
-                    FallInterval = 0.72f,
-                    SpeedRampSeconds = 180f,
-                    MaxFallSpeedMultiplier = 2.5f,
-                    TargetLines = 0,
-                    GarbageEveryPieces = 0,
-                    SurpriseGarbageChance = 0f,
-                    ScoreMultiplier = 1,
-                    ForcedPieceType = 5,
-                    AllowSpecialBlocks = false
-                };
-            }
-
-            if (level == 2)
-            {
-                return new LevelRules
-                {
-                    Name = "Normal",
-                    Tagline = "Tu canh diem roi, khong co bong mo.",
-                    BackgroundA = new Color(0.02f, 0.06f, 0.08f),
-                    BackgroundB = new Color(0.08f, 0.22f, 0.18f),
-                    FallInterval = 0.72f,
-                    TargetLines = 0,
-                    GarbageEveryPieces = 0,
-                    SurpriseGarbageChance = 0f,
-                    ScoreMultiplier = 1
-                };
-            }
-
-            return new LevelRules
-            {
-                Name = "Easy",
-                Tagline = "De vao nhip, co bong mo goi y.",
-                BackgroundA = new Color(0.02f, 0.06f, 0.08f),
                 BackgroundB = new Color(0.08f, 0.22f, 0.18f),
-                FallInterval = 0.72f,
-                TargetLines = 0,
+                FallInterval = Mathf.Max(0.34f, 0.80f - Mathf.Min(stage - 1, 30) * 0.010f),
+                // Every level ramps up gently over time; pattern levels may override
+                // with a stronger ramp in ApplyLevelConfig.
+                SpeedRampSeconds = 150f,
+                MaxFallSpeedMultiplier = 1.6f,
                 GarbageEveryPieces = 0,
                 SurpriseGarbageChance = 0f,
-                ScoreMultiplier = 1
+                ScoreMultiplier = 1,
+                AllowSpecialBlocks = true,
+                // Shown only for the first GhostPreviewPieces drops of each game.
+                GhostPreview = true,
+                FastBlocks = stage >= 15,
+                RotationLimit = 0,
+                RisingDangerSeconds = 0,
+                CoinReward = 45 + stage * 5
             };
+
+            ApplyLevelConfig(rules, stage);
+            rules.TacticalData = TacticalLevelData.Create(stage);
+            rules.FallInterval = rules.TacticalData.InitialFallSpeed;
+            rules.CoinReward = rules.TacticalData.CoinReward;
+            return rules;
+        }
+
+        static void ApplyLevelConfig(LevelRules rules, int level)
+        {
+            int pattern = (level - 1) % 10;
+            if (pattern == 4)
+                rules.GhostPreview = false;
+            else if (pattern == 5)
+            {
+                rules.SpeedRampSeconds = Mathf.Max(80f, 180f - level * 3f);
+                rules.MaxFallSpeedMultiplier = Mathf.Min(2.8f, 1.35f + level * 0.04f);
+            }
+            else if (pattern == 6)
+                rules.SurpriseGarbageChance = Mathf.Min(0.20f, 0.08f + level * 0.004f);
+            else if (pattern == 8)
+            {
+                rules.SpeedRampSeconds = 150f;
+                rules.MaxFallSpeedMultiplier = Mathf.Min(2.7f, 1.45f + level * 0.035f);
+            }
+            else if (pattern == 9)
+                rules.HasStoneBlocks = true;
+
+            if (level >= 12 && level % 4 == 0)
+                rules.RotationLimit = Mathf.Max(10, 24 - level / 2);
+
+            if (level >= 18 && level % 6 == 0)
+                rules.RisingDangerSeconds = Mathf.Clamp(34 - level / 2, 16, 34);
+
+            if (level >= 24 && level % 8 == 0)
+                rules.HasFixedObstacles = true;
         }
     }
 
     public class MenuController : MonoBehaviour
     {
         Font font;
+        Font titleFont;
+        GameObject mapOverlay;
 
         void Start()
         {
             font = LoadFont();
+            titleFont = RuntimeArt.LoadDisplayFont();
             Time.timeScale = 1f;
             BuildCamera();
             BuildBackground();
@@ -153,51 +639,585 @@ namespace BrickStacker
             var panel = Ui.Panel(safe.transform, "Menu Panel", new Color(0, 0, 0, 0));
             Ui.Stretch(panel);
 
-            var centerPanel = Ui.Panel(panel.transform, "Menu Center Panel", new Color(0.10f, 0.045f, 0.022f, 0.46f));
-            Ui.Rect(centerPanel, new Vector2(0.5f, 0.51f), new Vector2(0.5f, 0.51f), new Vector2(500, 700));
-            AddMenuGlowFrame(panel.transform, new Vector2(0.5f, 0.51f), new Vector2(514, 714));
+            // Glow frame encompasses title + button zone
+            AddMenuGlowFrame(panel.transform, new Vector2(0.5f, 0.500f), new Vector2(600, 820));
 
-            var menuStack = Ui.Panel(panel.transform, "Menu Stack", new Color(0, 0, 0, 0));
-            Ui.Rect(menuStack, new Vector2(0.5f, 0.545f), new Vector2(0.5f, 0.545f), new Vector2(820, 650));
+            // Title block — directly on panel, reduced scale to avoid overflow
+            var titleGroup = Ui.Panel(panel.transform, "Title Group", new Color(0, 0, 0, 0));
+            Ui.Rect(titleGroup, new Vector2(0.5f, 0.630f), new Vector2(0.5f, 0.630f), new Vector2(820, 200));
 
-            var titleGroup = Ui.Panel(menuStack.transform, "Title Group", new Color(0, 0, 0, 0));
-            Ui.Rect(titleGroup, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 190));
-            titleGroup.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 148);
-
-            var titleShadow = Ui.Text(titleGroup.transform, "BLOCKFALL", font, 104, new Color(0.08f, 0.03f, 0.012f, 0.95f), TextAnchor.MiddleCenter);
-            Ui.Rect(titleShadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 140));
-            titleShadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(10, 10);
-            titleShadow.GetComponent<RectTransform>().localScale = new Vector3(1.08f, 1f, 1f);
-
-            var title = Ui.Text(titleGroup.transform, "BLOCKFALL", font, 104, new Color(1f, 0.84f, 0.42f), TextAnchor.MiddleCenter);
-            Ui.Rect(title, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 140));
-            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 27);
-            title.GetComponent<RectTransform>().localScale = new Vector3(1.08f, 1f, 1f);
-            AddDarkWoodTextEdge(title, 1.25f, 0.82f);
-
-            var titleDropShadow = Ui.Text(titleGroup.transform, "BLOCKFALL", font, 104, new Color(0.035f, 0.012f, 0.004f, 0.48f), TextAnchor.MiddleCenter);
-            Ui.Rect(titleDropShadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 140));
-            titleDropShadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(16, -6);
-            titleDropShadow.GetComponent<RectTransform>().localScale = new Vector3(1.08f, 1f, 1f);
-            titleDropShadow.transform.SetSiblingIndex(titleShadow.transform.GetSiblingIndex());
+            var title = Ui.Text(titleGroup.transform, "BLOCKFALL", titleFont, 100, new Color(1f, 0.84f, 0.42f), TextAnchor.MiddleCenter);
+            Ui.Rect(title, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 144));
+            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 22);
+            title.GetComponent<RectTransform>().localScale = new Vector3(1.03f, 1.02f, 1f);
+            AddDarkWoodTextEdge(title, 1.10f, 0.74f);
+            AddCloseTitleShadow(title);
+            AddBlockfallWoodGrain(titleGroup.transform);
+            title.transform.SetAsLastSibling();
 
             var titleLine = Ui.Panel(titleGroup.transform, "Title Accent", new Color(1f, 0.64f, 0.32f, 0.85f));
-            Ui.Rect(titleLine, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(430, 6));
-            titleLine.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -58);
+            Ui.Rect(titleLine, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(480, 5));
+            titleLine.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -54);
 
-            var optionsGroup = Ui.Panel(menuStack.transform, "Options Group", new Color(0, 0, 0, 0));
-            Ui.Rect(optionsGroup, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(460, 450));
-            optionsGroup.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -115);
+            // Subtitle: mô tả đúng tính chất game
+            var subtitle = Ui.Text(panel.transform, "Xếp gạch · Giành lượt đi · Chiến thắng đối thủ", font, 26, new Color(1f, 0.86f, 0.60f), TextAnchor.MiddleCenter);
+            Ui.Rect(subtitle, new Vector2(0.5f, 0.561f), new Vector2(0.5f, 0.561f), new Vector2(560, 52));
+            AddDarkWoodTextEdge(subtitle, 0.70f, 0.74f);
+            AddWarmTitleFinish(subtitle, 0.32f);
 
-            var subtitle = Ui.Text(optionsGroup.transform, "SELECT MODE", font, 25, new Color(1f, 0.92f, 0.76f), TextAnchor.MiddleCenter);
-            Ui.Rect(subtitle, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(360, 42));
-            subtitle.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 142);
-            AddDarkWoodTextEdge(subtitle, 1.15f, 0.95f);
+            AddBookHelpButton(panel.transform, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                ShowTutorialOverlay(panel.transform);
+            });
 
-            AddLevelButton(optionsGroup.transform, 1, new Vector2(0.5f, 0.5f), new Vector2(0, 64));
-            AddLevelButton(optionsGroup.transform, 2, new Vector2(0.5f, 0.5f), new Vector2(0, -23));
-            AddLevelButton(optionsGroup.transform, 3, new Vector2(0.5f, 0.5f), new Vector2(0, -110));
-            AddLevelButton(optionsGroup.transform, 4, new Vector2(0.5f, 0.5f), new Vector2(0, -197));
+            AddLeaderboardButton(panel.transform, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                ShowLeaderboardOverlay(panel.transform);
+            });
+
+            var (startBtn, startShadow) = AddMenuButton(panel.transform, "BẮT ĐẦU", new Vector2(0.5f, 0.5f), new Vector2(0, -148), () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                SceneManager.LoadScene("BrickLevel");
+            }, new Vector2(440, 92), 42);
+            StartCoroutine(PulseButton(startBtn.transform, startShadow.transform));
+
+            AddMenuButton(panel.transform, "ĐẤU 1V1", new Vector2(0.5f, 0.5f), new Vector2(0, -262), () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                ShowMultiplayerOverlay(panel.transform);
+            }, new Vector2(440, 84), 36);
+
+            int totalStars = LevelProgress.TotalStars();
+            string hintText = totalStars > 0 ? "★  " + totalStars + " sao đã thu thập" : "Chạm để bắt đầu hành trình!";
+            var hint = Ui.Text(panel.transform, hintText, font, 22, new Color(1f, 0.84f, 0.56f, 0.80f), TextAnchor.MiddleCenter);
+            Ui.Rect(hint, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(400, 38));
+            hint.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -336);
+            AddDarkWoodTextEdge(hint, 0.55f, 0.70f);
+
+            // Số bản build nhỏ để đối chiếu khi test nhiều thiết bị (cache trình duyệt).
+            var versionLabel = Ui.Text(panel.transform, "v1.7", font, 16, new Color(1f, 0.86f, 0.60f, 0.45f), TextAnchor.MiddleCenter);
+            Ui.Rect(versionLabel, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(160, 26));
+            versionLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 24);
+
+        }
+
+        System.Collections.IEnumerator PulseButton(Transform btn, Transform shadow)
+        {
+            float amplitude = 0.030f;
+            float speed = 0.65f;
+            while (btn != null)
+            {
+                float s = 1f + amplitude * Mathf.Sin(Time.time * speed * Mathf.PI * 2f);
+                btn.localScale = new Vector3(s, s, 1f);
+                if (shadow != null) shadow.localScale = new Vector3(s, s, 1f);
+                yield return null;
+            }
+        }
+
+        void AddBookHelpButton(Transform parent, UnityEngine.Events.UnityAction action)
+        {
+            var button = Ui.Button(parent, "", font, 1, action);
+            Ui.Rect(button.gameObject, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(86, 86));
+            button.GetComponent<RectTransform>().anchoredPosition = new Vector2(86, 100);
+            var image = button.GetComponent<Image>();
+            image.sprite = RuntimeArt.CreateWoodButtonSprite();
+            image.type = Image.Type.Sliced;
+            image.preserveAspect = false;
+            image.color = new Color(1f, 0.88f, 0.62f, 0.96f);
+
+            var icon = Ui.Panel(button.transform, "Book Icon", Color.white).GetComponent<Image>();
+            icon.sprite = RuntimeArt.CreateBookSprite();
+            icon.type = Image.Type.Simple;
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+            icon.color = new Color(1f, 0.95f, 0.78f, 1f);
+            Ui.Rect(icon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(58, 58));
+            AddPressScaleFeedback(button.gameObject, 0.90f);
+
+            var label = Ui.Text(parent, "Hướng dẫn", font, 18, new Color(1f, 0.86f, 0.58f), TextAnchor.MiddleCenter);
+            Ui.Rect(label, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(120, 28));
+            label.GetComponent<RectTransform>().anchoredPosition = new Vector2(86, 36);
+            AddDarkWoodTextEdge(label, 0.55f, 0.76f);
+        }
+
+        // Nút bảng xếp hạng góc phải dưới, đối xứng với nút Hướng dẫn góc trái.
+        void AddLeaderboardButton(Transform parent, UnityEngine.Events.UnityAction action)
+        {
+            var button = Ui.Button(parent, "", font, 1, action);
+            Ui.Rect(button.gameObject, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(86, 86));
+            button.GetComponent<RectTransform>().anchoredPosition = new Vector2(-86, 100);
+            var image = button.GetComponent<Image>();
+            image.sprite = RuntimeArt.CreateWoodButtonSprite();
+            image.type = Image.Type.Sliced;
+            image.preserveAspect = false;
+            image.color = new Color(1f, 0.88f, 0.62f, 0.96f);
+
+            var icon = Ui.Text(button.transform, "★", font, 52, new Color(1f, 0.80f, 0.30f), TextAnchor.MiddleCenter);
+            icon.raycastTarget = false;
+            Ui.Rect(icon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(70, 70));
+            AddDarkWoodTextEdge(icon, 0.7f, 0.85f);
+            AddPressScaleFeedback(button.gameObject, 0.90f);
+
+            var label = Ui.Text(parent, "Xếp hạng", font, 18, new Color(1f, 0.86f, 0.58f), TextAnchor.MiddleCenter);
+            Ui.Rect(label, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(120, 28));
+            label.GetComponent<RectTransform>().anchoredPosition = new Vector2(-86, 36);
+            AddDarkWoodTextEdge(label, 0.55f, 0.76f);
+        }
+
+        void ShowLeaderboardOverlay(Transform parent)
+        {
+            if (mapOverlay != null) Destroy(mapOverlay);
+            mapOverlay = Ui.Panel(parent, "Leaderboard Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(mapOverlay);
+
+            var box = Ui.Panel(mapOverlay.transform, "Leaderboard Box", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(680, 900));
+            StyleWoodPopupFrame(box);
+
+            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                Destroy(mapOverlay);
+            });
+            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.902f), new Vector2(0.118f, 0.902f), new Vector2(60, 60));
+            StyleMapBackButton(closeBtn);
+
+            var titleLabel = Ui.Text(box.transform, "BẢNG XẾP HẠNG", font, 48, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            titleLabel.fontStyle = FontStyle.Bold;
+            Ui.Rect(titleLabel, new Vector2(0.5f, 0.898f), new Vector2(0.5f, 0.898f), new Vector2(520, 96));
+            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
+            AddWarmTitleFinish(titleLabel, 0.48f);
+
+            var subtitle = Ui.Text(box.transform, "Điểm cao hôm nay", font, 26, new Color(1f, 0.86f, 0.60f, 0.9f), TextAnchor.MiddleCenter);
+            Ui.Rect(subtitle, new Vector2(0.5f, 0.842f), new Vector2(0.5f, 0.842f), new Vector2(400, 40));
+            AddDarkWoodTextEdge(subtitle, 0.6f, 0.74f);
+
+            var topSep = Ui.Panel(box.transform, "TopSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
+            Ui.Rect(topSep, new Vector2(0.5f, 0.808f), new Vector2(0.5f, 0.808f), new Vector2(620, 4));
+
+            var statusLabel = Ui.Text(box.transform, "Đang tải...", font, 28, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+            Ui.Rect(statusLabel, new Vector2(0.5f, 0.48f), new Vector2(0.5f, 0.48f), new Vector2(560, 200));
+            AddDarkWoodTextEdge(statusLabel, 0.65f, 0.74f);
+
+            PopulateLeaderboard(box, statusLabel);
+        }
+
+        async void PopulateLeaderboard(GameObject box, Text statusLabel)
+        {
+            System.Collections.Generic.List<Unity.Services.Leaderboards.Models.LeaderboardEntry> top;
+            Unity.Services.Leaderboards.Models.LeaderboardEntry me;
+            try
+            {
+                (top, me) = await LeaderboardsSync.LoadDailyAsync(10);
+            }
+            catch (Exception)
+            {
+                if (box == null) return; // popup đã đóng trong lúc chờ
+                statusLabel.text = "Không tải được bảng xếp hạng.\nKiểm tra kết nối mạng rồi thử lại.";
+                return;
+            }
+
+            if (box == null)
+                return;
+
+            if (top.Count == 0)
+            {
+                statusLabel.text = "Chưa có ai ghi điểm hôm nay.\nHãy là người đầu tiên!";
+                return;
+            }
+
+            statusLabel.gameObject.SetActive(false);
+
+            var rankColors = new[]
+            {
+                new Color(1.00f, 0.84f, 0.30f), // hạng 1 vàng
+                new Color(0.86f, 0.86f, 0.90f), // hạng 2 bạc
+                new Color(0.88f, 0.60f, 0.38f)  // hạng 3 đồng
+            };
+            var normalColor = new Color(1f, 0.88f, 0.62f);
+            var ownColor = new Color(0.55f, 0.95f, 0.60f);
+
+            for (int i = 0; i < top.Count && i < 10; i++)
+            {
+                var entry = top[i];
+                bool isOwn = me != null && entry.PlayerId == me.PlayerId;
+                var color = isOwn ? ownColor : (entry.Rank < 3 ? rankColors[entry.Rank] : normalColor);
+                float y = 0.762f - i * 0.058f;
+
+                var rankText = Ui.Text(box.transform, "#" + (entry.Rank + 1), font, 28, color, TextAnchor.MiddleLeft);
+                if (entry.Rank < 3 || isOwn) rankText.fontStyle = FontStyle.Bold;
+                Ui.Rect(rankText, new Vector2(0.5f, y), new Vector2(0.5f, y), new Vector2(90, 46));
+                rankText.GetComponent<RectTransform>().anchoredPosition = new Vector2(-262, 0);
+                AddDarkWoodTextEdge(rankText, 0.6f, 0.78f);
+
+                string name = LeaderboardsSync.DisplayName(entry);
+                if (isOwn) name = "Bạn";
+                var nameText = Ui.Text(box.transform, name, font, 28, color, TextAnchor.MiddleLeft);
+                if (isOwn) nameText.fontStyle = FontStyle.Bold;
+                nameText.horizontalOverflow = HorizontalWrapMode.Wrap;
+                nameText.verticalOverflow = VerticalWrapMode.Truncate;
+                Ui.Rect(nameText, new Vector2(0.5f, y), new Vector2(0.5f, y), new Vector2(320, 46));
+                nameText.GetComponent<RectTransform>().anchoredPosition = new Vector2(-40, 0);
+                AddDarkWoodTextEdge(nameText, 0.6f, 0.78f);
+
+                var scoreText = Ui.Text(box.transform, ((int)entry.Score).ToString("N0"), font, 28, color, TextAnchor.MiddleRight);
+                if (entry.Rank < 3 || isOwn) scoreText.fontStyle = FontStyle.Bold;
+                Ui.Rect(scoreText, new Vector2(0.5f, y), new Vector2(0.5f, y), new Vector2(160, 46));
+                scoreText.GetComponent<RectTransform>().anchoredPosition = new Vector2(222, 0);
+                AddDarkWoodTextEdge(scoreText, 0.6f, 0.78f);
+            }
+
+            var bottomSep = Ui.Panel(box.transform, "BottomSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
+            Ui.Rect(bottomSep, new Vector2(0.5f, 0.148f), new Vector2(0.5f, 0.148f), new Vector2(620, 4));
+
+            string ownLine = me != null
+                ? "Hạng của bạn: #" + (me.Rank + 1) + "   ·   " + ((int)me.Score).ToString("N0") + " điểm"
+                : "Bạn chưa có điểm hôm nay — chơi ngay!";
+            var ownText = Ui.Text(box.transform, ownLine, font, 26, ownColor, TextAnchor.MiddleCenter);
+            ownText.fontStyle = FontStyle.Bold;
+            Ui.Rect(ownText, new Vector2(0.5f, 0.098f), new Vector2(0.5f, 0.098f), new Vector2(600, 48));
+            AddDarkWoodTextEdge(ownText, 0.65f, 0.78f);
+        }
+
+        void ShowMultiplayerOverlay(Transform parent)
+        {
+            if (mapOverlay != null) Destroy(mapOverlay);
+            mapOverlay = Ui.Panel(parent, "Multiplayer Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(mapOverlay);
+
+            var box = Ui.Panel(mapOverlay.transform, "Multiplayer Box", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(680, 780));
+            StyleWoodPopupFrame(box);
+
+            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                var manager = MultiplayerManager.Instance;
+                if (manager != null && manager.InSession)
+                    _ = manager.LeaveAsync(); // hủy phòng đang chờ
+                Destroy(mapOverlay);
+            });
+            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.888f), new Vector2(0.118f, 0.888f), new Vector2(60, 60));
+            StyleMapBackButton(closeBtn);
+
+            var titleLabel = Ui.Text(box.transform, "ĐẤU 1V1", font, 52, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            titleLabel.fontStyle = FontStyle.Bold;
+            Ui.Rect(titleLabel, new Vector2(0.5f, 0.884f), new Vector2(0.5f, 0.884f), new Vector2(460, 100));
+            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
+            AddWarmTitleFinish(titleLabel, 0.48f);
+
+            var subtitle = Ui.Text(box.transform, "Đua điểm — ai xong bàn cờ trước sẽ thắng!", font, 24, new Color(1f, 0.86f, 0.60f, 0.9f), TextAnchor.MiddleCenter);
+            Ui.Rect(subtitle, new Vector2(0.5f, 0.816f), new Vector2(0.5f, 0.816f), new Vector2(560, 40));
+            AddDarkWoodTextEdge(subtitle, 0.6f, 0.74f);
+
+            var topSep = Ui.Panel(box.transform, "TopSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
+            Ui.Rect(topSep, new Vector2(0.5f, 0.776f), new Vector2(0.5f, 0.776f), new Vector2(620, 4));
+
+            var statusLabel = Ui.Text(box.transform, "Ghép nhanh với người lạ, tạo phòng\ngửi mã cho bạn bè, hoặc nhập mã để vào.", font, 24, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+            Ui.Rect(statusLabel, new Vector2(0.5f, 0.715f), new Vector2(0.5f, 0.715f), new Vector2(580, 80));
+            AddDarkWoodTextEdge(statusLabel, 0.6f, 0.74f);
+
+            // Mã phòng hiển thị lớn sau khi tạo phòng
+            var codeLabel = Ui.Text(box.transform, "", font, 62, new Color(1f, 0.92f, 0.55f), TextAnchor.MiddleCenter);
+            codeLabel.fontStyle = FontStyle.Bold;
+            Ui.Rect(codeLabel, new Vector2(0.5f, 0.615f), new Vector2(0.5f, 0.615f), new Vector2(560, 84));
+            AddDarkWoodTextEdge(codeLabel, 1.0f, 0.88f);
+
+            var (quickBtn, _) = AddMenuButton(box.transform, "GHÉP NHANH", new Vector2(0.5f, 0.505f), Vector2.zero, () => { }, new Vector2(420, 76), 32);
+            var (createBtn, _) = AddMenuButton(box.transform, "TẠO PHÒNG", new Vector2(0.5f, 0.395f), Vector2.zero, () => { }, new Vector2(420, 76), 32);
+
+            var midSep = Ui.Text(box.transform, "— hoặc —", font, 22, new Color(1f, 0.84f, 0.56f, 0.75f), TextAnchor.MiddleCenter);
+            Ui.Rect(midSep, new Vector2(0.5f, 0.315f), new Vector2(0.5f, 0.315f), new Vector2(300, 32));
+
+            var codeInput = BuildCodeInput(box.transform, new Vector2(0.5f, 0.24f), new Vector2(420, 74));
+
+            var (joinBtn, _) = AddMenuButton(box.transform, "VÀO PHÒNG", new Vector2(0.5f, 0.125f), Vector2.zero, () => { }, new Vector2(420, 76), 32);
+
+            var buttons = new[] { quickBtn, createBtn, joinBtn };
+            quickBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                QuickMatch(box, statusLabel, buttons);
+            });
+            createBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                CreateRoom(box, codeLabel, statusLabel, buttons);
+            });
+            joinBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                JoinRoom(box, codeInput, statusLabel, buttons);
+            });
+        }
+
+        InputField BuildCodeInput(Transform parent, Vector2 anchor, Vector2 size)
+        {
+            var frame = Ui.Panel(parent, "Code Input", new Color(0.16f, 0.07f, 0.025f, 0.92f));
+            Ui.Rect(frame, anchor, anchor, size);
+
+            var placeholder = Ui.Text(frame.transform, "Nhập mã 4 số...", font, 28, new Color(1f, 0.88f, 0.62f, 0.45f), TextAnchor.MiddleCenter);
+            Ui.Stretch(placeholder.gameObject);
+            placeholder.fontStyle = FontStyle.Italic;
+
+            var inputText = Ui.Text(frame.transform, "", font, 36, new Color(1f, 0.94f, 0.75f), TextAnchor.MiddleCenter);
+            Ui.Stretch(inputText.gameObject);
+            inputText.supportRichText = false;
+
+            var input = frame.AddComponent<InputField>();
+            input.textComponent = inputText;
+            input.placeholder = placeholder;
+            input.characterLimit = 4;
+            input.contentType = InputField.ContentType.IntegerNumber;
+            return input;
+        }
+
+        static void SetButtonsInteractable(Button[] buttons, bool value)
+        {
+            foreach (var button in buttons)
+                if (button != null)
+                    button.interactable = value;
+        }
+
+        async void QuickMatch(GameObject box, Text statusLabel, Button[] buttons)
+        {
+            SetButtonsInteractable(buttons, false);
+            statusLabel.text = "Đang tìm đối thủ...";
+            try
+            {
+                var manager = MultiplayerManager.Ensure();
+                bool joined = await manager.QuickMatchAsync();
+                if (box == null) return; // popup đã đóng
+                statusLabel.text = joined
+                    ? "Đã tìm thấy đối thủ!\nĐang vào trận..."
+                    : "Chưa có ai đang chờ.\nĐã mở phòng chờ — sẽ vào trận ngay khi có người!";
+                // Trận tự bắt đầu qua READY/START khi hai bên kết nối.
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Multiplayer] Ghép nhanh thất bại: {e.Message}");
+                if (box == null) return;
+                statusLabel.text = "Không ghép được trận.\nKiểm tra kết nối mạng rồi thử lại.";
+                SetButtonsInteractable(buttons, true);
+            }
+        }
+
+        async void CreateRoom(GameObject box, Text codeLabel, Text statusLabel, Button[] buttons)
+        {
+            SetButtonsInteractable(buttons, false);
+            statusLabel.text = "Đang tạo phòng...";
+            try
+            {
+                var manager = MultiplayerManager.Ensure();
+                string code = await manager.CreateRoomAsync();
+                if (box == null) return; // popup đã đóng
+                codeLabel.text = code;
+                statusLabel.text = "Gửi mã này cho bạn bè.\nĐang chờ đối thủ vào...";
+                // Khi đối thủ kết nối, host tự bắt đầu trận và load scene — không cần gì thêm.
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Multiplayer] Không tạo được phòng: {e.Message}");
+                if (box == null) return;
+                statusLabel.text = "Không tạo được phòng.\nKiểm tra kết nối mạng rồi thử lại.";
+                SetButtonsInteractable(buttons, true);
+            }
+        }
+
+        async void JoinRoom(GameObject box, InputField codeInput, Text statusLabel, Button[] buttons)
+        {
+            string code = codeInput.text != null ? codeInput.text.Trim() : "";
+            if (code.Length != 4 || !int.TryParse(code, out _))
+            {
+                statusLabel.text = "Mã phòng gồm đúng 4 chữ số.";
+                return;
+            }
+
+            SetButtonsInteractable(buttons, false);
+            statusLabel.text = "Đang tìm phòng " + code + "...";
+            try
+            {
+                var manager = MultiplayerManager.Ensure();
+                await manager.JoinRoomAsync(code);
+                if (box == null) return;
+                statusLabel.text = "Đã vào phòng!\nĐang chờ trận bắt đầu...";
+                // Host sẽ gửi START ngay khi thấy mình kết nối → scene tự load.
+            }
+            catch (InvalidOperationException e)
+            {
+                if (box == null) return;
+                statusLabel.text = e.Message; // "Không tìm thấy phòng XXXX..."
+                SetButtonsInteractable(buttons, true);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Multiplayer] Không vào được phòng: {e.Message}");
+                if (box == null) return;
+                statusLabel.text = "Không vào được phòng.\nKiểm tra kết nối mạng rồi thử lại.";
+                SetButtonsInteractable(buttons, true);
+            }
+        }
+
+        void AddPressScaleFeedback(GameObject target, float pressedScale)
+        {
+            var feedback = target.GetComponent<PressScaleFeedback>() ?? target.AddComponent<PressScaleFeedback>();
+            feedback.PressedScale = pressedScale;
+        }
+
+        (Button btn, GameObject shadow) AddMenuButton(Transform parent, string label, Vector2 anchor, Vector2 offset, UnityEngine.Events.UnityAction action)
+        {
+            return AddMenuButton(parent, label, anchor, offset, action, new Vector2(420, 68), 27);
+        }
+
+        (Button btn, GameObject shadow) AddMenuButton(Transform parent, string label, Vector2 anchor, Vector2 offset, UnityEngine.Events.UnityAction action, Vector2 size, int fontSize)
+        {
+            bool primaryButton = label.Contains("BẮT");
+            var shadowColor = primaryButton
+                ? new Color(0.05f, 0.018f, 0.008f, 0.72f)
+                : new Color(0.07f, 0.03f, 0.015f, 0.45f);
+            var shadowPad = primaryButton ? new Vector2(20, 14) : new Vector2(8, 6);
+            var shadowDy = primaryButton ? -7f : -4f;
+            var btnShadow = Ui.Panel(parent, label + " Shadow", shadowColor);
+            Ui.Rect(btnShadow, anchor, anchor, size + shadowPad);
+            btnShadow.GetComponent<RectTransform>().anchoredPosition = offset + new Vector2(0, shadowDy);
+
+            var button = Ui.Button(parent, label, font, 24, action);
+            Ui.Rect(button.gameObject, anchor, anchor, size);
+            button.GetComponent<RectTransform>().anchoredPosition = offset;
+            StyleWoodRectButton(button, fontSize);
+            if (primaryButton)
+                button.GetComponent<Image>().color = new Color(1f, 0.96f, 0.78f, 1f);
+            AddPressScaleFeedback(button.gameObject, 0.96f);
+            return (button, btnShadow);
+        }
+
+        void ShowTutorialOverlay(Transform parent)
+        {
+            if (mapOverlay != null) Destroy(mapOverlay);
+            mapOverlay = Ui.Panel(parent, "Tutorial Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(mapOverlay);
+
+            var box = Ui.Panel(mapOverlay.transform, "Tutorial Box", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(680, 820));
+            StyleWoodPopupFrame(box);
+
+            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                Destroy(mapOverlay);
+            });
+            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.892f), new Vector2(0.118f, 0.892f), new Vector2(60, 60));
+            StyleMapBackButton(closeBtn);
+
+            var titleLabel = Ui.Text(box.transform, "HƯỚNG DẪN", font, 58, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            titleLabel.fontStyle = FontStyle.Bold;
+            Ui.Rect(titleLabel, new Vector2(0.5f, 0.886f), new Vector2(0.5f, 0.886f), new Vector2(500, 108));
+            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
+            AddWarmTitleFinish(titleLabel, 0.48f);
+
+            var topSep = Ui.Panel(box.transform, "TopSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
+            Ui.Rect(topSep, new Vector2(0.5f, 0.822f), new Vector2(0.5f, 0.822f), new Vector2(620, 4));
+
+            int totalPages = 3;
+            var pageAccentColors = new Color[]
+            {
+                new Color(0.38f, 0.72f, 1.00f, 1f),
+                new Color(0.42f, 0.94f, 0.58f, 1f),
+                new Color(1.00f, 0.84f, 0.30f, 1f)
+            };
+            var pageTitles = new[] { "Xếp gạch", "Giành lượt đi", "Chiến thắng" };
+            var pageContents = new[]
+            {
+                "Kéo khối gạch sang trái hoặc phải\nđể căn vị trí chính xác.\n\nXoay khối cho khớp khoảng trống.\n\nXếp kín hàng ngang để phá dòng.",
+                "Mỗi hàng phá được = 1 lượt đi.\n\nLượt đi dùng để di chuyển\ntrên bàn cờ chiến thuật.\n\nPhá nhiều hàng → nhiều lượt mạnh hơn.",
+                "Dùng lượt đi để di chuyển\nquái vật (màu tím).\n\nDụ quái vật bắt đối thủ (đỏ)\n→ THẮNG.\n\nQuái vật bắt bạn (xanh) → THUA."
+            };
+
+            var pages = new GameObject[totalPages];
+            var dots = new Image[totalPages];
+
+            for (int i = 0; i < totalPages; i++)
+            {
+                int idx = i;
+                var page = Ui.Panel(box.transform, "TutPage" + i, new Color(0, 0, 0, 0));
+                Ui.Rect(page, new Vector2(0.5f, 0.502f), new Vector2(0.5f, 0.502f), new Vector2(620, 480));
+                page.SetActive(i == 0);
+                pages[i] = page;
+
+                var accentColor = pageAccentColors[idx];
+                var numBg = Ui.Panel(page.transform, "NumBg", new Color(accentColor.r, accentColor.g, accentColor.b, 0.18f));
+                Ui.Rect(numBg, new Vector2(0.5f, 0.876f), new Vector2(0.5f, 0.876f), new Vector2(70, 70));
+
+                var numLabel = Ui.Text(page.transform, (idx + 1).ToString(), font, 46, accentColor, TextAnchor.MiddleCenter);
+                numLabel.fontStyle = FontStyle.Bold;
+                Ui.Rect(numLabel, new Vector2(0.5f, 0.876f), new Vector2(0.5f, 0.876f), new Vector2(70, 70));
+                AddDarkWoodTextEdge(numLabel, 0.6f, 0.85f);
+
+                var pTitle = Ui.Text(page.transform, pageTitles[idx], font, 34, new Color(1f, 0.88f, 0.60f), TextAnchor.MiddleCenter);
+                pTitle.fontStyle = FontStyle.Bold;
+                Ui.Rect(pTitle, new Vector2(0.5f, 0.736f), new Vector2(0.5f, 0.736f), new Vector2(560, 52));
+                AddDarkWoodTextEdge(pTitle, 0.9f, 0.86f);
+
+                var pLine = Ui.Panel(page.transform, "PLine", new Color(accentColor.r, accentColor.g, accentColor.b, 0.55f));
+                Ui.Rect(pLine, new Vector2(0.5f, 0.672f), new Vector2(0.5f, 0.672f), new Vector2(340, 4));
+
+                var bodyLabel = Ui.Text(page.transform, pageContents[idx], font, 26, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+                Ui.Rect(bodyLabel, new Vector2(0.5f, 0.348f), new Vector2(0.5f, 0.348f), new Vector2(560, 290));
+                AddDarkWoodTextEdge(bodyLabel, 0.65f, 0.74f);
+            }
+
+            for (int i = 0; i < totalPages; i++)
+            {
+                var dot = Ui.Panel(box.transform, "Dot" + i, Color.white);
+                Ui.Rect(dot, new Vector2(0.5f + (i - 1) * 0.100f, 0.112f), new Vector2(0.5f + (i - 1) * 0.100f, 0.112f), new Vector2(18, 18));
+                dots[i] = dot.GetComponent<Image>();
+                dots[i].color = i == 0 ? new Color(1f, 0.78f, 0.36f, 1f) : new Color(0.58f, 0.36f, 0.14f, 0.55f);
+            }
+
+            int[] cur = { 0 };
+            System.Action<int> goTo = null;
+            goTo = newIdx =>
+            {
+                if (newIdx < 0 || newIdx >= totalPages) return;
+                pages[cur[0]].SetActive(false);
+                dots[cur[0]].color = new Color(0.58f, 0.36f, 0.14f, 0.55f);
+                cur[0] = newIdx;
+                pages[cur[0]].SetActive(true);
+                dots[cur[0]].color = new Color(1f, 0.78f, 0.36f, 1f);
+            };
+
+            var prevBtn = Ui.Button(box.transform, "<", font, 34, () => { RuntimeArt.PlayUiSwitchSound(); goTo(cur[0] - 1); });
+            Ui.Rect(prevBtn.gameObject, new Vector2(0.152f, 0.112f), new Vector2(0.152f, 0.112f), new Vector2(64, 64));
+            StyleWoodRectButton(prevBtn, 32);
+
+            var nextBtn = Ui.Button(box.transform, ">", font, 34, () => { RuntimeArt.PlayUiSwitchSound(); goTo(cur[0] + 1); });
+            Ui.Rect(nextBtn.gameObject, new Vector2(0.848f, 0.112f), new Vector2(0.848f, 0.112f), new Vector2(64, 64));
+            StyleWoodRectButton(nextBtn, 32);
+        }
+
+        void StyleMapBackButton(Button button)
+        {
+            var background = button.GetComponent<Image>();
+            background.color = new Color(1f, 1f, 1f, 0f);
+            background.sprite = null;
+            background.type = Image.Type.Simple;
+
+            var icon = Ui.Panel(button.transform, "Back Arrow Icon", Color.white).GetComponent<Image>();
+            icon.sprite = RuntimeArt.CreateBackArrowSprite();
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+            icon.color = new Color(1f, 0.84f, 0.48f, 1f);
+            Ui.Rect(icon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(34, 34));
+
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.88f, 0.58f, 1f);
+            colors.pressedColor = new Color(0.78f, 0.46f, 0.20f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            button.colors = colors;
         }
 
         void AddMenuGlowFrame(Transform parent, Vector2 anchor, Vector2 size)
@@ -234,58 +1254,6 @@ namespace BrickStacker
             strip.GetComponent<RectTransform>().anchoredPosition = offset;
         }
 
-        void AddMenuBlocks(Transform parent)
-        {
-            var colors = new[]
-            {
-                new Color(0.98f, 0.68f, 0.38f, 0.9f),
-                new Color(1f, 0.80f, 0.48f, 0.9f),
-                new Color(0.78f, 0.42f, 0.20f, 0.9f)
-            };
-
-            var left = new[] { new Vector2(-38, 0), new Vector2(0, 0), new Vector2(38, 0), new Vector2(0, 38) };
-            var right = new[] { new Vector2(-19, 19), new Vector2(19, 19), new Vector2(-19, -19), new Vector2(19, -19) };
-            AddMiniPiece(parent, new Vector2(0.23f, 0.615f), left, colors[0]);
-            AddMiniPiece(parent, new Vector2(0.77f, 0.615f), right, colors[1]);
-        }
-
-        void AddMiniPiece(Transform parent, Vector2 anchor, Vector2[] offsets, Color color)
-        {
-            foreach (var offset in offsets)
-            {
-                var block = Ui.Panel(parent, "Menu Block", color);
-                Ui.Rect(block, anchor, anchor, new Vector2(34, 34));
-                block.GetComponent<RectTransform>().anchoredPosition = offset;
-            }
-        }
-
-        void AddLevelButton(Transform parent, int level, Vector2 anchor)
-        {
-            AddLevelButton(parent, level, anchor, Vector2.zero);
-        }
-
-        void AddLevelButton(Transform parent, int level, Vector2 anchor, Vector2 offset)
-        {
-            var rules = LevelRules.Create(level);
-            var shadow = Ui.Panel(parent, "Level Shadow", new Color(0.07f, 0.03f, 0.015f, 0.7f));
-            Ui.Rect(shadow, anchor, anchor, new Vector2(420, 78));
-            shadow.GetComponent<RectTransform>().anchoredPosition = offset + new Vector2(0, -6);
-
-            var button = Ui.Button(parent, rules.Name, font, 24, () =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                GameSession.SelectedLevel = level;
-                SceneManager.LoadScene("BrickGame");
-            });
-            Ui.Rect(button.gameObject, anchor, anchor, new Vector2(405, 68));
-            button.GetComponent<RectTransform>().anchoredPosition = offset;
-            StyleWoodRectButton(button, 27);
-            var label = button.GetComponentInChildren<Text>();
-            label.text = rules.Name;
-            label.fontSize = 27;
-            AddDarkWoodTextEdge(label, 1.05f, 0.92f);
-        }
-
         void AddDarkWoodTextEdge(Text text, float thickness, float alpha)
         {
             var outline = text.gameObject.AddComponent<Outline>();
@@ -297,6 +1265,45 @@ namespace BrickStacker
             depth.effectColor = new Color(0.045f, 0.016f, 0.005f, 0.62f);
             depth.effectDistance = new Vector2(0.75f, -0.85f);
             depth.useGraphicAlpha = true;
+        }
+
+        void AddWarmTitleFinish(Text text, float glowStrength)
+        {
+            text.fontStyle = FontStyle.Bold;
+
+            var topGlow = text.gameObject.AddComponent<Shadow>();
+            topGlow.effectColor = new Color(1f, 0.68f, 0.30f, 0.26f * glowStrength);
+            topGlow.effectDistance = new Vector2(-0.55f, 0.65f);
+            topGlow.useGraphicAlpha = true;
+
+            var carvedDrop = text.gameObject.AddComponent<Shadow>();
+            carvedDrop.effectColor = new Color(0.035f, 0.012f, 0.004f, 0.78f);
+            carvedDrop.effectDistance = new Vector2(0.8f, -0.9f);
+            carvedDrop.useGraphicAlpha = true;
+        }
+
+        void AddCloseTitleShadow(Text text)
+        {
+            var closeShadow = text.gameObject.AddComponent<Shadow>();
+            closeShadow.effectColor = new Color(0.030f, 0.010f, 0.003f, 0.62f);
+            closeShadow.effectDistance = new Vector2(1.4f, -1.4f);
+            closeShadow.useGraphicAlpha = true;
+        }
+
+        void AddBlockfallWoodGrain(Transform parent)
+        {
+            AddTitleGrainLayer(parent, new Vector2(-0.8f, 0.8f), new Color(0.43f, 0.17f, 0.045f, 0.055f), 0.002f);
+            AddTitleGrainLayer(parent, new Vector2(0.9f, -0.3f), new Color(1f, 0.72f, 0.34f, 0.045f), 0.002f);
+        }
+
+        void AddTitleGrainLayer(Transform parent, Vector2 offset, Color color, float widthScale)
+        {
+            var grain = Ui.Text(parent, "BLOCKFALL", titleFont, 108, color, TextAnchor.MiddleCenter);
+            Ui.Rect(grain, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(840, 148));
+            grain.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 27) + offset;
+            grain.GetComponent<RectTransform>().localScale = new Vector3(1.08f + widthScale, 1.02f, 1f);
+            grain.fontStyle = FontStyle.Bold;
+            grain.raycastTarget = false;
         }
 
         void StyleWoodRectButton(Button button, int fontSize)
@@ -326,9 +1333,17 @@ namespace BrickStacker
             button.colors = colors;
         }
 
+        void StyleWoodPopupFrame(GameObject panel)
+        {
+            var image = panel.GetComponent<Image>();
+            image.sprite = RuntimeArt.CreateWoodPanelSprite();
+            image.type = Image.Type.Sliced;
+            image.color = Color.white;
+        }
+
         Font LoadFont()
         {
-            return RuntimeArt.LoadDisplayFont();
+            return RuntimeArt.LoadUiFont();
         }
     }
 
@@ -356,7 +1371,10 @@ namespace BrickStacker
 
         LevelRules rules;
         Font font;
+        Font titleFont;
+        TMP_FontAsset popupTitleFont;
         Sprite blockSprite;
+        Sprite[] pieceBlockSprites;
         Transform boardRoot;
         Transform activeRoot;
         Transform ghostRoot;
@@ -367,10 +1385,24 @@ namespace BrickStacker
         Text levelText;
         Text bestText;
         Text linesText;
+        Text opponentText;
+        Image[,] opponentMiniCells; // bàn mini của đối thủ (multiplayer)
+        RectTransform opponentMiniPanelRect;
+        Image[,] opponentTacticalCells; // bàn cờ mini của đối thủ
+        RectTransform opponentTacticalPanelRect;
+        byte[] boardSnapshot;       // buffer gửi bàn của mình cho đối thủ
+        byte[] tacticalSnapshot;    // 6 byte vị trí quân bàn cờ của mình
+        float nextBoardSendTime;
+        int lastBoardHash;
         Text statusText;
         Text nextText;
+        Text tacticalMovesText;
+        Text tacticalStatusText;
         List<Image> nextPreviewCells = new List<Image>();
         List<Image> holdPreviewCells = new List<Image>();
+        readonly List<Button> tacticalCellButtons = new List<Button>();
+        readonly List<Text> tacticalCellLabels = new List<Text>();
+        readonly List<Image> tacticalCellIcons = new List<Image>();
         Button pauseButton;
         Button rotateButton;
         ParticleSystem clearParticles;
@@ -378,8 +1410,20 @@ namespace BrickStacker
         AudioSource musicSource;
         GameObject pauseOverlay;
         GameObject gameOverOverlay;
-        Text gameOverTitleText;
+        GameObject missionOverlay;
+        GameObject levelClearOverlay;
+        TMP_Text gameOverTitleText;
         Text gameOverScoreText;
+        TMP_Text missionTitleText;
+        Text missionBodyText;
+        Text missionDescText;
+        Text missionStar3CondText;
+        Text missionStar2CondText;
+        Text missionStar1CondText;
+        TMP_Text levelClearTitleText;
+        Text levelClearBodyText;
+        Button continueButton;
+        Button stopButton;
         Vector3 cameraHome;
         RectTransform safeAreaRoot;
         RectTransform hudPanelRect;
@@ -388,10 +1432,39 @@ namespace BrickStacker
         RectTransform holdWidgetShadowRect;
         RectTransform nextWidgetRect;
         RectTransform nextWidgetShadowRect;
+        RectTransform tacticalWidgetRect;
+        RectTransform tacticalWidgetShadowRect;
+        RectTransform moveHintPanelRect;
+        RectTransform moveHintPanelShadowRect;
         RectTransform pauseButtonRect;
         RectTransform rotateButtonRect;
+        Canvas sceneGameplayCanvas;
+        bool usingSceneGameplayCanvas;
+        RectTransform sceneGameplayRootRect;
+        RectTransform sceneMobileGameplayRootRect;
+        RectTransform sceneTabletGameplayRootRect;
+        RectTransform sceneSafeAreaContainerRect;
+        RectTransform sceneContentAreaRect;
+        RectTransform sceneBackgroundRect;
+        RectTransform sceneHeaderRect;
+        RectTransform sceneNextPanelRect;
+        RectTransform sceneNextPreviewRect;
+        Vector2 sceneGameplayReferenceResolution = new Vector2(1284f, 2778f);
+        TMP_Text sceneLevelText;
+        TMP_Text sceneMoveText;
+        TMP_Text sceneNextText;
+        RectTransform scenePuzzleBoardAnchorRect;
+        RectTransform sceneTacticalBoardRect;
+        Image[,] scenePuzzleCells;
+        RectTransform[,] scenePuzzleSlots;
+        RectTransform scenePuzzleGridRect;
+        bool sceneUsingTabletGameplayRoot;
+        float puzzleCellSize;   // local-space cell height (Y axis)
+        float puzzleCellSizeX;  // local-space cell width  (X axis)
+        float nextPreviewCellSize;
         int lastScreenWidth;
         int lastScreenHeight;
+        Rect lastAppliedSafeArea;
         Vector2 gestureStart;
         Vector2 gestureLastPosition;
         float gestureStartTime;
@@ -399,6 +1472,7 @@ namespace BrickStacker
         bool gestureTracking;
         bool gestureMoved;
         bool gestureMovedHorizontally;
+        bool movedHorizontallyThisFrame;
 
         int[,] grid = new int[Width, Height];
         GameObject[,] lockedBlocks = new GameObject[Width, Height];
@@ -408,37 +1482,91 @@ namespace BrickStacker
         int currentType;
         int holdType = -1;
         bool currentPieceIsSpecial;
+        int currentSpecialKind;
         bool canHold;
         Vector2Int origin;
         int rotation;
         float fallTimer;
+        float lockDelayTimer;
+        bool touchingGround;
         int score;
         int bestScore;
         int lines;
+        int levelLines;
+        int levelStartScore;
+        int journeyLevel;
+        int starsEarned;
+        int rotationsThisLevel;
+        int holdsThisLevel;
+        int maxLinesClearedAtOnce;
         int combo;
+        int maxComboThisLevel;
         int piecesLocked;
+        // Ghost preview is a learning aid: visible only for the first few pieces.
+        const int GhostPreviewPieces = 3;
+        bool GhostVisible => rules.GhostPreview && piecesLocked < GhostPreviewPieces;
+        int lastRisingDangerTick;
         bool gameOver;
         bool paused;
+        bool puzzlePausedForTacticalTurn;
         bool resolving;
         float shake;
+        TacticalBoardManager tacticalBoard;
+        bool tacticalPieceSelected;
+        bool tacticalDragTracking;
+        Vector2 tacticalDragStart;
 
         void Start()
         {
-            font = RuntimeArt.LoadDisplayFont();
-            rules = LevelRules.Create(GameSession.SelectedLevel);
+            RuntimeArt.ResetTacticalSpriteCache();
+            font = RuntimeArt.LoadUiFont();
+            titleFont = RuntimeArt.LoadDisplayFont();
+            journeyLevel = Mathf.Max(1, GameSession.JourneyLevel);
+            GameSession.JourneyLevel = journeyLevel;
+            SetupModeRules();
+            SetupTacticalBoard();
             bestScore = PlayerPrefs.GetInt(BestScoreKey(), 0);
             blockSprite = RuntimeArt.CreateBlockSprite();
+            pieceBlockSprites = RuntimeArt.LoadPieceBlockSprites();
             BuildWorld();
             BuildUi();
+            BeginLevelMission(true);
+            // Trận 1v1: cùng seed để hai bên nhận chuỗi khối giống nhau.
+            if (MultiplayerMatch.Active)
+                UnityEngine.Random.InitState(MultiplayerMatch.Seed);
             FillBag();
             SpawnPiece();
             UpdateUi();
         }
 
+        void SetupModeRules()
+        {
+            journeyLevel = Mathf.Clamp(GameSession.SelectedLevel > 0 ? GameSession.SelectedLevel : journeyLevel, 1, LevelProgress.MaxLevels);
+            rules = LevelRules.CreateJourney(journeyLevel);
+        }
+
+        void SetupTacticalBoard()
+        {
+            if (rules.TacticalData == null)
+                rules.TacticalData = TacticalLevelData.Create(Mathf.Max(1, journeyLevel));
+            tacticalBoard = new TacticalBoardManager(rules.TacticalData);
+        }
+
         void Update()
         {
-            if (Screen.width != lastScreenWidth || Screen.height != lastScreenHeight)
+            if (Screen.width != lastScreenWidth || Screen.height != lastScreenHeight || Screen.safeArea != lastAppliedSafeArea)
                 ConfigureResponsiveCamera();
+
+            RefreshSceneHud();
+
+            if (MultiplayerMatch.Active)
+            {
+                if (!gameOver)
+                    CheckOpponentMatchEvents();
+                SendBoardSnapshotIfNeeded();
+                if (MultiplayerMatch.OpponentBoardDirty)
+                    RepaintOpponentMiniBoard();
+            }
 
             if (gameOver)
             {
@@ -453,13 +1581,29 @@ namespace BrickStacker
             if (paused || resolving)
                 return;
 
-            HandleInput();
-            gameplayTime += Time.deltaTime;
-            fallTimer += Time.deltaTime;
-            if (fallTimer >= CurrentFallInterval())
+            if (!puzzlePausedForTacticalTurn)
             {
-                fallTimer = 0f;
-                StepDown();
+                movedHorizontallyThisFrame = false;
+                HandleInput();
+                gameplayTime += Time.deltaTime;
+                fallTimer += Time.deltaTime;
+                if (fallTimer >= CurrentFallInterval())
+                {
+                    fallTimer = 0f;
+                    StepDown();
+                }
+
+                if (touchingGround && !CanMoveDown())
+                {
+                    lockDelayTimer += Time.deltaTime;
+                    if (lockDelayTimer >= 0.4f)
+                        LockPiece();
+                }
+                else if (CanMoveDown())
+                {
+                    touchingGround = false;
+                    lockDelayTimer = 0f;
+                }
             }
 
             UpdateCameraShake();
@@ -503,7 +1647,7 @@ namespace BrickStacker
 
         void CreateBackdrop()
         {
-            RuntimeArt.CreateWoodBackdrop("Warm Wood Backdrop", cam, 1.2f, new Color(0.08f, 0.028f, 0.01f, 0.34f));
+            RuntimeArt.CreateWoodBackdrop("Warm Wood Backdrop", cam, 1.2f, new Color(0.23f, 0.12f, 0.06f, 0.46f));
         }
 
         void CreateGrid()
@@ -565,7 +1709,7 @@ namespace BrickStacker
                 playfield.transform.position = new Vector3(0, 0, 0.18f);
                 var renderer = playfield.AddComponent<SpriteRenderer>();
                 renderer.sprite = playfieldSprite;
-                renderer.color = new Color(0.82f, 0.55f, 0.36f, 0.96f);
+                renderer.color = new Color(0.23f, 0.10f, 0.05f, 0.98f);
                 renderer.sortingOrder = -10;
                 Vector2 spriteSize = playfieldSprite.bounds.size;
                 playfield.transform.localScale = new Vector3(10.05f / spriteSize.x, 20.05f / spriteSize.y, 1f);
@@ -577,10 +1721,10 @@ namespace BrickStacker
                 playfield.transform.SetParent(boardRoot);
                 playfield.transform.position = new Vector3(0, 0, 0.18f);
                 playfield.transform.localScale = new Vector3(10.05f, 20.05f, 0.03f);
-                playfield.GetComponent<MeshRenderer>().sharedMaterial = RuntimeArt.Material(new Color(0.30f, 0.16f, 0.075f, 0.92f));
+                playfield.GetComponent<MeshRenderer>().sharedMaterial = RuntimeArt.Material(new Color(0.23f, 0.10f, 0.05f, 0.98f));
             }
 
-            var verticalLineMaterial = RuntimeArt.Material(new Color(0.055f, 0.026f, 0.012f, 0.86f));
+            var verticalLineMaterial = RuntimeArt.Material(new Color(0.105f, 0.047f, 0.020f, 0.92f));
             for (int x = 0; x <= Width; x++)
             {
                 var line = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -592,7 +1736,7 @@ namespace BrickStacker
                 line.GetComponent<MeshRenderer>().sortingOrder = -5;
             }
 
-            var horizontalLineMaterial = RuntimeArt.Material(new Color(0.050f, 0.022f, 0.010f, 0.84f));
+            var horizontalLineMaterial = RuntimeArt.Material(new Color(0.105f, 0.047f, 0.020f, 0.92f));
             for (int y = 0; y <= Height; y++)
             {
                 var line = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -607,6 +1751,9 @@ namespace BrickStacker
 
         void BuildUi()
         {
+            if (TryBindSceneGameplayUi())
+                return;
+
             var canvas = Ui.CreateCanvas("Game Canvas");
             var safe = Ui.Panel(canvas.transform, "Safe Area", new Color(0, 0, 0, 0));
             safeAreaRoot = safe.GetComponent<RectTransform>();
@@ -617,27 +1764,42 @@ namespace BrickStacker
             hudShadowRect = hudShadow.GetComponent<RectTransform>();
             Ui.Rect(hudShadow, new Vector2(0.055f, 0.858f), new Vector2(0.790f, 0.968f), new Vector2(0, 0));
             hudShadowRect.anchoredPosition = new Vector2(0, -6);
+            hudShadow.GetComponent<Image>().color = new Color(0.025f, 0.008f, 0.002f, 0.72f);
 
             var hudPanel = Ui.Panel(safe.transform, "Hud Panel", new Color(0, 0, 0, 0));
             hudPanelRect = hudPanel.GetComponent<RectTransform>();
             Ui.Rect(hudPanel, new Vector2(0.055f, 0.866f), new Vector2(0.790f, 0.976f), new Vector2(0, 0));
+            var hudImage = hudPanel.GetComponent<Image>();
+            hudImage.sprite = RuntimeArt.CreateWoodButtonSprite();
+            hudImage.type = Image.Type.Sliced;
+            hudImage.color = new Color(0.35f, 0.18f, 0.07f, 0.98f);
 
             var hudTopAccent = Ui.Panel(hudPanel.transform, "Hud Top Accent", new Color(0, 0, 0, 0));
             Ui.Rect(hudTopAccent, new Vector2(0.035f, 0.89f), new Vector2(0.965f, 0.925f), new Vector2(0, 0));
+            hudTopAccent.GetComponent<Image>().color = new Color(0.76f, 0.48f, 0.18f, 0.58f);
 
             var hudBottomLine = Ui.Panel(hudPanel.transform, "Hud Bottom Line", new Color(0, 0, 0, 0));
             Ui.Rect(hudBottomLine, new Vector2(0.04f, 0.06f), new Vector2(0.96f, 0.085f), new Vector2(0, 0));
+            hudBottomLine.GetComponent<Image>().color = new Color(0.12f, 0.045f, 0.012f, 0.55f);
 
-            linesText = Ui.Text(hudPanel.transform, "Normal - Scores 0", font, 26, new Color(1f, 0.92f, 0.78f), TextAnchor.MiddleLeft);
-            Ui.Rect(linesText, new Vector2(0.00f, 0.58f), new Vector2(0.96f, 0.94f), new Vector2(0, 0));
+            linesText = Ui.Text(hudPanel.transform, "Cấp 1 - Điểm 0", font, 26, new Color(1f, 0.92f, 0.78f), TextAnchor.MiddleLeft);
+            linesText.text = "Level: 1";
+            Ui.Rect(linesText, new Vector2(0.04f, 0.12f), new Vector2(0.50f, 0.88f), new Vector2(0, 0));
             AddDarkWoodTextEdge(linesText, 0.95f, 0.86f);
+            AddWarmTitleFinish(linesText, 0.35f);
 
-            levelText = Ui.Text(hudPanel.transform, "Line 0", font, 26, new Color(1f, 0.78f, 0.52f), TextAnchor.MiddleLeft);
-            Ui.Rect(levelText, new Vector2(0.00f, 0.50f), new Vector2(0.76f, 0.56f), new Vector2(0, 0));
+            levelText = Ui.Text(hudPanel.transform, "Nhiệm vụ: 0", font, 26, new Color(1f, 0.78f, 0.52f), TextAnchor.MiddleLeft);
+            levelText.alignment = TextAnchor.MiddleRight;
+            Ui.Rect(levelText, new Vector2(0.50f, 0.12f), new Vector2(0.96f, 0.88f), new Vector2(0, 0));
+
+            if (MultiplayerMatch.Active)
+                BuildOpponentMiniBoard(safe.transform); // fallback path (không có scene canvas)
 
             bestText = Ui.Text(hudPanel.transform, "", font, 31, new Color(1f, 0.72f, 0.32f), TextAnchor.MiddleLeft);
             Ui.Rect(bestText, new Vector2(0.00f, 0.22f), new Vector2(0.98f, 0.58f), new Vector2(0, 0));
             AddDarkWoodTextEdge(bestText, 1.05f, 0.88f);
+            AddWarmTitleFinish(bestText, 0.42f);
+            bestText.gameObject.SetActive(false);
 
             scoreText = Ui.Text(hudPanel.transform, "", font, 1, new Color(1f, 1f, 1f, 0f), TextAnchor.MiddleRight);
             Ui.Rect(scoreText, new Vector2(0.96f, 0.92f), new Vector2(0.98f, 0.94f), new Vector2(0, 0));
@@ -651,14 +1813,14 @@ namespace BrickStacker
             Ui.Rect(pauseButton.gameObject, new Vector2(0.855f, 0.905f), new Vector2(0.955f, 0.975f), new Vector2(0, 0));
             StylePauseButton(pauseButton);
 
-            rotateButton = Ui.Button(safe.transform, "R", font, 24, () =>
+            rotateButton = Ui.Button(safe.transform, "Xoay", font, 24, () =>
             {
                 RuntimeArt.PlayUiSwitchSound();
                 RotateFromButton();
             });
             rotateButtonRect = rotateButton.GetComponent<RectTransform>();
             Ui.Rect(rotateButton.gameObject, new Vector2(0.835f, 0.260f), new Vector2(0.945f, 0.340f), new Vector2(0, 0));
-            StyleRoundWoodButton(rotateButton, "R", 30);
+            StyleRoundWoodButton(rotateButton, "↻", 26);
 
             var holdWidgetShadow = Ui.Panel(safe.transform, "Hold Widget Shadow", new Color(0, 0, 0, 0));
             holdWidgetShadowRect = holdWidgetShadow.GetComponent<RectTransform>();
@@ -671,7 +1833,7 @@ namespace BrickStacker
             var holdButton = holdWidget.AddComponent<Button>();
             holdButton.onClick.AddListener(SwapHoldPiece);
 
-            var holdLabel = Ui.Text(holdWidget.transform, "HOLD", font, 29, new Color(1f, 0.90f, 0.72f), TextAnchor.MiddleCenter);
+            var holdLabel = Ui.Text(holdWidget.transform, "Giữ", font, 29, new Color(1f, 0.90f, 0.72f), TextAnchor.MiddleCenter);
             StyleSideWidgetTitle(holdLabel);
             Ui.Rect(holdLabel, new Vector2(0.00f, 0.76f), new Vector2(1.00f, 1.00f), new Vector2(0, 0));
 
@@ -681,6 +1843,8 @@ namespace BrickStacker
             var holdPanelButton = holdPanel.AddComponent<Button>();
             holdPanelButton.onClick.AddListener(SwapHoldPiece);
             holdPreviewCells = CreatePiecePreview(holdPanel.transform, new Vector2(0.5f, 0.48f), 15.0f);
+            holdWidget.SetActive(false);
+            holdWidgetShadow.SetActive(false);
 
             var nextWidgetShadow = Ui.Panel(safe.transform, "Next Widget Shadow", new Color(0, 0, 0, 0));
             nextWidgetShadowRect = nextWidgetShadow.GetComponent<RectTransform>();
@@ -691,14 +1855,33 @@ namespace BrickStacker
             nextWidgetRect = nextWidget.GetComponent<RectTransform>();
             Ui.Rect(nextWidget, new Vector2(0.790f, 0.672f), new Vector2(0.960f, 0.842f), new Vector2(0, 0));
 
-            nextText = Ui.Text(nextWidget.transform, "NEXT", font, 29, new Color(1f, 0.90f, 0.72f), TextAnchor.MiddleCenter);
+            nextText = Ui.Text(nextWidget.transform, "Tiếp", font, 29, new Color(1f, 0.90f, 0.72f), TextAnchor.MiddleCenter);
             StyleSideWidgetTitle(nextText);
+            nextText.text = "TIẾP";
             Ui.Rect(nextText, new Vector2(0.00f, 0.76f), new Vector2(1.00f, 1.00f), new Vector2(0, 0));
 
             var nextPanel = Ui.Panel(nextWidget.transform, "Next Piece Panel", new Color(1f, 1f, 1f, 1f));
             Ui.Rect(nextPanel, new Vector2(0.06f, 0.04f), new Vector2(0.94f, 0.73f), new Vector2(0, 0));
             ApplyBoardFrameToPreviewPanel(nextPanel.transform);
             nextPreviewCells = CreatePiecePreview(nextPanel.transform, new Vector2(0.5f, 0.48f), 15.0f);
+
+            var moveHintShadow = Ui.Panel(safe.transform, "Move Hint Shadow", new Color(0.025f, 0.008f, 0.002f, 0.70f));
+            moveHintPanelShadowRect = moveHintShadow.GetComponent<RectTransform>();
+            Ui.Rect(moveHintShadow, new Vector2(0.790f, 0.060f), new Vector2(0.960f, 0.190f), new Vector2(0, -5));
+
+            var moveHintPanel = Ui.Panel(safe.transform, "Move Hint Panel", new Color(0, 0, 0, 0));
+            moveHintPanelRect = moveHintPanel.GetComponent<RectTransform>();
+            Ui.Rect(moveHintPanel, new Vector2(0.790f, 0.067f), new Vector2(0.960f, 0.197f), Vector2.zero);
+            var moveHintImage = moveHintPanel.GetComponent<Image>();
+            moveHintImage.sprite = RuntimeArt.CreateWoodPanelSprite();
+            moveHintImage.type = Image.Type.Sliced;
+            moveHintImage.color = new Color(0.35f, 0.18f, 0.07f, 0.96f);
+
+            var moveHintText = Ui.Text(moveHintPanel.transform, "Xóa dòng\nđể nhận\nlượt đi!", font, 17, new Color(1f, 0.88f, 0.62f), TextAnchor.MiddleCenter);
+            Ui.Rect(moveHintText, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f), Vector2.zero);
+            AddDarkWoodTextEdge(moveHintText, 0.7f, 0.76f);
+
+            BuildTacticalBoardUi(safe.transform);
 
             statusText = Ui.Text(safe.transform, "", font, 34, Color.white, TextAnchor.MiddleCenter);
             Ui.Rect(statusText, new Vector2(0.12f, 0.34f), new Vector2(0.88f, 0.58f), new Vector2(0, 0));
@@ -713,7 +1896,1035 @@ namespace BrickStacker
             BuildGameOverPopup(gameOverOverlay.transform);
             gameOverOverlay.SetActive(false);
 
+            missionOverlay = Ui.Panel(canvas.transform, "Mission Overlay", new Color(0, 0, 0, 0.70f));
+            Ui.Stretch(missionOverlay);
+            BuildMissionPopup(missionOverlay.transform);
+            missionOverlay.SetActive(false);
+
+            levelClearOverlay = Ui.Panel(canvas.transform, "Level Clear Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(levelClearOverlay);
+            BuildLevelClearPopup(levelClearOverlay.transform);
+            levelClearOverlay.SetActive(false);
+
             LayoutGameplayChrome();
+        }
+
+        bool TryBindSceneGameplayUi()
+        {
+            Canvas[] canvases = FindObjectsOfType<Canvas>(true);
+            Transform root = null;
+            for (int i = 0; i < canvases.Length; i++)
+            {
+                Transform mobileRoot = FindChildLoose(canvases[i].transform, "GameplayRoot_Mobile");
+                Transform tabletRoot = FindChildLoose(canvases[i].transform, "GameplayRoot_Tablet");
+                Transform legacyRoot = FindChildLoose(canvases[i].transform, "GameplayRoot");
+                root = SelectSceneGameplayRoot(mobileRoot, tabletRoot, legacyRoot);
+                if (root != null)
+                {
+                    sceneGameplayCanvas = canvases[i];
+                    sceneMobileGameplayRootRect = mobileRoot as RectTransform;
+                    sceneTabletGameplayRootRect = tabletRoot as RectTransform;
+                    break;
+                }
+            }
+
+            if (sceneGameplayCanvas == null || root == null)
+                return false;
+
+            usingSceneGameplayCanvas = true;
+            ConfigureSceneCanvasScaler(sceneGameplayCanvas);
+            sceneGameplayRootRect = root as RectTransform;
+            sceneContentAreaRect = EnsureSceneGameplayHierarchy(root, sceneUsingTabletGameplayRoot);
+            safeAreaRoot = sceneContentAreaRect != null ? sceneContentAreaRect : sceneGameplayRootRect;
+            if (sceneGameplayRootRect != null)
+            {
+                var oldFitter = sceneGameplayRootRect.GetComponent<RectTransformSafeAreaFitter>();
+                if (oldFitter != null)
+                    Destroy(oldFitter);
+            }
+            Transform contentRoot = safeAreaRoot != null ? safeAreaRoot : root;
+            sceneBackgroundRect = GetSceneRect(root, "Background");
+            sceneHeaderRect = GetSceneRect(contentRoot, "Header");
+            sceneNextPanelRect = GetSceneRect(contentRoot, "NextPanel");
+            sceneLevelText = FindTmpText(contentRoot, "LevelText");
+            sceneMoveText = FindTmpText(contentRoot, "MoveText");
+            sceneNextText = FindTmpText(contentRoot, "NextPanel");
+            if (sceneNextText != null)
+                sceneNextText.text = "TIẾP";
+
+            scoreText = CreateHiddenSceneText(contentRoot, "Runtime Score Mirror");
+            linesText = CreateHiddenSceneText(contentRoot, "Runtime Level Mirror");
+            levelText = CreateHiddenSceneText(contentRoot, "Runtime Moves Mirror");
+            bestText = CreateHiddenSceneText(contentRoot, "Runtime Best Mirror");
+            nextText = CreateHiddenSceneText(contentRoot, "Runtime Next Mirror");
+
+            var puzzleAnchor = FindChildLoose(contentRoot, "PuzzleBoardAnchor");
+            scenePuzzleBoardAnchorRect = puzzleAnchor != null ? puzzleAnchor.GetComponent<RectTransform>() : null;
+            BuildScenePuzzleGrid();
+
+            pauseButton = EnsureSceneButton(FindChildLooseActive(contentRoot, "PauseButton") ?? FindChildInAnyCanvas("PauseButton"), TogglePause);
+            pauseButtonRect = pauseButton != null ? pauseButton.GetComponent<RectTransform>() : null;
+
+            rotateButton = EnsureSceneButton(FindChildLooseActive(contentRoot, "RotateButton") ?? FindChildInAnyCanvas("RotateButton"), RotateFromButton);
+            rotateButtonRect = rotateButton != null ? rotateButton.GetComponent<RectTransform>() : null;
+
+            Transform nextPreview = FindChildLoose(contentRoot, "NextPreview") ?? FindChildLoose(contentRoot, "NextPanel");
+            if (nextPreview != null)
+            {
+                nextWidgetRect = nextPreview.GetComponent<RectTransform>();
+                sceneNextPreviewRect = nextWidgetRect;
+                nextWidgetShadowRect = nextWidgetRect;
+                float previewCellSize = 24f;
+                if (nextWidgetRect != null && nextWidgetRect.rect.width > 1f)
+                    previewCellSize = Mathf.Clamp(nextWidgetRect.rect.width * 0.16f, 18f, 36f);
+                nextPreviewCells = CreatePiecePreview(nextPreview, new Vector2(0.5f, 0.5f), previewCellSize);
+            }
+
+            BindSceneTacticalCells(contentRoot);
+            BuildSceneTacticalGridIfNeeded(contentRoot);
+
+            statusText = Ui.Text(contentRoot, "", font, 26, new Color(1f, 0.90f, 0.68f), TextAnchor.MiddleCenter);
+            Ui.Rect(statusText, new Vector2(0.08f, 0.43f), new Vector2(0.92f, 0.52f), Vector2.zero);
+            statusText.raycastTarget = false;
+            AddDarkWoodTextEdge(statusText, 0.65f, 0.70f);
+
+            if (MultiplayerMatch.Active)
+                BuildOpponentMiniBoard(contentRoot); // vị trí do ApplyXGameplayRegionLayout đặt
+
+            EnsureSceneEventSystem();
+
+            pauseOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Pause Overlay", new Color(0, 0, 0, 0.65f));
+            Ui.Stretch(pauseOverlay);
+            BuildPausePopup(pauseOverlay.transform);
+            pauseOverlay.SetActive(false);
+
+            gameOverOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Game Over Overlay", new Color(0, 0, 0, 0.68f));
+            Ui.Stretch(gameOverOverlay);
+            BuildGameOverPopup(gameOverOverlay.transform);
+            gameOverOverlay.SetActive(false);
+
+            missionOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Mission Overlay", new Color(0, 0, 0, 0.70f));
+            Ui.Stretch(missionOverlay);
+            BuildMissionPopup(missionOverlay.transform);
+            missionOverlay.SetActive(false);
+
+            levelClearOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Level Clear Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(levelClearOverlay);
+            BuildLevelClearPopup(levelClearOverlay.transform);
+            levelClearOverlay.SetActive(false);
+
+            // Ensure the correct root is active for the current screen size.
+            // This handles the case where Editor Game View resolution differs from the device simulator.
+            bool correctTablet = ShouldUseTabletGameplayLayout();
+            if (correctTablet != sceneUsingTabletGameplayRoot)
+            {
+                SwitchGameplayRoot(correctTablet);
+                // Rebuild puzzle grid in the new anchor so cell sizes match the new local space.
+                Canvas.ForceUpdateCanvases();
+                BuildScenePuzzleGrid();
+                BindSceneTacticalCells(sceneContentAreaRect != null ? sceneContentAreaRect : sceneGameplayRootRect);
+                BuildSceneTacticalGridIfNeeded(sceneContentAreaRect != null ? sceneContentAreaRect : sceneGameplayRootRect);
+            }
+
+            RefreshSceneHud();
+            RefreshTacticalBoardUi();
+            ApplySceneGameplayResponsiveLayout(true);
+            RefreshScenePuzzleBoardUi();
+            ConfigureResponsiveCamera();
+            DisableWorldPuzzleRenderingForSceneCanvas();
+            return true;
+        }
+
+        void DisableWorldPuzzleRenderingForSceneCanvas()
+        {
+            if (boardRoot != null)
+                boardRoot.gameObject.SetActive(false);
+            if (settledRoot != null)
+                settledRoot.gameObject.SetActive(false);
+            if (activeRoot != null)
+                activeRoot.gameObject.SetActive(false);
+            if (ghostRoot != null)
+                ghostRoot.gameObject.SetActive(false);
+        }
+
+        Transform SelectSceneGameplayRoot(Transform mobileRoot, Transform tabletRoot, Transform legacyRoot)
+        {
+            bool useTablet = ShouldUseTabletGameplayLayout();
+            sceneUsingTabletGameplayRoot = useTablet && tabletRoot != null;
+            if (mobileRoot != null)
+            {
+                StretchSceneRootToScreen(mobileRoot as RectTransform);
+                StretchSceneBackgroundInRoot(mobileRoot);
+                mobileRoot.gameObject.SetActive(!useTablet || tabletRoot == null);
+            }
+            if (tabletRoot != null)
+            {
+                StretchSceneRootToScreen(tabletRoot as RectTransform);
+                StretchSceneBackgroundInRoot(tabletRoot);
+                tabletRoot.gameObject.SetActive(useTablet);
+            }
+
+            sceneGameplayReferenceResolution = sceneUsingTabletGameplayRoot
+                ? new Vector2(1668f, 2420f)
+                : new Vector2(1284f, 2778f);
+
+            if (useTablet && tabletRoot != null)
+                return tabletRoot;
+            if (mobileRoot != null)
+                return mobileRoot;
+            return legacyRoot;
+        }
+
+        void StretchSceneBackgroundInRoot(Transform root)
+        {
+            RectTransform background = FindChildLoose(root, "Background") as RectTransform;
+            if (background == null)
+                return;
+
+            if (background.parent != root)
+                background.SetParent(root, true);
+            background.SetAsFirstSibling();
+            StretchSceneRootToScreen(background);
+            var backgroundImage = background.GetComponent<Image>();
+            if (backgroundImage != null)
+                backgroundImage.preserveAspect = false;
+        }
+
+        bool ShouldUseTabletGameplayLayout()
+        {
+            float aspect = Screen.height > 0 ? Screen.width / (float)Screen.height : 1284f / 2778f;
+            return aspect >= 0.65f;
+        }
+
+        RectTransform EnsureSceneGameplayHierarchy(Transform root, bool tabletLayout)
+        {
+            if (root == null)
+                return null;
+
+            StretchSceneRootToScreen(root as RectTransform);
+
+            // Use pre-built scene layout — find SafeAreaContainer without reparenting any elements.
+            sceneSafeAreaContainerRect = FindChildLoose(root, "SafeAreaContainer") as RectTransform;
+            if (sceneSafeAreaContainerRect == null)
+            {
+                var safeObject = new GameObject("SafeAreaContainer");
+                safeObject.transform.SetParent(root, false);
+                sceneSafeAreaContainerRect = safeObject.AddComponent<RectTransform>();
+            }
+            // Always reset any design-time scale/offset on SafeAreaContainer so it fills the root
+            // with localScale=(1,1,1). The safe-area insets are applied later by ApplySceneSafeAreaContainer.
+            StretchSceneRootToScreen(sceneSafeAreaContainerRect);
+
+            // Elements live inside SafeAreaContainer in the pre-built scene hierarchy.
+            return sceneSafeAreaContainerRect;
+        }
+
+        void SetupContentAreaRect(RectTransform rect, Vector2 referenceResolution)
+        {
+            if (rect == null)
+                return;
+
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = referenceResolution;
+            rect.anchoredPosition = Vector2.zero;
+            rect.localRotation = Quaternion.identity;
+            rect.localScale = Vector3.one;
+        }
+
+        void ReparentSceneNode(Transform searchRoot, Transform newParent, string targetName)
+        {
+            if (searchRoot == null || newParent == null)
+                return;
+
+            Transform target = FindChildLoose(searchRoot, targetName);
+            if (target == null || target == newParent || target.parent == newParent)
+                return;
+            if (target.IsChildOf(newParent))
+                return;
+
+            target.SetParent(newParent, true);
+        }
+
+        RectTransform GetSceneRect(Transform root, string targetName)
+        {
+            var child = FindChildLoose(root, targetName);
+            return child != null ? child.GetComponent<RectTransform>() : null;
+        }
+
+        void ConfigureSceneCanvasScaler(Canvas canvas)
+        {
+            if (canvas == null)
+                return;
+
+            var cam = Camera.main;
+            if (cam == null)
+                cam = FindObjectOfType<Camera>();
+            if (cam != null)
+            {
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = new Color(0.02f, 0.06f, 0.08f, 1f);
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                canvas.worldCamera = cam;
+                canvas.planeDistance = 10f;
+            }
+            else
+            {
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            }
+            var scaler = canvas.GetComponent<CanvasScaler>();
+            if (scaler == null)
+                scaler = canvas.gameObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = sceneGameplayReferenceResolution;
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+
+            var dynamicScaler = canvas.GetComponent<ResponsiveCanvasScaler>();
+            if (dynamicScaler != null)
+                Destroy(dynamicScaler);
+
+            if (canvas.GetComponent<GraphicRaycaster>() == null)
+                canvas.gameObject.AddComponent<GraphicRaycaster>();
+        }
+
+        Text CreateHiddenSceneText(Transform parent, string name)
+        {
+            var text = Ui.Text(parent, "", font, 1, new Color(1f, 1f, 1f, 0f), TextAnchor.MiddleCenter);
+            text.name = name;
+            text.raycastTarget = false;
+            text.gameObject.SetActive(false);
+            return text;
+        }
+
+        Transform FindChildInAnyCanvas(string targetName)
+        {
+            var canvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+            Transform fallback = null;
+            foreach (var c in canvases)
+            {
+                var found = FindChildLooseActive(c.transform, targetName);
+                if (found != null) return found;
+                if (fallback == null)
+                {
+                    var any = FindChildLoose(c.transform, targetName);
+                    if (any != null) fallback = any;
+                }
+            }
+            return fallback;
+        }
+
+        Transform FindChildLooseActive(Transform root, string targetName)
+        {
+            if (root == null) return null;
+            string normalizedTarget = NormalizeObjectName(targetName);
+            var children = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                if (children[i].gameObject.activeInHierarchy && NormalizeObjectName(children[i].name) == normalizedTarget)
+                    return children[i];
+            }
+            return null;
+        }
+
+        Transform FindChildLoose(Transform root, string targetName)
+        {
+            if (root == null)
+                return null;
+
+            string normalizedTarget = NormalizeObjectName(targetName);
+            var children = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                if (NormalizeObjectName(children[i].name) == normalizedTarget)
+                    return children[i];
+            }
+            return null;
+        }
+
+        string NormalizeObjectName(string value)
+        {
+            return string.IsNullOrEmpty(value) ? string.Empty : value.Trim().Replace(" ", string.Empty).ToLowerInvariant();
+        }
+
+        TMP_Text FindTmpText(Transform root, string targetName)
+        {
+            var child = FindChildLoose(root, targetName);
+            if (child == null) return null;
+            return child.GetComponent<TMP_Text>() ?? child.GetComponentInChildren<TMP_Text>(true);
+        }
+
+        Button EnsureSceneButton(Transform target, Action action)
+        {
+            if (target == null)
+                return null;
+
+            var button = target.GetComponent<Button>();
+            if (button == null)
+                button = target.gameObject.AddComponent<Button>();
+
+            var graphic = target.GetComponent<Graphic>();
+            if (graphic == null)
+                graphic = target.GetComponentInChildren<Graphic>();
+            if (graphic != null)
+            {
+                graphic.raycastTarget = true;
+                button.targetGraphic = graphic;
+            }
+
+            button.interactable = true;
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                action?.Invoke();
+            });
+
+            if (target.TryGetComponent<PressScaleFeedback>(out var existing))
+                Destroy(existing);
+
+            return button;
+        }
+
+        void EnsureSceneEventSystem()
+        {
+            if (EventSystem.current != null || FindAnyObjectByType<EventSystem>() != null)
+                return;
+
+            var eventSystem = new GameObject("EventSystem");
+            eventSystem.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+            eventSystem.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+#else
+            eventSystem.AddComponent<StandaloneInputModule>();
+#endif
+        }
+
+        void BindSceneTacticalCells(Transform root)
+        {
+            tacticalCellButtons.Clear();
+            tacticalCellLabels.Clear();
+            tacticalCellIcons.Clear();
+            if (tacticalBoard == null || root == null)
+                return;
+
+            int width = tacticalBoard.Data.BoardWidth;
+            int height = tacticalBoard.Data.BoardHeight;
+            int needed = width * height;
+            var rects = new List<RectTransform>();
+            var allRects = root.GetComponentsInChildren<RectTransform>(true);
+            for (int i = 0; i < allRects.Length; i++)
+            {
+                string name = NormalizeObjectName(allRects[i].name);
+                if (name == "tacticalgrid" || name.StartsWith("tacticalgrid("))
+                    rects.Add(allRects[i]);
+            }
+
+            if (rects.Count < needed)
+                return;
+
+            rects.Sort((a, b) =>
+            {
+                float yDelta = a.anchoredPosition.y - b.anchoredPosition.y;
+                if (Mathf.Abs(yDelta) > 2f)
+                    return yDelta < 0f ? -1 : 1;
+                float xDelta = a.anchoredPosition.x - b.anchoredPosition.x;
+                if (Mathf.Abs(xDelta) <= 2f)
+                    return 0;
+                return xDelta < 0f ? -1 : 1;
+            });
+
+            for (int i = 0; i < needed; i++)
+            {
+                int x = i % width;
+                int y = i / width;
+                SetupSceneTacticalCell(rects[i], x, y);
+            }
+        }
+
+        void BuildSceneTacticalGridIfNeeded(Transform root)
+        {
+            if (tacticalBoard == null || root == null || tacticalCellButtons.Count >= tacticalBoard.Data.BoardWidth * tacticalBoard.Data.BoardHeight)
+                return;
+
+            Transform boardTransform = FindChildLoose(root, "TacticalBoard");
+            sceneTacticalBoardRect = boardTransform != null ? boardTransform.GetComponent<RectTransform>() : null;
+            if (sceneTacticalBoardRect == null)
+                return;
+
+            int width = tacticalBoard.Data.BoardWidth;
+            int height = tacticalBoard.Data.BoardHeight;
+            tacticalCellButtons.Clear();
+            tacticalCellLabels.Clear();
+            tacticalCellIcons.Clear();
+            ClearRuntimeChild(sceneTacticalBoardRect, "Runtime Tactical Grid");
+
+            var gridRoot = new GameObject("Runtime Tactical Grid", typeof(RectTransform));
+            gridRoot.transform.SetParent(sceneTacticalBoardRect, false);
+            var gridRect = gridRoot.GetComponent<RectTransform>();
+            Ui.Rect(gridRoot, new Vector2(0.075f, 0.075f), new Vector2(0.925f, 0.925f), Vector2.zero);
+            gridRect.SetAsLastSibling();
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    var cell = Ui.Panel(gridRoot.transform, "TacticalGrid (" + (y * width + x) + ")", Color.white);
+                    float minX = x / (float)width;
+                    float maxX = (x + 1) / (float)width;
+                    float minY = y / (float)height;
+                    float maxY = (y + 1) / (float)height;
+                    Ui.Rect(cell, new Vector2(minX + 0.006f, minY + 0.006f), new Vector2(maxX - 0.006f, maxY - 0.006f), Vector2.zero);
+                    SetupSceneTacticalCell(cell.GetComponent<RectTransform>(), x, y);
+                }
+            }
+        }
+
+        void BuildScenePuzzleGrid()
+        {
+            if (scenePuzzleBoardAnchorRect == null)
+                return;
+
+            var puzzleMask = scenePuzzleBoardAnchorRect.GetComponent<RectMask2D>();
+            if (puzzleMask == null)
+                puzzleMask = scenePuzzleBoardAnchorRect.gameObject.AddComponent<RectMask2D>();
+            puzzleMask.padding = Vector4.zero;
+
+            scenePuzzleCells = new Image[Width, Height];
+            scenePuzzleSlots = new RectTransform[Width, Height];
+            ClearRuntimeChild(scenePuzzleBoardAnchorRect, "Runtime Puzzle Grid");
+
+            var gridRoot = new GameObject("Runtime Puzzle Grid", typeof(RectTransform));
+            gridRoot.transform.SetParent(scenePuzzleBoardAnchorRect, false);
+            var gridRect = gridRoot.GetComponent<RectTransform>();
+            scenePuzzleGridRect = gridRect;
+            FitScenePuzzleGridToAnchor();
+            gridRect.SetAsLastSibling();
+
+            for (int y = 0; y < Height; y++)
+            {
+                for (int x = 0; x < Width; x++)
+                {
+                    var cell = Ui.Panel(gridRoot.transform, "Puzzle Block " + x + "-" + y, new Color(1f, 1f, 1f, 0f)).GetComponent<Image>();
+                    cell.sprite = blockSprite;
+                    cell.type = Image.Type.Simple;
+                    cell.preserveAspect = true;
+                    cell.raycastTarget = false;
+                    var rect = cell.rectTransform;
+                    rect.anchorMin = new Vector2(0.5f, 0.5f);
+                    rect.anchorMax = new Vector2(0.5f, 0.5f);
+                    rect.pivot = new Vector2(0.5f, 0.5f);
+                    rect.localScale = Vector3.one;
+                    scenePuzzleSlots[x, y] = rect;
+                    scenePuzzleCells[x, y] = cell;
+                }
+            }
+
+            RefreshScenePuzzleCellSizes();
+        }
+
+        void ClearRuntimeChild(Transform parent, string childName)
+        {
+            if (parent == null)
+                return;
+
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                var child = parent.GetChild(i);
+                if (child != null && child.name == childName)
+                    Destroy(child.gameObject);
+            }
+        }
+
+        void SetupSceneTacticalCell(RectTransform rect, int x, int y)
+        {
+            var image = rect.GetComponent<Image>();
+            if (image == null)
+                image = rect.gameObject.AddComponent<Image>();
+            image.raycastTarget = true;
+
+            var button = rect.GetComponent<Button>();
+            if (button == null)
+                button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.None;
+            button.onClick.RemoveAllListeners();
+
+            var input = rect.GetComponent<TacticalCellInput>();
+            if (input == null)
+                input = rect.gameObject.AddComponent<TacticalCellInput>();
+            input.Controller = this;
+            input.X = x;
+            input.Y = y;
+
+            var label = rect.GetComponentInChildren<Text>(true);
+            if (label == null)
+            {
+                label = Ui.Text(rect, "", font, 18, new Color(1f, 0.95f, 0.78f), TextAnchor.MiddleCenter);
+                Ui.Stretch(label.gameObject);
+            }
+            label.gameObject.SetActive(false);
+
+            var iconTransform = FindChildLoose(rect, "Tactical Piece Icon");
+            Image icon = iconTransform != null ? iconTransform.GetComponent<Image>() : null;
+            if (icon == null)
+                icon = Ui.Panel(rect, "Tactical Piece Icon", new Color(1f, 1f, 1f, 0f)).GetComponent<Image>();
+            icon.raycastTarget = false;
+            icon.preserveAspect = true;
+            var iconRt = icon.GetComponent<RectTransform>();
+            iconRt.anchorMin = Vector2.zero;
+            iconRt.anchorMax = Vector2.one;
+            iconRt.pivot     = new Vector2(0.5f, 0.5f);
+            iconRt.anchoredPosition = Vector2.zero;
+            iconRt.sizeDelta = Vector2.zero;
+            iconRt.localScale = new Vector3(1.18f, 1.18f, 1f);
+
+            tacticalCellButtons.Add(button);
+            tacticalCellLabels.Add(label);
+            tacticalCellIcons.Add(icon);
+        }
+
+        void BuildTacticalBoardUi(Transform parent)
+        {
+            if (tacticalBoard == null)
+                return;
+
+            var shadow = Ui.Panel(parent, "Tactical Board Shadow", new Color(0.035f, 0.012f, 0.004f, 0.58f));
+            tacticalWidgetShadowRect = shadow.GetComponent<RectTransform>();
+            Ui.Rect(shadow, new Vector2(0.790f, 0.055f), new Vector2(0.960f, 0.245f), new Vector2(0, -5));
+
+            var widget = Ui.Panel(parent, "Tactical Board Widget", Color.white);
+            tacticalWidgetRect = widget.GetComponent<RectTransform>();
+            Ui.Rect(widget, new Vector2(0.790f, 0.062f), new Vector2(0.960f, 0.252f), new Vector2(0, 0));
+            var widgetImage = widget.GetComponent<Image>();
+            widgetImage.sprite = RuntimeArt.CreateWoodPanelSprite();
+            widgetImage.type = Image.Tpe.Slicedy;
+            widgetImage.color = new Color(0.54f, 0.31f, 0.14f, 0.98f);
+
+            var title = Ui.Text(widget.transform, "Bàn chiến thuật", font, 18, new Color(1f, 0.91f, 0.68f), TextAnchor.MiddleCenter);
+            Ui.Rect(title, new Vector2(0.05f, 0.900f), new Vector2(0.95f, 0.990f), new Vector2(0, 0));
+            title.fontStyle = FontStyle.Bold;
+            title.text = "Xóa dòng để nhận lượt đi";
+            AddDarkWoodTextEdge(title, 0.72f, 0.78f);
+            title.gameObject.SetActive(false);
+
+            tacticalMovesText = Ui.Text(widget.transform, "Lượt: 0", font, 16, new Color(1f, 0.82f, 0.46f), TextAnchor.MiddleCenter);
+            Ui.Rect(tacticalMovesText, new Vector2(0.05f, 0.820f), new Vector2(0.95f, 0.900f), new Vector2(0, 0));
+            tacticalMovesText.gameObject.SetActive(false);
+            AddDarkWoodTextEdge(tacticalMovesText, 0.55f, 0.70f);
+
+            var gridPanel = Ui.Panel(widget.transform, "Tactical Grid", new Color(0.35f, 0.18f, 0.07f, 0.96f));
+            Ui.Rect(gridPanel, new Vector2(0.045f, 0.055f), new Vector2(0.955f, 0.945f), new Vector2(0, 0));
+
+            tacticalCellButtons.Clear();
+            tacticalCellLabels.Clear();
+            tacticalCellIcons.Clear();
+            int width = tacticalBoard.Data.BoardWidth;
+            int height = tacticalBoard.Data.BoardHeight;
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int cellX = x;
+                    int cellY = y;
+                    var button = Ui.Button(gridPanel.transform, "", font, 12, () => { });
+                    float minX = x / (float)width;
+                    float maxX = (x + 1) / (float)width;
+                    float minY = y / (float)height;
+                    float maxY = (y + 1) / (float)height;
+                    Ui.Rect(button.gameObject, new Vector2(minX + 0.010f, minY + 0.010f), new Vector2(maxX - 0.010f, maxY - 0.010f), new Vector2(0, 0));
+                    var cellInput = button.gameObject.AddComponent<TacticalCellInput>();
+                    cellInput.Controller = this;
+                    cellInput.X = cellX;
+                    cellInput.Y = cellY;
+
+                    var label = button.GetComponentInChildren<Text>();
+                    label.fontSize = 24;
+                    label.fontStyle = FontStyle.Bold;
+                    label.gameObject.SetActive(false);
+                    var icon = Ui.Panel(button.transform, "Tactical Piece Icon", new Color(1f, 1f, 1f, 0f)).GetComponent<Image>();
+                    icon.raycastTarget = false;
+                    icon.preserveAspect = true;
+                    var iconRect = icon.GetComponent<RectTransform>();
+                    iconRect.anchorMin = Vector2.zero;
+                    iconRect.anchorMax = Vector2.one;
+                    iconRect.pivot     = new Vector2(0.5f, 0.5f);
+                    iconRect.anchoredPosition = Vector2.zero;
+                    iconRect.sizeDelta = Vector2.zero;
+                    iconRect.localScale = new Vector3(1.18f, 1.18f, 1f);
+                    tacticalCellButtons.Add(button);
+                    tacticalCellLabels.Add(label);
+                    tacticalCellIcons.Add(icon);
+                }
+            }
+
+            tacticalStatusText = Ui.Text(widget.transform, "Chạm ô cạnh quân xanh để đi.", font, 13, new Color(1f, 0.88f, 0.64f), TextAnchor.MiddleCenter);
+            tacticalStatusText.text = "Chạm quân xanh, chọn ô sáng hoặc kéo.";
+            Ui.Rect(tacticalStatusText, new Vector2(0.05f, 0.025f), new Vector2(0.95f, 0.155f), new Vector2(0, 0));
+            tacticalStatusText.gameObject.SetActive(false);
+            AddDarkWoodTextEdge(tacticalStatusText, 0.42f, 0.62f);
+            RefreshTacticalBoardUi();
+        }
+
+        void OnTacticalCellTapped(int x, int y)
+        {
+            if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return;
+
+            var target = new Vector2Int(x, y);
+            if (target == tacticalBoard.PlayerPosition)
+            {
+                SelectTacticalPiece();
+                return;
+            }
+
+            if (!tacticalPieceSelected)
+            {
+                tacticalBoard.LastMessage = tacticalBoard.MoveBank <= 0 ? "Cần lượt đi để di chuyển." : "Chọn quân xanh trước, rồi chọn ô sáng để đi.";
+                RefreshTacticalBoardUi();
+                return;
+            }
+
+            TryMoveTacticalPlayerTo(target);
+            if (target.x < -9999)
+            {
+
+            var delta = target - tacticalBoard.PlayerPosition;
+            if (Mathf.Abs(delta.x) + Mathf.Abs(delta.y) != 1)
+            {
+                tacticalBoard.LastMessage = "Chỉ đi được 1 ô theo 4 hướng.";
+                RefreshTacticalBoardUi();
+                return;
+            }
+
+            var result = tacticalBoard.MovePlayer(delta);
+            RuntimeArt.PlayUiSwitchSound();
+            RefreshTacticalBoardUi();
+            UpdateUi();
+
+            if (result == TacticalBoardStatus.Won)
+                LevelComplete();
+            else if (result == TacticalBoardStatus.Failed)
+                EndGame(false);
+            }
+        }
+
+        public void HandleTacticalPointerDown(int x, int y, Vector2 screenPosition)
+        {
+            if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return;
+
+            var cell = new Vector2Int(x, y);
+            if (cell == tacticalBoard.PlayerPosition)
+            {
+                tacticalDragTracking = true;
+                tacticalDragStart = screenPosition;
+                SelectTacticalPiece();
+            }
+        }
+
+        public void HandleTacticalPointerUp(int x, int y, Vector2 screenPosition)
+        {
+            if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return;
+
+            var cell = new Vector2Int(x, y);
+            if (tacticalDragTracking && cell == tacticalBoard.PlayerPosition)
+            {
+                Vector2 delta = screenPosition - tacticalDragStart;
+                float threshold = Mathf.Min(Screen.width, Screen.height) * 0.035f;
+                if (delta.magnitude >= threshold)
+                {
+                    Vector2Int direction = Mathf.Abs(delta.x) > Mathf.Abs(delta.y)
+                        ? (delta.x > 0 ? Vector2Int.right : Vector2Int.left)
+                        : (delta.y > 0 ? Vector2Int.up : Vector2Int.down);
+                    TryMoveTacticalPlayerTo(tacticalBoard.PlayerPosition + direction);
+                    tacticalDragTracking = false;
+                    return;
+                }
+            }
+
+            tacticalDragTracking = false;
+            OnTacticalCellTapped(x, y);
+        }
+
+        void SelectTacticalPiece()
+        {
+            if (tacticalBoard == null)
+                return;
+
+            if (tacticalBoard.MoveBank <= 0)
+            {
+                tacticalPieceSelected = false;
+                tacticalBoard.LastMessage = "Cần lượt đi để di chuyển.";
+                RefreshTacticalBoardUi();
+                return;
+            }
+
+            PausePuzzle();
+            tacticalPieceSelected = true;
+            tacticalBoard.LastMessage = "Chọn ô sáng hoặc kéo quân xanh.";
+            RefreshTacticalBoardUi();
+        }
+
+        void TryMoveTacticalPlayerTo(Vector2Int target)
+        {
+            if (tacticalBoard == null)
+                return;
+
+            if (!tacticalBoard.IsPlayerMoveTarget(target))
+            {
+                tacticalBoard.LastMessage = tacticalBoard.MoveBank <= 0 ? "Cần lượt đi để di chuyển." : "Ô đó không hợp lệ.";
+                tacticalPieceSelected = false;
+                tacticalDragTracking = false;
+                ResumePuzzle();
+                RefreshTacticalBoardUi();
+                return;
+            }
+
+            var result = tacticalBoard.MovePlayer(target - tacticalBoard.PlayerPosition);
+            tacticalPieceSelected = false;
+            tacticalDragTracking = false;
+            RuntimeArt.PlayUiSwitchSound();
+
+            if (result == TacticalBoardStatus.Won)
+            {
+                RefreshTacticalBoardUi();
+                UpdateUi();
+                LevelComplete();
+                return;
+            }
+            if (result == TacticalBoardStatus.Failed)
+            {
+                RefreshTacticalBoardUi();
+                UpdateUi();
+                EndGame(false);
+                return;
+            }
+
+            // Còn lượt: giữ khối gạch đứng yên và chọn sẵn quân để đi tiếp liền mạch.
+            if (tacticalBoard.MoveBank > 0)
+            {
+                tacticalPieceSelected = true;
+                PausePuzzle();
+            }
+            else
+            {
+                StartCoroutine(ResumeAfterDelay(1.0f));
+            }
+            RefreshTacticalBoardUi();
+            UpdateUi();
+        }
+
+        IEnumerator ResumeAfterDelay(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            ResumePuzzle();
+        }
+
+        void PausePuzzle()
+        {
+            if (gameOver || paused || resolving)
+                return;
+
+            puzzlePausedForTacticalTurn = true;
+            fallTimer = 0f;
+        }
+
+        void ResumePuzzle()
+        {
+            puzzlePausedForTacticalTurn = false;
+            fallTimer = 0f;
+        }
+
+        void RefreshTacticalBoardUi()
+        {
+            if (tacticalBoard == null || tacticalCellButtons.Count == 0)
+                return;
+
+            int width = tacticalBoard.Data.BoardWidth;
+            int height = tacticalBoard.Data.BoardHeight;
+            bool canMove = tacticalBoard.Status == TacticalBoardStatus.Running && tacticalBoard.MoveBank > 0;
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int index = y * width + x;
+                    if (index < 0 || index >= tacticalCellButtons.Count)
+                        continue;
+
+                    var cell = new Vector2Int(x, y);
+                    var button = tacticalCellButtons[index];
+                    var image = button.GetComponent<Image>();
+                    var label = tacticalCellLabels[index];
+                    var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
+
+                    image.sprite = RuntimeArt.CreateTacticalCellSprite();
+                    image.type = Image.Type.Simple;
+                    image.preserveAspect = false;
+                    image.color = (x + y) % 2 == 0 ? new Color(0.61f, 0.42f, 0.23f, 0.98f) : new Color(0.54f, 0.34f, 0.17f, 0.98f);
+                    label.text = "";
+                    label.color = new Color(1f, 0.95f, 0.78f);
+                    if (icon != null)
+                    {
+                        icon.sprite = null;
+                        icon.color = Color.clear;
+                        var ir = icon.rectTransform;
+                        ir.anchorMin = Vector2.zero;
+                        ir.anchorMax = Vector2.one;
+                        ir.pivot = new Vector2(0.5f, 0.5f);
+                        ir.anchoredPosition = Vector2.zero;
+                        ir.sizeDelta = Vector2.zero;
+                        // Cells are wider than tall; keep the character sprite proportional
+                        // instead of stretching it flat, and scale it up slightly so it
+                        // still reads large inside the cell.
+                        ir.localScale = new Vector3(1.18f, 1.18f, 1f);
+                        icon.preserveAspect = true;
+                    }
+                    bool legalTarget = tacticalPieceSelected && tacticalBoard.IsPlayerMoveTarget(cell);
+
+                    if (tacticalBoard.IsWall(cell))
+                    {
+                        image.sprite = RuntimeArt.CreateTacticalWallSprite();
+                        image.color = new Color(0.43f, 0.35f, 0.27f, 0.98f);
+                        label.text = "X";
+                        label.color = new Color(0.85f, 0.36f, 0.25f);
+                    }
+                    else if (cell == tacticalBoard.PlayerPosition)
+                    {
+                        image.color = new Color(0.21f, 0.72f, 0.29f, 0.98f);
+                        if (icon != null)
+                        {
+                            icon.sprite = RuntimeArt.CreateTacticalPlayerSprite();
+                            icon.color = Color.white;
+                        }
+                        label.text = "●";
+                        label.color = new Color(0.70f, 1f, 0.68f);
+                    }
+                    // Quái vẽ TRƯỚC enemy: khi quái bước vào ô enemy (thắng), enemy biến mất
+                    // ngay trong khung hình cuối thay vì trông như còn sống.
+                    else if (cell == tacticalBoard.MonsterPosition)
+                    {
+                        image.color = new Color(0.48f, 0.21f, 0.85f, 0.98f);
+                        if (icon != null)
+                        {
+                            icon.sprite = RuntimeArt.CreateTacticalMonsterSprite();
+                            icon.color = Color.white;
+                        }
+                        label.text = "◆";
+                        label.color = new Color(1f, 0.66f, 0.76f);
+                    }
+                    else if (cell == tacticalBoard.EnemyPosition)
+                    {
+                        image.color = new Color(0.85f, 0.22f, 0.18f, 0.98f);
+                        if (icon != null)
+                        {
+                            icon.sprite = RuntimeArt.CreateTacticalEnemySprite();
+                            icon.color = Color.white;
+                        }
+                        label.text = "●";
+                        label.color = new Color(1f, 0.54f, 0.44f);
+                    }
+
+                    if (legalTarget && !tacticalBoard.IsWall(cell) && cell != tacticalBoard.PlayerPosition && cell != tacticalBoard.EnemyPosition && cell != tacticalBoard.MonsterPosition)
+                    {
+                        image.sprite = RuntimeArt.CreateTacticalHighlightSprite();
+                        image.color = new Color(1f, 0.85f, 0.24f, 0.98f);
+                        label.text = "+";
+                        label.color = new Color(0.28f, 0.10f, 0.03f);
+                    }
+
+                    if (cell == tacticalBoard.PlayerPosition && canMove)
+                        image.color = tacticalPieceSelected ? new Color(0.25f, 0.90f, 0.34f, 1f) : new Color(0.21f, 0.72f, 0.29f, 0.98f);
+
+                    if (cell == tacticalBoard.PlayerPosition)
+                        label.text = "P";
+                    else if (cell == tacticalBoard.MonsterPosition)
+                        label.text = "M";
+                    else if (cell == tacticalBoard.EnemyPosition)
+                        label.text = "E";
+                    label.gameObject.SetActive((cell == tacticalBoard.PlayerPosition || cell == tacticalBoard.EnemyPosition || cell == tacticalBoard.MonsterPosition || tacticalBoard.IsWall(cell)) && (icon == null || icon.sprite == null));
+
+                    button.interactable = tacticalBoard.Status == TacticalBoardStatus.Running;
+                }
+            }
+
+            if (tacticalMovesText != null)
+                tacticalMovesText.text = "Lượt: " + tacticalBoard.MoveBank + "   Đã đi: " + tacticalBoard.MovesUsed;
+            if (tacticalStatusText != null)
+                tacticalStatusText.text = tacticalBoard.LastMessage;
+
+            if (tacticalMovesText != null)
+                tacticalMovesText.text = "Lượt đi: " + tacticalBoard.MoveBank + "   Đã đi: " + tacticalBoard.MovesUsed;
+            if (tacticalStatusText != null && tacticalBoard.Status == TacticalBoardStatus.Running && tacticalBoard.MoveBank <= 0)
+                tacticalStatusText.text = "Cần lượt đi để di chuyển.";
+        }
+
+        void RefreshSceneHud()
+        {
+            if (!usingSceneGameplayCanvas)
+                return;
+
+            EnsureSceneRuntimeGameplayUi();
+
+            if (sceneLevelText != null)
+                sceneLevelText.text = "Màn: " + journeyLevel;
+            if (sceneMoveText != null)
+                sceneMoveText.text = tacticalBoard != null ? "Lượt đi: " + tacticalBoard.MoveBank : "Lượt đi: 0";
+            if (sceneNextText != null)
+                sceneNextText.text = "TIẾP";
+        }
+
+        void EnsureSceneRuntimeGameplayUi()
+        {
+            if (!usingSceneGameplayCanvas)
+                return;
+
+            bool rebuiltPuzzle = false;
+            bool rebuiltTactical = false;
+            bool rebuiltPreview = false;
+            Transform contentRoot = safeAreaRoot != null ? safeAreaRoot : sceneGameplayRootRect;
+            if (scenePuzzleBoardAnchorRect == null && contentRoot != null)
+            {
+                var puzzleAnchor = FindChildLoose(contentRoot, "PuzzleBoardAnchor");
+                scenePuzzleBoardAnchorRect = puzzleAnchor != null ? puzzleAnchor.GetComponent<RectTransform>() : null;
+            }
+            if ((scenePuzzleCells == null || scenePuzzleGridRect == null) && scenePuzzleBoardAnchorRect != null)
+            {
+                BuildScenePuzzleGrid();
+                rebuiltPuzzle = true;
+            }
+
+            if (sceneTacticalBoardRect == null && contentRoot != null)
+            {
+                var board = FindChildLoose(contentRoot, "TacticalBoard");
+                sceneTacticalBoardRect = board != null ? board.GetComponent<RectTransform>() : null;
+            }
+            if (sceneTacticalBoardRect != null && (tacticalCellButtons == null || tacticalCellButtons.Count == 0))
+            {
+                BuildSceneTacticalGridIfNeeded(contentRoot);
+                rebuiltTactical = true;
+            }
+
+            if ((nextPreviewCells == null || nextPreviewCells.Count == 0) && contentRoot != null)
+            {
+                Transform nextPreview = FindChildLoose(contentRoot, "NextPreview") ?? FindChildLoose(contentRoot, "NextPanel");
+                if (nextPreview != null)
+                {
+                    nextWidgetRect = nextPreview.GetComponent<RectTransform>();
+                    sceneNextPreviewRect = nextWidgetRect;
+                    nextPreviewCells = CreatePiecePreview(nextPreview, new Vector2(0.5f, 0.5f), CalculatePreviewCellSize(sceneNextPreviewRect));
+                    rebuiltPreview = true;
+                }
+            }
+
+            if (rebuiltPuzzle)
+                RefreshScenePuzzleBoardUi();
+            if (rebuiltTactical)
+                RefreshTacticalBoardUi();
+            if (rebuiltPreview && nextPreviewCells != null && nextPreviewCells.Count > 0 && nextBag.Count > 0)
+                RenderPiecePreview(nextPreviewCells, PeekNext(0), true);
         }
 
         void AddHudWoodDetails(Transform parent)
@@ -801,6 +3012,7 @@ namespace BrickStacker
             label.resizeTextMinSize = 18;
             label.resizeTextMaxSize = label.fontSize;
             AddDarkWoodTextEdge(label, 1.05f, 0.90f);
+            AddWarmTitleFinish(label, 0.52f);
 
             var warmEdge = label.gameObject.AddComponent<Shadow>();
             warmEdge.effectColor = new Color(0.22f, 0.085f, 0.025f, 0.48f);
@@ -819,17 +3031,19 @@ namespace BrickStacker
         void StyleRoundWoodButton(Button button, string labelText, int fontSize)
         {
             var image = button.GetComponent<Image>();
-            image.sprite = RuntimeArt.CreatePauseButtonSprite();
+            bool useRotateArt = labelText != "II";
+            image.sprite = useRotateArt ? RuntimeArt.CreateRotateButtonSprite() : RuntimeArt.CreatePauseButtonSprite();
             image.type = Image.Type.Simple;
             image.preserveAspect = true;
             image.color = Color.white;
+            image.raycastTarget = true;
 
             var buttonShadow = button.gameObject.AddComponent<Shadow>();
             buttonShadow.effectColor = new Color(0.025f, 0.008f, 0.002f, 0.90f);
             buttonShadow.effectDistance = new Vector2(4.5f, -5.5f);
 
             var label = button.GetComponentInChildren<Text>();
-            label.text = labelText;
+            label.text = useRotateArt ? "" : labelText;
             label.fontSize = fontSize;
             label.fontStyle = FontStyle.Bold;
             label.color = new Color(0.22f, 0.095f, 0.035f, 1f);
@@ -843,8 +3057,9 @@ namespace BrickStacker
             var colors = button.colors;
             colors.normalColor = Color.white;
             colors.highlightedColor = new Color(1f, 0.92f, 0.78f, 1f);
-            colors.pressedColor = new Color(0.78f, 0.50f, 0.28f, 1f);
+            colors.pressedColor = new Color(0.65f, 0.38f, 0.18f, 1f);
             colors.selectedColor = Color.white;
+            colors.fadeDuration = 0.05f;
             button.colors = colors;
         }
 
@@ -910,72 +3125,294 @@ namespace BrickStacker
             depth.useGraphicAlpha = true;
         }
 
+        void AddWarmTitleFinish(Text text, float glowStrength)
+        {
+            text.fontStyle = FontStyle.Bold;
+
+            var topGlow = text.gameObject.AddComponent<Shadow>();
+            topGlow.effectColor = new Color(1f, 0.68f, 0.30f, 0.25f * glowStrength);
+            topGlow.effectDistance = new Vector2(-0.50f, 0.62f);
+            topGlow.useGraphicAlpha = true;
+
+            var carvedDrop = text.gameObject.AddComponent<Shadow>();
+            carvedDrop.effectColor = new Color(0.035f, 0.012f, 0.004f, 0.76f);
+            carvedDrop.effectDistance = new Vector2(1.35f, -1.55f);
+            carvedDrop.useGraphicAlpha = true;
+        }
+
+        void StylePopupTitle(Text text, int size)
+        {
+            text.font = titleFont ?? font;
+            text.fontSize = size;
+            text.resizeTextMinSize = Mathf.Max(22, size - 10);
+            text.resizeTextMaxSize = size;
+            text.fontStyle = FontStyle.Bold;
+            AddDarkWoodTextEdge(text, 1.10f, 0.86f);
+            AddWarmTitleFinish(text, 0.54f);
+        }
+
+        TMP_FontAsset PopupTitleFont()
+        {
+            if (popupTitleFont != null)
+                return popupTitleFont;
+
+            popupTitleFont = Resources.Load<TMP_FontAsset>("Fonts & Materials/fmp-Batangas-Bold-s7igzb SDF")
+                ?? Resources.Load<TMP_FontAsset>("Fonts & Materials/Batangas_Bold SDF");
+            return popupTitleFont;
+        }
+
+        TMP_Text CreatePopupTitle(Transform parent, string value, int size, Color color)
+        {
+            var go = new GameObject("Popup Title");
+            go.transform.SetParent(parent, false);
+            go.AddComponent<RectTransform>();
+            var text = go.AddComponent<TextMeshProUGUI>();
+            text.text = value;
+            text.font = PopupTitleFont();
+            text.fontSize = size;
+            text.fontSizeMin = Mathf.Max(24, size - 12);
+            text.fontSizeMax = size;
+            text.enableAutoSizing = true;
+            text.color = color;
+            text.alignment = TextAlignmentOptions.Center;
+            text.fontStyle = FontStyles.Bold;
+            text.raycastTarget = false;
+
+            var outline = go.AddComponent<Outline>();
+            outline.effectColor = new Color(0.13f, 0.050f, 0.014f, 0.82f);
+            outline.effectDistance = new Vector2(1.0f, 1.0f);
+            outline.useGraphicAlpha = true;
+
+            var depth = go.AddComponent<Shadow>();
+            depth.effectColor = new Color(0.035f, 0.012f, 0.004f, 0.78f);
+            depth.effectDistance = new Vector2(1.2f, -1.35f);
+            depth.useGraphicAlpha = true;
+
+            var warm = go.AddComponent<Shadow>();
+            warm.effectColor = new Color(1f, 0.68f, 0.30f, 0.14f);
+            warm.effectDistance = new Vector2(-0.45f, 0.55f);
+            warm.useGraphicAlpha = true;
+
+            return text;
+        }
+
+        void StyleLevelClearTitle(Text text)
+        {
+            text.font = font;
+            text.fontSize = 32;
+            text.resizeTextMinSize = 24;
+            text.resizeTextMaxSize = 32;
+            text.fontStyle = FontStyle.Bold;
+            text.color = new Color(1f, 0.86f, 0.55f);
+            AddDarkWoodTextEdge(text, 0.95f, 0.82f);
+        }
+
         void BuildPausePopup(Transform parent)
         {
             var shadow = Ui.Panel(parent, "Pause Popup Shadow", new Color(0.04f, 0.018f, 0.008f, 0.78f));
-            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(460, 450));
+            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(850, 704));
             shadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -12);
             StyleWoodPopupShadow(shadow);
 
             var box = Ui.Panel(parent, "Pause Popup", Color.white);
-            Ui.Rect(box, new Vector2(0.5f, 0.52f), new Vector2(0.5f, 0.52f), new Vector2(450, 440));
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 676));
             StyleWoodPopupFrame(box);
 
+            var title = CreatePopupTitle(box.transform, "TẠM DỪNG", 82, new Color(1f, 0.86f, 0.56f));
+            Ui.Rect(title, new Vector2(0.5f, 0.795f), new Vector2(0.5f, 0.795f), new Vector2(634, 130));
+
             var accent = Ui.Panel(box.transform, "Pause Accent", new Color(0.80f, 0.48f, 0.24f, 0.58f));
-            Ui.Rect(accent, new Vector2(0.5f, 0.705f), new Vector2(0.5f, 0.705f), new Vector2(170, 4));
+            Ui.Rect(accent, new Vector2(0.5f, 0.700f), new Vector2(0.5f, 0.700f), new Vector2(660, 4));
 
-            var title = Ui.Text(box.transform, "PAUSED", font, 44, new Color(1f, 0.86f, 0.56f), TextAnchor.MiddleCenter);
-            Ui.Rect(title, new Vector2(0.5f, 0.760f), new Vector2(0.5f, 0.760f), new Vector2(340, 72));
-            AddDarkWoodTextEdge(title, 1.15f, 0.90f);
+            // Primary button — slightly wider to stand out
+            var continueShadow = Ui.Panel(box.transform, "Tiếp tục Shadow", new Color(0.055f, 0.022f, 0.01f, 0.65f));
+            Ui.Rect(continueShadow, new Vector2(0.5f, 0.570f), new Vector2(0.5f, 0.570f), new Vector2(566, 124));
+            continueShadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -5);
+            var continueBtn = Ui.Button(box.transform, "Tiếp tục", font, 56, () => { RuntimeArt.PlayUiSwitchSound(); TogglePause(); });
+            Ui.Rect(continueBtn.gameObject, new Vector2(0.5f, 0.570f), new Vector2(0.5f, 0.570f), new Vector2(544, 112));
+            StyleWoodRectButton(continueBtn, 34);
 
-            AddPauseButton(box.transform, "Resume", new Vector2(0.5f, 0.555f), TogglePause);
-            AddPauseButton(box.transform, "Retry", new Vector2(0.5f, 0.395f), Restart);
-            AddPauseButton(box.transform, "Menu", new Vector2(0.5f, 0.235f), BackToMenu);
+            // Thin separator between primary and secondary actions
+            var sep2 = Ui.Panel(box.transform, "Pause Sep", new Color(0.75f, 0.48f, 0.22f, 0.35f));
+            Ui.Rect(sep2, new Vector2(0.5f, 0.460f), new Vector2(0.5f, 0.460f), new Vector2(600, 3));
+
+            AddPauseButton(box.transform, "Chơi lại", new Vector2(0.5f, 0.370f), Restart);
+            AddPauseButton(box.transform, "Trang chủ", new Vector2(0.5f, 0.195f), BackToMenu);
         }
 
         void AddPauseButton(Transform parent, string label, Vector2 anchor, UnityEngine.Events.UnityAction action)
         {
+            if (parent != null && parent.name == "Pause Popup")
+            {
+                if (anchor.y > 0.5f)
+                    anchor.y = 0.570f;
+                else if (anchor.y > 0.3f)
+                    anchor.y = 0.370f;
+                else
+                    anchor.y = 0.195f;
+            }
+
             var shadow = Ui.Panel(parent, label + " Shadow", new Color(0.055f, 0.022f, 0.01f, 0.65f));
-            Ui.Rect(shadow, anchor, anchor, new Vector2(290, 64));
+            Ui.Rect(shadow, anchor, anchor, new Vector2(548, 124));
             shadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -5);
 
-            var button = Ui.Button(parent, label, font, 24, () =>
+            var button = Ui.Button(parent, label, font, 56, () =>
             {
                 RuntimeArt.PlayUiSwitchSound();
                 action.Invoke();
             });
-            Ui.Rect(button.gameObject, anchor, anchor, new Vector2(280, 58));
-            StyleWoodRectButton(button, 24);
+            Ui.Rect(button.gameObject, anchor, anchor, new Vector2(526, 112));
+            StyleWoodRectButton(button, 34);
         }
 
         void BuildGameOverPopup(Transform parent)
         {
             var shadow = Ui.Panel(parent, "Game Over Popup Shadow", new Color(0.04f, 0.018f, 0.008f, 0.82f));
-            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(470, 430));
+            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(850, 750));
             shadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -12);
             StyleWoodPopupShadow(shadow);
 
             var box = Ui.Panel(parent, "Game Over Popup", Color.white);
-            Ui.Rect(box, new Vector2(0.5f, 0.52f), new Vector2(0.5f, 0.52f), new Vector2(460, 420));
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 720));
             StyleWoodPopupFrame(box);
 
+            gameOverTitleText = CreatePopupTitle(box.transform, "THUA RỒI", 78, new Color(1f, 0.74f, 0.42f));
+            Ui.Rect(gameOverTitleText, new Vector2(0.5f, 0.780f), new Vector2(0.5f, 0.780f), new Vector2(620, 128));
+
             var accent = Ui.Panel(box.transform, "Game Over Accent", new Color(0.80f, 0.48f, 0.24f, 0.58f));
-            Ui.Rect(accent, new Vector2(0.5f, 0.705f), new Vector2(0.5f, 0.705f), new Vector2(190, 4));
+            Ui.Rect(accent, new Vector2(0.5f, 0.706f), new Vector2(0.5f, 0.706f), new Vector2(660, 4));
 
-            gameOverTitleText = Ui.Text(box.transform, "GAME OVER", font, 40, new Color(1f, 0.74f, 0.42f), TextAnchor.MiddleCenter);
-            Ui.Rect(gameOverTitleText, new Vector2(0.5f, 0.755f), new Vector2(0.5f, 0.755f), new Vector2(360, 70));
-            AddDarkWoodTextEdge(gameOverTitleText, 1.15f, 0.90f);
+            // Dark inset panel behind score for visual depth
+            var scoreBg = Ui.Panel(box.transform, "Score BG", new Color(0.08f, 0.035f, 0.012f, 0.45f));
+            Ui.Rect(scoreBg, new Vector2(0.5f, 0.618f), new Vector2(0.5f, 0.618f), new Vector2(690, 148));
 
-            gameOverScoreText = Ui.Text(box.transform, "", font, 24, Color.white, TextAnchor.MiddleCenter);
-            Ui.Rect(gameOverScoreText, new Vector2(0.5f, 0.620f), new Vector2(0.5f, 0.620f), new Vector2(340, 54));
+            gameOverScoreText = Ui.Text(box.transform, "", font, 44, Color.white, TextAnchor.MiddleCenter);
+            Ui.Rect(gameOverScoreText, new Vector2(0.5f, 0.618f), new Vector2(0.5f, 0.618f), new Vector2(648, 128));
             AddDarkWoodTextEdge(gameOverScoreText, 0.95f, 0.86f);
 
-            AddPauseButton(box.transform, "Retry", new Vector2(0.5f, 0.410f), Restart);
-            AddPauseButton(box.transform, "Menu", new Vector2(0.5f, 0.255f), BackToMenu);
+            var sep = Ui.Panel(box.transform, "GO Sep", new Color(0.75f, 0.48f, 0.22f, 0.35f));
+            Ui.Rect(sep, new Vector2(0.5f, 0.492f), new Vector2(0.5f, 0.492f), new Vector2(600, 3));
+
+            AddPauseButton(box.transform, "Chơi lại", new Vector2(0.5f, 0.390f), Restart);
+            AddPauseButton(box.transform, "Trang chủ", new Vector2(0.5f, 0.225f), BackToMenu);
+        }
+
+        void BuildMissionPopup(Transform parent)
+        {
+            var shadow = Ui.Panel(parent, "Mission Popup Shadow", new Color(0.04f, 0.018f, 0.008f, 0.80f));
+            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(806, 706));
+            shadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -12);
+            StyleWoodPopupShadow(shadow);
+
+            var box = Ui.Panel(parent, "Mission Popup", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(778, 678));
+            StyleWoodPopupFrame(box);
+
+            missionTitleText = CreatePopupTitle(box.transform, "NHIỆM VỤ", 68, new Color(1f, 0.84f, 0.50f));
+            Ui.Rect(missionTitleText, new Vector2(0.5f, 0.810f), new Vector2(0.5f, 0.810f), new Vector2(624, 116));
+
+            missionDescText = Ui.Text(box.transform, "", font, 32, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+            Ui.Rect(missionDescText, new Vector2(0.10f, 0.683f), new Vector2(0.90f, 0.683f), new Vector2(0, 64));
+            AddDarkWoodTextEdge(missionDescText, 0.8f, 0.78f);
+
+            var sep1 = Ui.Panel(box.transform, "MissionSep1", new Color(0.75f, 0.50f, 0.22f, 0.5f));
+            Ui.Rect(sep1, new Vector2(0.08f, 0.622f), new Vector2(0.92f, 0.622f), new Vector2(0, 3));
+
+            missionStar3CondText = AddMissionStarRow(box.transform, "★★★", 0.569f);
+            missionStar2CondText = AddMissionStarRow(box.transform, "★★", 0.468f);
+            missionStar1CondText = AddMissionStarRow(box.transform, "★", 0.368f);
+
+            var sep2 = Ui.Panel(box.transform, "MissionSep2", new Color(0.75f, 0.50f, 0.22f, 0.5f));
+            Ui.Rect(sep2, new Vector2(0.08f, 0.310f), new Vector2(0.92f, 0.310f), new Vector2(0, 3));
+
+            AddPauseButton(box.transform, "Bắt đầu", new Vector2(0.5f, 0.195f), () =>
+            {
+                missionOverlay.SetActive(false);
+                paused = false;
+                Time.timeScale = 1f;
+            });
+        }
+
+        Text AddMissionStarRow(Transform parent, string stars, float anchorY)
+        {
+            // Container 420px căn giữa popup — toàn bộ cụm nằm ở giữa
+            var container = new GameObject("StarRow", typeof(RectTransform));
+            container.transform.SetParent(parent, false);
+            var cr = container.GetComponent<RectTransform>();
+            cr.anchorMin = new Vector2(0.5f, anchorY);
+            cr.anchorMax = new Vector2(0.5f, anchorY);
+            cr.pivot = new Vector2(0.5f, 0.5f);
+            cr.anchoredPosition = new Vector2(28, 0);
+            cr.sizeDelta = new Vector2(420, 62);
+            cr.localScale = Vector3.one;
+
+            // Cột sao 150px, MiddleCenter — ★/★★/★★★ đều canh giữa trên cùng trục
+            var starLabel = Ui.Text(container.transform, stars, font, 46, new Color(1f, 0.88f, 0.20f), TextAnchor.MiddleCenter);
+            var sr = starLabel.GetComponent<RectTransform>();
+            sr.anchorMin = new Vector2(0f, 0f);
+            sr.anchorMax = new Vector2(0f, 1f);
+            sr.pivot = new Vector2(0f, 0.5f);
+            sr.anchoredPosition = Vector2.zero;
+            sr.sizeDelta = new Vector2(150, 0);
+            sr.localScale = Vector3.one;
+            AddDarkWoodTextEdge(starLabel, 0.5f, 0.78f);
+
+            // Cột điều kiện, MiddleLeft — tất cả chữ bắt đầu cùng một x
+            var condText = Ui.Text(container.transform, "", font, 30, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleLeft);
+            var cr2 = condText.GetComponent<RectTransform>();
+            cr2.anchorMin = new Vector2(0f, 0f);
+            cr2.anchorMax = new Vector2(1f, 1f);
+            cr2.pivot = new Vector2(0f, 0.5f);
+            cr2.anchoredPosition = new Vector2(166, 0);
+            cr2.sizeDelta = new Vector2(-166, 0);
+            cr2.localScale = Vector3.one;
+            AddDarkWoodTextEdge(condText, 0.6f, 0.68f);
+            return condText;
+        }
+
+        void BuildLevelClearPopup(Transform parent)
+        {
+            var shadow = Ui.Panel(parent, "Level Clear Popup Shadow", new Color(0.04f, 0.018f, 0.008f, 0.82f));
+            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(936, 1282));
+            shadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -12);
+            StyleWoodPopupShadow(shadow);
+
+            var box = Ui.Panel(parent, "Level Clear Popup", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(908, 1240));
+            StyleWoodPopupFrame(box);
+
+            levelClearTitleText = CreatePopupTitle(box.transform, "HOÀN THÀNH", 76, new Color(1f, 0.84f, 0.50f));
+            Ui.Rect(levelClearTitleText, new Vector2(0.5f, 0.865f), new Vector2(0.5f, 0.865f), new Vector2(720, 126));
+
+            levelClearBodyText = Ui.Text(box.transform, "", font, 30, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+            Ui.Rect(levelClearBodyText, new Vector2(0.5f, 0.765f), new Vector2(0.5f, 0.765f), new Vector2(778, 156));
+            AddDarkWoodTextEdge(levelClearBodyText, 0.8f, 0.78f);
+
+            var lcSep = Ui.Panel(box.transform, "LC Sep", new Color(0.75f, 0.48f, 0.22f, 0.40f));
+            Ui.Rect(lcSep, new Vector2(0.5f, 0.272f), new Vector2(0.5f, 0.272f), new Vector2(760, 3));
+
+            var contShadow = Ui.Panel(box.transform, "Continue Shadow", new Color(0.055f, 0.022f, 0.01f, 0.65f));
+            Ui.Rect(contShadow, new Vector2(0.5f, 0.220f), new Vector2(0.5f, 0.220f), new Vector2(560, 116));
+            contShadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -5);
+            continueButton = Ui.Button(box.transform, "Bản đồ màn", font, 24, () => { });
+            Ui.Rect(continueButton.gameObject, new Vector2(0.5f, 0.220f), new Vector2(0.5f, 0.220f), new Vector2(538, 104));
+            StyleWoodRectButton(continueButton, 42);
+
+            var stopShadow = Ui.Panel(box.transform, "Stop Shadow", new Color(0.055f, 0.022f, 0.01f, 0.65f));
+            Ui.Rect(stopShadow, new Vector2(0.5f, 0.113f), new Vector2(0.5f, 0.113f), new Vector2(540, 108));
+            stopShadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -5);
+            stopButton = Ui.Button(box.transform, "Chơi lại", font, 23, () => { });
+            Ui.Rect(stopButton.gameObject, new Vector2(0.5f, 0.113f), new Vector2(0.5f, 0.113f), new Vector2(518, 96));
+            StyleWoodRectButton(stopButton, 36);
         }
 
         void ConfigureResponsiveCamera()
         {
+            if (cam == null)
+                cam = Camera.main ?? FindAnyObjectByType<Camera>();
+            if (cam == null)
+                return;
+
             float aspect = Mathf.Max(0.35f, cam.aspect);
             bool portrait = aspect < 0.8f;
             float boardHalfHeight = Height * 0.5f;
@@ -1005,15 +3442,759 @@ namespace BrickStacker
             }
 
             cam.transform.position = cameraHome;
-            if (safeAreaRoot != null)
+            if (safeAreaRoot != null && !usingSceneGameplayCanvas)
                 Ui.ApplySafeArea(safeAreaRoot);
+            if (usingSceneGameplayCanvas)
+                ApplySceneGameplayResponsiveLayout(false);
             LayoutGameplayChrome();
             lastScreenWidth = Screen.width;
             lastScreenHeight = Screen.height;
+            lastAppliedSafeArea = Screen.safeArea;
+        }
+
+        void SwitchGameplayRoot(bool useTablet)
+        {
+            RectTransform fromRoot = sceneUsingTabletGameplayRoot ? sceneTabletGameplayRootRect : sceneMobileGameplayRootRect;
+            RectTransform toRoot   = useTablet                    ? sceneTabletGameplayRootRect : sceneMobileGameplayRootRect;
+            if (fromRoot == null || toRoot == null) return;
+
+            Transform fromContent = FindChildLoose(fromRoot, "SafeAreaContainer") ?? (Transform)fromRoot;
+            Transform toContent   = FindChildLoose(toRoot,   "SafeAreaContainer") ?? (Transform)toRoot;
+
+            // Move Runtime children inside SafeAreaContainer (e.g. Runtime Score Mirror, status text).
+            var toMove = new System.Collections.Generic.List<Transform>();
+            foreach (Transform child in fromContent)
+                if (child.name.StartsWith("Runtime ") || child.name == statusText?.gameObject.name)
+                    toMove.Add(child);
+            foreach (var child in toMove)
+                child.SetParent(toContent, false);
+
+            // Move Runtime Puzzle Grid: it lives inside PuzzleBoardAnchor.
+            Transform fromPuzzleAnchor = FindChildLoose(fromContent, "PuzzleBoardAnchor");
+            Transform toPuzzleAnchor   = FindChildLoose(toContent,   "PuzzleBoardAnchor");
+            if (fromPuzzleAnchor != null && toPuzzleAnchor != null)
+            {
+                var puzzleToMove = new System.Collections.Generic.List<Transform>();
+                foreach (Transform child in fromPuzzleAnchor)
+                    if (child.name.StartsWith("Runtime "))
+                        puzzleToMove.Add(child);
+                foreach (var child in puzzleToMove)
+                    child.SetParent(toPuzzleAnchor, false);
+            }
+
+            // Move Runtime Tactical Grid: it lives inside TacticalBoard.
+            Transform fromTactical = FindChildLoose(fromContent, "TacticalBoard");
+            Transform toTactical   = FindChildLoose(toContent,   "TacticalBoard");
+            if (fromTactical != null && toTactical != null)
+            {
+                var tacticalToMove = new System.Collections.Generic.List<Transform>();
+                foreach (Transform child in fromTactical)
+                    if (child.name.StartsWith("Runtime "))
+                        tacticalToMove.Add(child);
+                foreach (var child in tacticalToMove)
+                    child.SetParent(toTactical, false);
+            }
+
+            sceneUsingTabletGameplayRoot = useTablet;
+            fromRoot.gameObject.SetActive(false);
+            toRoot.gameObject.SetActive(true);
+            sceneGameplayRootRect      = toRoot;
+            sceneContentAreaRect       = toContent as RectTransform ?? toRoot;
+            // Reset any design-time scale on the new content root so children layout correctly.
+            StretchSceneRootToScreen(sceneContentAreaRect);
+            sceneSafeAreaContainerRect = sceneContentAreaRect;
+            safeAreaRoot               = sceneContentAreaRect;
+            sceneBackgroundRect        = GetSceneRect(toRoot, "Background");
+            sceneHeaderRect            = GetSceneRect(toContent, "Header");
+            sceneNextPanelRect         = GetSceneRect(toContent, "NextPanel");
+            var newPuzzleAnchor        = FindChildLoose(toContent, "PuzzleBoardAnchor");
+            scenePuzzleBoardAnchorRect = newPuzzleAnchor != null ? newPuzzleAnchor.GetComponent<RectTransform>() : null;
+            if (scenePuzzleGridRect != null && newPuzzleAnchor != null)
+                scenePuzzleGridRect = FindChildLoose(newPuzzleAnchor, "Runtime Puzzle Grid")?.GetComponent<RectTransform>();
+            var newTactical            = FindChildLoose(toContent, "TacticalBoard");
+            sceneTacticalBoardRect     = newTactical != null ? newTactical.GetComponent<RectTransform>() : null;
+            sceneGameplayReferenceResolution = useTablet ? new Vector2(1668f, 2420f) : new Vector2(1284f, 2778f);
+
+            // Rebind HUD texts to the new active layout's scene objects so score/level
+            // updates reach the visible root instead of the deactivated one.
+            sceneLevelText = FindTmpText(toContent, "LevelText");
+            sceneMoveText = FindTmpText(toContent, "MoveText");
+
+            // Rebind Next panel text and preview to the new active layout's scene objects.
+            sceneNextText = FindTmpText(toContent, "NextPanel");
+            if (sceneNextText != null)
+                sceneNextText.text = "TIẾP";
+
+            Transform oldNextPreview = sceneNextPreviewRect?.transform;
+            Transform newNextPreview = FindChildLoose(toContent, "NextPreview") ?? FindChildLoose(toContent, "NextPanel");
+            if (newNextPreview != null)
+            {
+                // Move "Preview Cell" children from the old preview parent to the new one.
+                if (oldNextPreview != null && oldNextPreview != newNextPreview)
+                {
+                    var cellsToMove = new System.Collections.Generic.List<Transform>();
+                    foreach (Transform child in oldNextPreview)
+                        if (child.name == "Preview Cell")
+                            cellsToMove.Add(child);
+                    foreach (var cell in cellsToMove)
+                        cell.SetParent(newNextPreview, false);
+                }
+                sceneNextPreviewRect = newNextPreview.GetComponent<RectTransform>();
+                nextWidgetRect = sceneNextPreviewRect;
+            }
+
+            var newRotateGO = FindChildLoose(toContent, "RotateButton");
+            if (newRotateGO != null)
+            {
+                rotateButtonRect = newRotateGO.GetComponent<RectTransform>();
+                EnsureSceneButton(newRotateGO, RotateFromButton);
+            }
+            Transform newHeaderTransform = FindChildLoose(toContent, "Header");
+            var newPauseGO = newHeaderTransform != null
+                ? (FindChildLoose(newHeaderTransform, "PauseButton") ?? FindChildLoose(toContent, "PauseButton"))
+                : FindChildLoose(toContent, "PauseButton");
+            if (newPauseGO != null)
+            {
+                pauseButtonRect = newPauseGO.GetComponent<RectTransform>();
+                EnsureSceneButton(newPauseGO, TogglePause);
+            }
+
+            // Force layout recalc so GetWorldCorners returns correct values for the new root.
+            Canvas.ForceUpdateCanvases();
+        }
+
+        void ApplySceneGameplayResponsiveLayout(bool force)
+        {
+            if (!usingSceneGameplayCanvas || sceneGameplayRootRect == null)
+                return;
+
+            // Re-evaluate mobile/tablet visibility whenever screen size changes.
+            // Note: sceneGameplayRootRect and all rect bindings always follow the root that was
+            // active at startup (where runtime content was built). We never rebind — instead we
+            // move the runtime content into whichever root is now visible.
+            bool shouldUseTablet = ShouldUseTabletGameplayLayout();
+            if (shouldUseTablet != sceneUsingTabletGameplayRoot)
+                SwitchGameplayRoot(shouldUseTablet);
+
+            // Stretch the active layout root to fill the screen.
+            StretchSceneRootToScreen(sceneGameplayRootRect);
+
+            // Also stretch the inactive root so it is ready if the layout switches.
+            if (sceneUsingTabletGameplayRoot && sceneMobileGameplayRootRect != null)
+                StretchSceneRootToScreen(sceneMobileGameplayRootRect);
+            else if (!sceneUsingTabletGameplayRoot && sceneTabletGameplayRootRect != null)
+                StretchSceneRootToScreen(sceneTabletGameplayRootRect);
+
+            // Background fills the full screen behind everything.
+            if (sceneBackgroundRect != null)
+            {
+                sceneBackgroundRect.SetAsFirstSibling();
+                StretchSceneRootToScreen(sceneBackgroundRect);
+                var backgroundImage = sceneBackgroundRect.GetComponent<Image>();
+                if (backgroundImage != null)
+                    backgroundImage.preserveAspect = false;
+            }
+
+            // Reposition all scene elements using normalized anchor values so layout is
+            // correct on every screen size (not just the reference 1284×2778 design size).
+            ApplyGameplayRegionLayout();
+
+            // Force layout recalc so parent.rect reflects new anchor values before
+            // computing cell sizes and safe-area insets.
+            Canvas.ForceUpdateCanvases();
+
+            // Apply safe-area inset so content stays clear of notch / home bar.
+            ApplySceneSafeAreaContainer();
+
+            Canvas.ForceUpdateCanvases();
+            RefreshScenePreviewCellSizes();
+            RefreshScenePuzzleCellSizes();
+        }
+
+        void ApplySceneSafeAreaContainer()
+        {
+            // Lazily resolve if not already set.
+            if (sceneSafeAreaContainerRect == null)
+            {
+                // Try gameplay root first, then search all scene transforms.
+                Transform searchRoot = sceneGameplayRootRect != null ? (Transform)sceneGameplayRootRect : null;
+                if (searchRoot != null)
+                    sceneSafeAreaContainerRect = FindChildLooseActive(searchRoot, "SafeAreaContainer") as RectTransform
+                        ?? FindChildLoose(searchRoot, "SafeAreaContainer") as RectTransform;
+                if (sceneSafeAreaContainerRect == null)
+                    sceneSafeAreaContainerRect = FindChildInAnyCanvas("SafeAreaContainer") as RectTransform;
+            }
+
+            if (sceneSafeAreaContainerRect == null)
+                return;
+
+            var parent = sceneSafeAreaContainerRect.parent as RectTransform;
+            if (parent == null)
+                return;
+
+            // Only push in safe-area insets + a small breathing margin using offsetMin/offsetMax.
+            // Do NOT change anchorMin/Max, sizeDelta, anchoredPosition, or localScale — the pre-built
+            // scene layout carries its own localScale (may be non-1) that positions all children.
+            Rect safe = Ui.SafeArea();
+            float screenWidth = Mathf.Max(1f, Screen.width);
+            float screenHeight = Mathf.Max(1f, Screen.height);
+            float parentW = Mathf.Max(1f, parent.rect.width);
+            float parentH = Mathf.Max(1f, parent.rect.height);
+
+            // Convert screen safe-area to parent-local canvas offsets.
+            float safeL = parentW * Mathf.Clamp01(safe.xMin / screenWidth);
+            float safeR = parentW * Mathf.Clamp01(1f - (safe.xMin + safe.width) / screenWidth);
+            float safeB = parentH * Mathf.Clamp01(safe.yMin / screenHeight);
+            float safeT = parentH * Mathf.Clamp01(1f - (safe.yMin + safe.height) / screenHeight);
+
+            // Add a small breathing margin so content never kisses the screen edge.
+            float margin = sceneUsingTabletGameplayRoot ? 20f : 16f;
+            sceneSafeAreaContainerRect.offsetMin = new Vector2(safeL + margin, safeB + margin);
+            sceneSafeAreaContainerRect.offsetMax = new Vector2(-(safeR + margin), -(safeT + margin));
+            sceneSafeAreaContainerRect.SetAsLastSibling();
+        }
+
+        void FitSceneRootToReference(RectTransform rect, Vector2 referenceResolution, Vector4 padding)
+        {
+            if (rect == null)
+                return;
+
+            var parent = rect.parent as RectTransform;
+            if (parent == null)
+                return;
+
+            if (referenceResolution.x <= 0f || referenceResolution.y <= 0f)
+                referenceResolution = new Vector2(1284f, 2778f);
+
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = referenceResolution;
+            rect.localRotation = Quaternion.identity;
+
+            Rect parentRect = parent.rect;
+            float safeWidth = Mathf.Max(1f, parentRect.width - padding.x - padding.y);
+            float safeHeight = Mathf.Max(1f, parentRect.height - padding.z - padding.w);
+            Vector2 safeCenter = parentRect.center + new Vector2((padding.x - padding.y) * 0.5f, (padding.w - padding.z) * 0.5f);
+
+            float scale = Mathf.Min(safeWidth / referenceResolution.x, safeHeight / referenceResolution.y);
+            scale = Mathf.Clamp(scale, 0.10f, 1.30f);
+            rect.localScale = Vector3.one * Mathf.Max(0.01f, scale);
+            rect.anchoredPosition = safeCenter;
+        }
+
+        void ApplyGameplayRegionLayout()
+        {
+            float aspect = Screen.height > 0 ? Screen.width / (float)Screen.height : 9f / 16f;
+            bool tablet = sceneUsingTabletGameplayRoot;
+            if (tablet)
+                ApplyTabletGameplayRegionLayout(aspect);
+            else
+                ApplyMobileGameplayRegionLayout(aspect);
+        }
+
+        void ApplyMobileGameplayRegionLayout(float aspect)
+        {
+            const float left = 0.042f;
+            const float right = 0.958f;
+            const float top = 0.982f;
+            const float bottom = 0.018f;
+            const float cx = 0.5f;
+            float safeWidth = right - left;
+
+            float headerW = Mathf.Clamp(safeWidth * 0.90f, 0.80f, 0.92f);
+            float headerH = 0.070f;
+            ApplySceneRect(sceneHeaderRect,
+                new Vector2(cx - headerW * 0.5f, top - headerH),
+                new Vector2(cx + headerW * 0.5f, top));
+            LayoutHeaderChildren();
+
+            // Compute the lower section first so the tactical board can align to its edges.
+            // Use a fixed fraction of available height for the tactical board to break circularity.
+            float available = (top - headerH - 0.012f) - bottom;
+            float tacticalH = Mathf.Clamp(available * 0.375f, 0.280f, 0.400f);
+            float lowerGap = 0.018f;
+            float lowerH = available - tacticalH - lowerGap;
+
+            float gap = Mathf.Clamp(safeWidth * 0.035f, 0.024f, 0.040f);
+            float nextWidth = Mathf.Clamp(safeWidth * 0.310f, 0.275f, 0.345f);
+            // PuzzleBoardAnchor: inner frame needs 2:1 ratio to match 10×20 grid.
+            // factor 0.501 accounts for frame border (~8% each side); refAspect = 1284/2778 = 0.4622.
+            float puzzleWidth = Mathf.Clamp(lowerH * 0.501f / 0.4622f, 0.44f, 0.72f);
+            float lowerTotalW = puzzleWidth + gap + nextWidth;
+
+            // Tactical board width = lower section width so all edges align vertically.
+            float tacticalW = lowerTotalW;
+            float tacticalTop = top - headerH - 0.012f;
+            ApplySceneRect(sceneTacticalBoardRect,
+                new Vector2(cx - tacticalW * 0.5f, tacticalTop - tacticalH),
+                new Vector2(cx + tacticalW * 0.5f, tacticalTop));
+
+            // Recompute lower section with exact height after placing tactical board.
+            float lowerTop = tacticalTop - tacticalH - lowerGap;
+            lowerH = lowerTop - bottom;
+            puzzleWidth = Mathf.Clamp(lowerH * 0.501f / 0.4622f, 0.44f, 0.72f);
+            lowerTotalW = puzzleWidth + gap + nextWidth;
+
+            float puzzleLeft = cx - lowerTotalW * 0.5f;
+            ApplySceneRect(scenePuzzleBoardAnchorRect,
+                new Vector2(puzzleLeft, bottom),
+                new Vector2(puzzleLeft + puzzleWidth, bottom + lowerH));
+
+            float sideLeft = puzzleLeft + puzzleWidth + gap;
+            float sideRight = sideLeft + nextWidth;
+            float nextPanelH = Mathf.Clamp(lowerH * 0.38f, 0.155f, 0.240f);
+            float nextPanelTop = bottom + lowerH - 0.015f;
+            float rotateWidth = Mathf.Clamp(nextWidth * 0.68f, 0.100f, 0.135f);
+            float rotateHeight = rotateWidth * aspect;
+            float rotateCenter = (sideLeft + sideRight) * 0.5f;
+
+            // Trận 1v1: ẩn ô TIẾP, dời nút Xoay xuống đáy — cả cột phải dành cho bàn đối thủ.
+            bool opponentColumn = MultiplayerMatch.Active && opponentMiniPanelRect != null;
+            if (sceneNextPanelRect != null)
+                sceneNextPanelRect.gameObject.SetActive(!opponentColumn);
+
+            if (opponentColumn)
+            {
+                float rotateBottom = bottom + 0.006f;
+                if (rotateButtonRect != null)
+                    ApplySceneRect(rotateButtonRect,
+                        new Vector2(rotateCenter - rotateWidth * 0.5f, rotateBottom),
+                        new Vector2(rotateCenter + rotateWidth * 0.5f, rotateBottom + rotateHeight));
+
+                LayoutOpponentMiniBoard(sideLeft, sideRight,
+                    nextPanelTop, rotateBottom + rotateHeight + 0.014f, aspect);
+            }
+            else
+            {
+                ApplySceneRect(sceneNextPanelRect,
+                    new Vector2(sideLeft, nextPanelTop - nextPanelH),
+                    new Vector2(sideRight, nextPanelTop));
+                LayoutNextPreviewInPanel();
+
+                if (rotateButtonRect != null)
+                {
+                    float rotateTop = nextPanelTop - nextPanelH - 0.028f;
+                    ApplySceneRect(rotateButtonRect,
+                        new Vector2(rotateCenter - rotateWidth * 0.5f, rotateTop - rotateHeight),
+                        new Vector2(rotateCenter + rotateWidth * 0.5f, rotateTop));
+                }
+            }
+
+            if (statusText != null)
+                ApplySceneRect(statusText.rectTransform,
+                    new Vector2(left, tacticalTop - tacticalH - 0.002f),
+                    new Vector2(cx - lowerTotalW * 0.5f - 0.010f, tacticalTop));
+        }
+
+        void ApplyTabletGameplayRegionLayout(float aspect)
+        {
+            const float top = 0.982f;
+            const float bottom = 0.018f;
+            const float cx = 0.5f;
+
+            // Header — full-width strip at the top.
+            float headerH = 0.075f;
+            float headerW = 0.88f;
+            ApplySceneRect(sceneHeaderRect,
+                new Vector2(cx - headerW * 0.5f, top - headerH),
+                new Vector2(cx + headerW * 0.5f, top));
+            LayoutHeaderChildren();
+
+            // Split the remaining height: tactical board gets ~30%, lower section gets the rest.
+            float available = top - headerH - 0.012f - bottom;
+            float tacticalH = available * 0.350f;
+            float lowerGap = 0.018f;
+            float lowerH = available - tacticalH - lowerGap;
+
+            // Puzzle board: square-cell constraint (0.501 accounts for frame border).
+            float colGap = 0.020f;
+            float puzzleW = Mathf.Clamp(lowerH * 0.501f / Mathf.Max(0.55f, aspect), 0.25f, 0.50f);
+            // Right panel is 68% of puzzle width so the two columns feel balanced.
+            float nextPanelW = Mathf.Clamp(puzzleW * 0.68f, 0.18f, 0.28f);
+            float lowerTotalW = puzzleW + colGap + nextPanelW;
+
+            // Tactical board is slightly wider than the lower section for visual hierarchy.
+            float tacticalW = Mathf.Clamp(lowerTotalW + 0.04f, 0.58f, 0.84f);
+
+            // --- Position elements top-down ---
+            float tacticalTop = top - headerH - 0.012f;
+            ApplySceneRect(sceneTacticalBoardRect,
+                new Vector2(cx - tacticalW * 0.5f, tacticalTop - tacticalH),
+                new Vector2(cx + tacticalW * 0.5f, tacticalTop));
+
+            float lowerTop = tacticalTop - tacticalH - lowerGap;
+            // Recalculate with the exact lowerH after float arithmetic.
+            lowerH = lowerTop - bottom;
+            puzzleW = Mathf.Clamp(lowerH * 0.501f / Mathf.Max(0.55f, aspect), 0.25f, 0.50f);
+            nextPanelW = Mathf.Clamp(puzzleW * 0.68f, 0.18f, 0.28f);
+            lowerTotalW = puzzleW + colGap + nextPanelW;
+
+            float puzzleLeft = cx - lowerTotalW * 0.5f;
+            ApplySceneRect(scenePuzzleBoardAnchorRect,
+                new Vector2(puzzleLeft, bottom),
+                new Vector2(puzzleLeft + puzzleW, bottom + lowerH));
+
+            float rLeft = puzzleLeft + puzzleW + colGap;
+            float rRight = rLeft + nextPanelW;
+
+            // Next panel: occupies the upper portion of the right column.
+            float nextH = Mathf.Clamp(nextPanelW * 1.60f + 0.040f, 0.130f, 0.210f);
+            float nextTop = bottom + lowerH;
+            float rotW = Mathf.Clamp(nextPanelW * 0.55f, 0.075f, 0.115f);
+            float rotH = rotW * aspect;
+            float rotCx = (rLeft + rRight) * 0.5f;
+
+            // Trận 1v1: ẩn ô TIẾP, dời nút Xoay xuống đáy — cả cột phải dành cho bàn đối thủ.
+            bool opponentColumn = MultiplayerMatch.Active && opponentMiniPanelRect != null;
+            if (sceneNextPanelRect != null)
+                sceneNextPanelRect.gameObject.SetActive(!opponentColumn);
+
+            if (opponentColumn)
+            {
+                float rotBottom = bottom + 0.006f;
+                if (rotateButtonRect != null)
+                    ApplySceneRect(rotateButtonRect,
+                        new Vector2(rotCx - rotW * 0.5f, rotBottom),
+                        new Vector2(rotCx + rotW * 0.5f, rotBottom + rotH));
+
+                LayoutOpponentMiniBoard(rLeft, rRight, nextTop, rotBottom + rotH + 0.012f, aspect);
+            }
+            else
+            {
+                ApplySceneRect(sceneNextPanelRect,
+                    new Vector2(rLeft, nextTop - nextH),
+                    new Vector2(rRight, nextTop));
+                LayoutNextPreviewInPanel();
+
+                if (rotateButtonRect != null)
+                {
+                    float rotTop = nextTop - nextH - 0.022f;
+                    ApplySceneRect(rotateButtonRect,
+                        new Vector2(rotCx - rotW * 0.5f, rotTop - rotH),
+                        new Vector2(rotCx + rotW * 0.5f, rotTop));
+                }
+            }
+
+            if (statusText != null)
+                ApplySceneRect(statusText.rectTransform,
+                    new Vector2(0.022f, tacticalTop - tacticalH - 0.002f),
+                    new Vector2(cx - lowerTotalW * 0.5f - 0.010f, tacticalTop));
+        }
+
+        void LayoutHeaderChildren()
+        {
+            if (sceneLevelText != null)
+            {
+                sceneLevelText.alignment = TextAlignmentOptions.MidlineLeft;
+                ApplySceneRect(sceneLevelText.rectTransform, new Vector2(0.045f, 0.10f), new Vector2(0.36f, 0.90f));
+            }
+            if (sceneMoveText != null)
+            {
+                sceneMoveText.alignment = TextAlignmentOptions.Midline;
+                ApplySceneRect(sceneMoveText.rectTransform, new Vector2(0.39f, 0.10f), new Vector2(0.78f, 0.90f));
+            }
+            if (pauseButtonRect != null)
+                ApplySceneRect(pauseButtonRect, new Vector2(0.82f, 0.08f), new Vector2(0.975f, 0.92f));
+        }
+
+        void LayoutNextPreviewInPanel()
+        {
+            if (sceneNextPreviewRect == null)
+                return;
+
+            if (sceneNextPanelRect != null && sceneNextPreviewRect != sceneNextPanelRect && sceneNextPreviewRect.transform.IsChildOf(sceneNextPanelRect.transform))
+                ApplySceneRect(sceneNextPreviewRect, new Vector2(0.10f, 0.05f), new Vector2(0.90f, 0.72f));
+
+            if (sceneNextText != null)
+                sceneNextText.alignment = TextAlignmentOptions.Top;
+        }
+
+        void FitSceneRootToScreen(RectTransform rect, float padding, float maxScale)
+        {
+            if (rect == null)
+                return;
+
+            var parent = rect.parent as RectTransform;
+            if (parent == null)
+                return;
+
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.localRotation = Quaternion.identity;
+            rect.localScale = Vector3.one;
+
+            Bounds bounds = CalculateSceneContentBounds(rect);
+            if (bounds.size.x <= 1f || bounds.size.y <= 1f)
+                return;
+
+            Rect safe = Ui.SafeArea();
+            Rect parentRect = parent.rect;
+            float safeWidth = parentRect.width * Mathf.Clamp01(safe.width / Mathf.Max(1f, Screen.width));
+            float safeHeight = parentRect.height * Mathf.Clamp01(safe.height / Mathf.Max(1f, Screen.height));
+            float safeCenterX = parentRect.xMin + parentRect.width * Mathf.Clamp01((safe.xMin + safe.width * 0.5f) / Mathf.Max(1f, Screen.width));
+            float safeCenterY = parentRect.yMin + parentRect.height * Mathf.Clamp01((safe.yMin + safe.height * 0.5f) / Mathf.Max(1f, Screen.height));
+            float scale = Mathf.Min((safeWidth - padding * 2f) / bounds.size.x, (safeHeight - padding * 2f) / bounds.size.y);
+            scale = Mathf.Clamp(scale, 0.2f, maxScale);
+
+            rect.localScale = Vector3.one * scale;
+            rect.anchoredPosition = new Vector2(safeCenterX, safeCenterY) - (Vector2)bounds.center * scale;
+        }
+
+        Bounds CalculateScenePlayBounds(RectTransform root)
+        {
+            if (sceneBackgroundRect != null && sceneBackgroundRect.gameObject.activeInHierarchy)
+            {
+                Bounds backgroundBounds = CalculateSingleRectBounds(root, sceneBackgroundRect);
+                if (backgroundBounds.size.x > 1f && backgroundBounds.size.y > 1f)
+                    return backgroundBounds;
+            }
+
+            return CalculateSceneContentBounds(root);
+        }
+
+        void ExpandSceneBackgroundBehindPlay()
+        {
+            if (sceneBackgroundRect == null || sceneGameplayRootRect == null)
+                return;
+
+            var parent = sceneGameplayRootRect.parent as RectTransform;
+            if (parent == null)
+                return;
+
+            float scale = Mathf.Max(0.001f, sceneGameplayRootRect.localScale.x);
+            Vector2 rootPosition = sceneGameplayRootRect.anchoredPosition;
+            Rect parentRect = parent.rect;
+            Vector2 parentCenter = parentRect.center;
+            Vector2 targetSize = new Vector2(parentRect.width / scale, parentRect.height / scale);
+            Vector2 targetCenter = (parentCenter - rootPosition) / scale;
+
+            sceneBackgroundRect.anchorMin = new Vector2(0.5f, 0.5f);
+            sceneBackgroundRect.anchorMax = new Vector2(0.5f, 0.5f);
+            sceneBackgroundRect.pivot = new Vector2(0.5f, 0.5f);
+            sceneBackgroundRect.anchoredPosition = targetCenter;
+            sceneBackgroundRect.sizeDelta = targetSize;
+            sceneBackgroundRect.localScale = Vector3.one;
+            sceneBackgroundRect.localRotation = Quaternion.identity;
+        }
+
+        Bounds CalculateSingleRectBounds(RectTransform root, RectTransform target)
+        {
+            var corners = new Vector3[4];
+            target.GetWorldCorners(corners);
+            Bounds bounds = new Bounds(root.InverseTransformPoint(corners[0]), Vector3.zero);
+            for (int i = 1; i < corners.Length; i++)
+                bounds.Encapsulate(root.InverseTransformPoint(corners[i]));
+            return bounds;
+        }
+
+        Bounds CalculateSceneContentBounds(RectTransform root)
+        {
+            var children = root.GetComponentsInChildren<RectTransform>(true);
+            var corners = new Vector3[4];
+            bool hasBounds = false;
+            Bounds bounds = new Bounds(Vector3.zero, Vector3.zero);
+            for (int i = 0; i < children.Length; i++)
+            {
+                var child = children[i];
+                if (child == null || child == root || !child.gameObject.activeInHierarchy || child == sceneBackgroundRect)
+                    continue;
+
+                child.GetWorldCorners(corners);
+                for (int c = 0; c < corners.Length; c++)
+                {
+                    Vector3 local = root.InverseTransformPoint(corners[c]);
+                    if (!hasBounds)
+                    {
+                        bounds = new Bounds(local, Vector3.zero);
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(local);
+                    }
+                }
+            }
+
+            if (!hasBounds)
+                bounds = new Bounds(root.rect.center, root.rect.size);
+            return bounds;
+        }
+
+        void StretchSceneRootToScreen(RectTransform rect)
+        {
+            if (rect == null)
+                return;
+
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+            rect.anchoredPosition = Vector2.zero;
+        }
+
+        void ApplySceneRect(RectTransform rect, Vector2 min, Vector2 max)
+        {
+            if (rect == null)
+                return;
+
+            rect.anchorMin = min;
+            rect.anchorMax = max;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = Vector2.zero;
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+        }
+
+        void RefreshScenePreviewCellSizes()
+        {
+            if (nextPreviewCells == null || nextPreviewCells.Count == 0 || sceneNextPreviewRect == null)
+                return;
+
+            nextPreviewCellSize = CalculatePreviewCellSize(sceneNextPreviewRect);
+            float step = PreviewCellStep(nextPreviewCellSize);
+            for (int i = 0; i < nextPreviewCells.Count; i++)
+            {
+                if (nextPreviewCells[i] == null)
+                    continue;
+                int x = i % 4;
+                int y = i / 4;
+                var rect = nextPreviewCells[i].rectTransform;
+                rect.sizeDelta = new Vector2(nextPreviewCellSize, nextPreviewCellSize);
+                rect.anchoredPosition = new Vector2((x - 1.5f) * step, (1.5f - y) * step);
+            }
+        }
+
+        float CalculatePreviewCellSize(RectTransform previewRect)
+        {
+            if (previewRect == null)
+                return 18f;
+
+            float width = previewRect.rect.width > 1f ? previewRect.rect.width : 120f;
+            float height = previewRect.rect.height > 1f ? previewRect.rect.height : width;
+            return Mathf.Max(0.5f, Mathf.Min(width, height) / 5.5f);
+        }
+
+        float PreviewCellStep(float cellSize)
+        {
+            return cellSize;
+        }
+
+        void RefreshScenePuzzleCellSizes()
+        {
+            if (scenePuzzleCells == null || scenePuzzleSlots == null)
+                return;
+
+            FitScenePuzzleGridToAnchor();
+            if (scenePuzzleGridRect != null && scenePuzzleGridRect.sizeDelta.x > 0.01f && scenePuzzleGridRect.sizeDelta.y > 0.01f)
+            {
+                puzzleCellSizeX = Mathf.Max(0.0001f, scenePuzzleGridRect.sizeDelta.x / Width);
+                puzzleCellSize  = Mathf.Max(0.0001f, scenePuzzleGridRect.sizeDelta.y / Height);
+            }
+
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = 0; y < Height; y++)
+                {
+                    var slot = scenePuzzleSlots[x, y];
+                    var cell = scenePuzzleCells[x, y];
+                    if (slot == null || cell == null)
+                        continue;
+
+                    var rect = cell.rectTransform;
+                    rect.anchorMin = new Vector2(0.5f, 0.5f);
+                    rect.anchorMax = new Vector2(0.5f, 0.5f);
+                    rect.pivot = new Vector2(0.5f, 0.5f);
+                    rect.anchoredPosition = ScenePuzzleGridToUiPosition(x, y);
+                    rect.sizeDelta = new Vector2(puzzleCellSizeX * 0.96f, puzzleCellSize * 0.96f);
+                    rect.localScale = Vector3.one;
+                    cell.preserveAspect = false;
+                }
+            }
+        }
+
+        Vector2 ScenePuzzleGridToUiPosition(int gridX, int gridY)
+        {
+            if (scenePuzzleGridRect == null)
+                return Vector2.zero;
+
+            float originX = -scenePuzzleGridRect.rect.width  * 0.5f + puzzleCellSizeX * 0.5f;
+            float originY = -scenePuzzleGridRect.rect.height * 0.5f + puzzleCellSize  * 0.5f;
+            return new Vector2(originX + gridX * puzzleCellSizeX, originY + gridY * puzzleCellSize);
+        }
+
+        void FitScenePuzzleGridToAnchor()
+        {
+            if (scenePuzzleBoardAnchorRect == null || scenePuzzleGridRect == null)
+                return;
+
+            Rect anchorRect = scenePuzzleBoardAnchorRect.rect;
+            if (anchorRect.width <= 1f || anchorRect.height <= 1f)
+                return;
+
+            // PuzzleBoardAnchor has non-uniform localScale (e.g. x=6.16, y=9.55) due to CanvasScaler.
+            // Work in screen pixels to get visually uniform results, then convert back to local units.
+            Vector3 localSc = scenePuzzleBoardAnchorRect.localScale;
+            float lsx = Mathf.Max(0.0001f, Mathf.Abs(localSc.x));
+            float lsy = Mathf.Max(0.0001f, Mathf.Abs(localSc.y));
+
+            // Border: use separate X/Y border fractions to match the frame sprite visually.
+            float anchorScreenW = anchorRect.width  * lsx;
+            float anchorScreenH = anchorRect.height * lsy;
+            float borderFrac = 0.08f; // ~8% matches the frame sprite border thickness
+            float borderPx   = Mathf.Min(anchorScreenW * borderFrac, anchorScreenH * borderFrac);
+
+            float availWpx = anchorScreenW - borderPx * 2f;
+            float availHpx = anchorScreenH - borderPx * 2f;
+
+            float cellPxByW = availWpx / Width;
+            float cellPxByH = availHpx / Height;
+
+            float localCellW, localCellH;
+            if (cellPxByH >= cellPxByW)
+            {
+                // Anchor has room: fill width, cells square (height = width in px).
+                localCellW = Mathf.Max(0.0001f, cellPxByW / lsx);
+                localCellH = Mathf.Max(0.0001f, Mathf.Min(cellPxByW * 1.55f, cellPxByH) / lsy);
+            }
+            else
+            {
+                // Anchor too short to keep cells square at full width (mobile 10×20 case).
+                // Fill width, let cells be slightly wider than tall — better than side gaps.
+                localCellW = Mathf.Max(0.0001f, cellPxByW / lsx);
+                localCellH = Mathf.Max(0.0001f, cellPxByH / lsy); // clamp height so grid fits
+            }
+            float gridWidth  = localCellW * Width;
+            float gridHeight = localCellH * Height;
+            puzzleCellSizeX  = localCellW;
+            puzzleCellSize   = localCellH;
+
+            float borderLocalY = borderPx / lsy;
+            // Align grid bottom to inner border edge, but clamp so grid never exits the anchor.
+            float idealBottom = anchorRect.yMin + borderLocalY;
+            float idealCenter = idealBottom + gridHeight * 0.5f;
+            float maxCenter   = anchorRect.yMax - borderLocalY - gridHeight * 0.5f;
+            float gridCenterY = Mathf.Min(idealCenter, maxCenter);
+
+            scenePuzzleGridRect.anchorMin        = new Vector2(0.5f, 0.5f);
+            scenePuzzleGridRect.anchorMax        = new Vector2(0.5f, 0.5f);
+            scenePuzzleGridRect.pivot            = new Vector2(0.5f, 0.5f);
+            scenePuzzleGridRect.sizeDelta        = new Vector2(gridWidth, gridHeight);
+            scenePuzzleGridRect.anchoredPosition = new Vector2(0f, gridCenterY);
+            scenePuzzleGridRect.localScale       = Vector3.one;
+            scenePuzzleGridRect.localRotation    = Quaternion.identity;
         }
 
         void LayoutGameplayChrome()
         {
+            if (usingSceneGameplayCanvas)
+                return;
+
             if (nextWidgetRect == null || nextWidgetShadowRect == null)
                 return;
 
@@ -1021,72 +4202,140 @@ namespace BrickStacker
             if (aspect >= 0.8f)
             {
                 if (hudPanelRect != null)
-                    ApplyAnchoredRect(hudPanelRect, new Vector2(0.045f, 0.825f), new Vector2(0.445f, 0.945f), Vector2.zero);
+                    ApplyAnchoredRect(hudPanelRect, new Vector2(0.035f, 0.895f), new Vector2(0.965f, 0.975f), Vector2.zero);
                 if (hudShadowRect != null)
-                    ApplyAnchoredRect(hudShadowRect, new Vector2(0.045f, 0.817f), new Vector2(0.445f, 0.937f), new Vector2(0, -6));
+                    ApplyAnchoredRect(hudShadowRect, new Vector2(0.035f, 0.887f), new Vector2(0.965f, 0.967f), new Vector2(0, -6));
                 if (pauseButtonRect != null)
-                    ApplyAnchoredRect(pauseButtonRect, new Vector2(0.864f, 0.828f), new Vector2(0.986f, 0.974f), new Vector2(-10, 0));
+                    ApplyAnchoredRect(pauseButtonRect, new Vector2(0.885f, 0.902f), new Vector2(0.955f, 0.968f), Vector2.zero);
 
-                ApplyAnchoredRect(nextWidgetRect, new Vector2(0.805f, 0.595f), new Vector2(0.970f, 0.830f), Vector2.zero);
-                ApplyAnchoredRect(nextWidgetShadowRect, new Vector2(0.805f, 0.588f), new Vector2(0.970f, 0.823f), new Vector2(0, -5));
+                ApplyAnchoredRect(nextWidgetRect, new Vector2(0.805f, 0.315f), new Vector2(0.970f, 0.485f), Vector2.zero);
+                ApplyAnchoredRect(nextWidgetShadowRect, new Vector2(0.805f, 0.308f), new Vector2(0.970f, 0.478f), new Vector2(0, -5));
                 if (holdWidgetRect != null)
-                    ApplyAnchoredRect(holdWidgetRect, new Vector2(0.805f, 0.330f), new Vector2(0.970f, 0.565f), Vector2.zero);
+                    holdWidgetRect.gameObject.SetActive(false);
                 if (holdWidgetShadowRect != null)
-                    ApplyAnchoredRect(holdWidgetShadowRect, new Vector2(0.805f, 0.323f), new Vector2(0.970f, 0.558f), new Vector2(0, -5));
+                    holdWidgetShadowRect.gameObject.SetActive(false);
                 if (rotateButtonRect != null)
-                    ApplyAnchoredRect(rotateButtonRect, new Vector2(0.835f, 0.190f), new Vector2(0.955f, 0.300f), Vector2.zero);
+                    ApplyAnchoredRect(rotateButtonRect, new Vector2(0.835f, 0.220f), new Vector2(0.955f, 0.300f), Vector2.zero);
+                if (moveHintPanelRect != null)
+                    ApplyAnchoredRect(moveHintPanelRect, new Vector2(0.805f, 0.065f), new Vector2(0.970f, 0.200f), Vector2.zero);
+                if (moveHintPanelShadowRect != null)
+                    ApplyAnchoredRect(moveHintPanelShadowRect, new Vector2(0.805f, 0.058f), new Vector2(0.970f, 0.193f), new Vector2(0, -5));
+                if (tacticalWidgetRect != null)
+                    ApplyAnchoredRect(tacticalWidgetRect, new Vector2(0.055f, 0.520f), new Vector2(0.945f, 0.875f), Vector2.zero);
+                if (tacticalWidgetShadowRect != null)
+                    ApplyAnchoredRect(tacticalWidgetShadowRect, new Vector2(0.055f, 0.512f), new Vector2(0.945f, 0.867f), new Vector2(0, -5));
                 return;
             }
 
             GetPortraitGameplayLayout(aspect, out _, out _, out _, out float boardTop, out float sideMin, out float sideMax);
-            float gap = aspect < 0.5f ? 0.026f : 0.034f;
-            float widgetHeight = Mathf.Clamp(0.195f + (0.56f - Mathf.Min(aspect, 0.56f)) * 0.20f, 0.195f, 0.220f);
-            float nextTop = Mathf.Min(0.850f, boardTop);
+            float gap = aspect < 0.5f ? 0.022f : 0.028f;
+            float widgetHeight = Mathf.Clamp(0.135f + (0.56f - Mathf.Min(aspect, 0.56f)) * 0.09f, 0.130f, 0.155f);
+            float nextTop = boardTop - 0.002f;
             float nextBottom = nextTop - widgetHeight;
-            float holdTop = nextBottom - gap;
-            float holdBottom = holdTop - widgetHeight;
-            float hudBoardGap = 40f / Mathf.Max(1f, Screen.height);
-            float hudBottom = boardTop + hudBoardGap;
-            float hudTop = hudBottom + 0.110f;
+            float rotateBottom = 0.145f;
+            float hudBottom = 0.915f;
+            float hudTop = 0.982f;
             float hudShadowBottom = hudBottom - 0.008f;
             float hudShadowTop = hudTop - 0.008f;
             float pauseBottom = hudBottom;
-            float pauseTop = pauseBottom + 0.150f;
+            float pauseTop = hudTop;
 
             if (hudPanelRect != null)
-                ApplyAnchoredRect(hudPanelRect, new Vector2(0.055f, hudBottom), new Vector2(sideMin - 0.035f, hudTop), Vector2.zero);
+                ApplyAnchoredRect(hudPanelRect, new Vector2(0.030f, hudBottom), new Vector2(0.965f, hudTop), Vector2.zero);
             if (hudShadowRect != null)
-                ApplyAnchoredRect(hudShadowRect, new Vector2(0.055f, hudShadowBottom), new Vector2(sideMin - 0.035f, hudShadowTop), new Vector2(0, -6));
+                ApplyAnchoredRect(hudShadowRect, new Vector2(0.030f, hudShadowBottom), new Vector2(0.965f, hudShadowTop), new Vector2(0, -6));
             if (pauseButtonRect != null)
-                ApplyAnchoredRect(pauseButtonRect, new Vector2(Mathf.Max(0.835f, sideMax - 0.150f), pauseBottom), new Vector2(sideMax, pauseTop), new Vector2(-10, 0));
+                ApplyAnchoredRect(pauseButtonRect, new Vector2(sideMax - 0.090f, pauseBottom + 0.004f), new Vector2(sideMax - 0.010f, pauseTop - 0.004f), Vector2.zero);
 
             ApplyAnchoredRect(nextWidgetRect, new Vector2(sideMin, nextBottom), new Vector2(sideMax, nextTop), Vector2.zero);
             ApplyAnchoredRect(nextWidgetShadowRect, new Vector2(sideMin, nextBottom - 0.007f), new Vector2(sideMax, nextTop - 0.007f), new Vector2(0, -5));
 
             if (holdWidgetRect != null)
-                ApplyAnchoredRect(holdWidgetRect, new Vector2(sideMin, holdBottom), new Vector2(sideMax, holdTop), Vector2.zero);
+                holdWidgetRect.gameObject.SetActive(false);
             if (holdWidgetShadowRect != null)
-                ApplyAnchoredRect(holdWidgetShadowRect, new Vector2(sideMin, holdBottom - 0.007f), new Vector2(sideMax, holdTop - 0.007f), new Vector2(0, -5));
+                holdWidgetShadowRect.gameObject.SetActive(false);
 
             if (rotateButtonRect != null)
             {
                 float rotateHeight = Mathf.Clamp(widgetHeight * 0.48f, 0.095f, 0.112f);
-                float rotateTop = holdBottom - gap * 0.80f;
-                float rotateBottom = Mathf.Max(0.055f, rotateTop - rotateHeight);
+                float rotateTop = nextBottom - gap * 0.70f;
+                rotateBottom = Mathf.Max(0.055f, rotateTop - rotateHeight);
                 float rotateInset = Mathf.Clamp((sideMax - sideMin) * 0.18f, 0.020f, 0.034f);
                 ApplyAnchoredRect(rotateButtonRect, new Vector2(sideMin + rotateInset, rotateBottom), new Vector2(sideMax - rotateInset, rotateTop), Vector2.zero);
             }
+
+            float hintTop = Mathf.Clamp(rotateBottom - gap * 0.55f, 0.125f, 0.175f);
+            float hintBottom = Mathf.Max(0.030f, hintTop - 0.115f);
+            if (moveHintPanelRect != null)
+                ApplyAnchoredRect(moveHintPanelRect, new Vector2(sideMin, hintBottom), new Vector2(sideMax, hintTop), Vector2.zero);
+            if (moveHintPanelShadowRect != null)
+                ApplyAnchoredRect(moveHintPanelShadowRect, new Vector2(sideMin, hintBottom - 0.007f), new Vector2(sideMax, hintTop - 0.007f), new Vector2(0, -5));
+
+            float tacticalWidth = Mathf.Lerp(0.86f, 0.90f, Mathf.InverseLerp(0.62f, 0.42f, aspect));
+            float tacticalHeight = Mathf.Clamp(tacticalWidth * aspect, 0.370f, 0.485f);
+            float tacticalTop = 0.895f;
+            float tacticalBottom = tacticalTop - tacticalHeight;
+            float tacticalLeft = 0.5f - tacticalWidth * 0.5f;
+            float tacticalRight = 0.5f + tacticalWidth * 0.5f;
+            if (tacticalWidgetRect != null)
+                ApplyAnchoredRect(tacticalWidgetRect, new Vector2(tacticalLeft, tacticalBottom), new Vector2(tacticalRight, tacticalTop), Vector2.zero);
+            if (tacticalWidgetShadowRect != null)
+                ApplyAnchoredRect(tacticalWidgetShadowRect, new Vector2(tacticalLeft, tacticalBottom - 0.008f), new Vector2(tacticalRight, tacticalTop - 0.008f), new Vector2(0, -5));
         }
 
         void GetPortraitGameplayLayout(float aspect, out float boardLeft, out float boardRight, out float boardBottom, out float boardTop, out float sideMin, out float sideMax)
         {
+            if (usingSceneGameplayCanvas && TryGetNormalizedScreenRect(scenePuzzleBoardAnchorRect, out boardLeft, out boardRight, out boardBottom, out boardTop))
+            {
+                float narrowFromAnchor = Mathf.InverseLerp(0.62f, 0.42f, aspect);
+                sideMin = Mathf.Clamp(boardRight + Mathf.Lerp(0.035f, 0.025f, narrowFromAnchor), 0.70f, 0.88f);
+                sideMax = Mathf.Lerp(0.960f, 0.980f, narrowFromAnchor);
+                return;
+            }
+
             float narrow = Mathf.InverseLerp(0.62f, 0.42f, aspect);
-            sideMax = Mathf.Lerp(0.972f, 0.985f, narrow);
-            sideMin = Mathf.Lerp(0.770f, 0.800f, narrow);
-            boardLeft = Mathf.Lerp(0.075f, 0.055f, narrow);
-            boardRight = sideMin - Mathf.Lerp(0.066f, 0.052f, narrow);
-            boardBottom = Mathf.Lerp(0.065f, 0.075f, narrow);
-            boardTop = Mathf.Lerp(0.805f, 0.785f, narrow);
+            sideMax = Mathf.Lerp(0.965f, 0.980f, narrow);
+            sideMin = Mathf.Lerp(0.760f, 0.785f, narrow);
+            boardLeft = Mathf.Lerp(0.045f, 0.035f, narrow);
+            boardRight = sideMin - Mathf.Lerp(0.040f, 0.030f, narrow);
+            boardBottom = Mathf.Lerp(0.035f, 0.045f, narrow);
+            boardTop = Mathf.Lerp(0.400f, 0.385f, narrow);
+        }
+
+        bool TryGetNormalizedScreenRect(RectTransform rect, out float left, out float right, out float bottom, out float top)
+        {
+            left = right = bottom = top = 0f;
+            if (rect == null || Screen.width <= 0 || Screen.height <= 0)
+                return false;
+
+            var canvas = rect.GetComponentInParent<Canvas>();
+            Camera uiCamera = null;
+            if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                uiCamera = canvas.worldCamera;
+
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            float minX = float.MaxValue;
+            float maxX = float.MinValue;
+            float minY = float.MaxValue;
+            float maxY = float.MinValue;
+            for (int i = 0; i < corners.Length; i++)
+            {
+                Vector2 screen = RectTransformUtility.WorldToScreenPoint(uiCamera, corners[i]);
+                minX = Mathf.Min(minX, screen.x);
+                maxX = Mathf.Max(maxX, screen.x);
+                minY = Mathf.Min(minY, screen.y);
+                maxY = Mathf.Max(maxY, screen.y);
+            }
+
+            if (maxX - minX < 20f || maxY - minY < 20f)
+                return false;
+
+            left = Mathf.Clamp01(minX / Screen.width);
+            right = Mathf.Clamp01(maxX / Screen.width);
+            bottom = Mathf.Clamp01(minY / Screen.height);
+            top = Mathf.Clamp01(maxY / Screen.height);
+            return right > left && top > bottom;
         }
 
         void ApplyAnchoredRect(RectTransform rect, Vector2 min, Vector2 max, Vector2 offset)
@@ -1109,8 +4358,9 @@ namespace BrickStacker
                 var cell = Ui.Panel(parent, "Preview Cell", new Color(1, 1, 1, 0)).GetComponent<Image>();
                 cell.sprite = blockSprite;
                 cell.type = Image.Type.Simple;
+                cell.preserveAspect = false;
                 Ui.Rect(cell.gameObject, center, center, new Vector2(cellSize, cellSize));
-                float step = cellSize * 1.20f;
+                float step = PreviewCellStep(cellSize);
                 cell.rectTransform.anchoredPosition = new Vector2((x - 1.5f) * step, (1.5f - y) * step);
                 cells.Add(cell);
             }
@@ -1184,7 +4434,8 @@ namespace BrickStacker
                 return;
             }
 
-            if (!gestureMovedHorizontally && delta.y < -swipeThreshold && Mathf.Abs(delta.y) > Mathf.Abs(delta.x))
+            // Allow hard drop even after horizontal drags, as long as the net gesture is clearly downward.
+            if (delta.y < -swipeThreshold && Mathf.Abs(delta.y) > Mathf.Abs(delta.x) * 1.5f)
             {
                 HardDrop();
             }
@@ -1274,11 +4525,26 @@ namespace BrickStacker
             if (nextBag.Count < 7)
                 FillBag();
 
-            currentPieceIsSpecial = rules.AllowSpecialBlocks && piecesLocked > 4 && UnityEngine.Random.value < 0.055f;
+            currentSpecialKind = 0;
+            if (rules.AllowSpecialBlocks && piecesLocked > 4)
+            {
+                float roll = UnityEngine.Random.value;
+                float twoRowChance = 0.050f + Mathf.Min(0.035f, journeyLevel * 0.001f);
+                float fiveRowChance = journeyLevel >= 12 ? 0.010f + Mathf.Min(0.015f, journeyLevel * 0.0004f) : 0.004f;
+                if (roll < fiveRowChance)
+                    currentSpecialKind = 2;
+                else if (roll < fiveRowChance + twoRowChance)
+                    currentSpecialKind = 1;
+            }
+
+            currentPieceIsSpecial = currentSpecialKind > 0;
             currentType = currentPieceIsSpecial ? UnityEngine.Random.Range(0, palette.Length) : nextBag.Dequeue();
-            origin = currentPieceIsSpecial ? new Vector2Int(Width / 2, Height - 1) : new Vector2Int(Width / 2, Height - 2);
+            origin = SpawnOriginForCurrentPiece();
             rotation = 0;
             canHold = true;
+            fallTimer = 0f;
+            lockDelayTimer = 0f;
+            touchingGround = false;
             ClearActive();
 
             if (!IsValid(origin, rotation))
@@ -1289,6 +4555,17 @@ namespace BrickStacker
 
             DrawActive();
             UpdateUi();
+        }
+
+        Vector2Int SpawnOriginForCurrentPiece()
+        {
+            if (currentPieceIsSpecial)
+                return new Vector2Int(Width / 2, Height - 1);
+
+            int maxLocalY = 0;
+            foreach (var cell in shapes[currentType])
+                maxLocalY = Mathf.Max(maxLocalY, cell.y);
+            return new Vector2Int(Width / 2, Height - 1 - maxLocalY);
         }
 
         void FillBag()
@@ -1311,54 +4588,97 @@ namespace BrickStacker
 
         void TryMove(Vector2Int delta)
         {
+            if (puzzlePausedForTacticalTurn)
+                return;
+
             if (!IsValid(origin + delta, rotation))
                 return;
 
             origin += delta;
+            movedHorizontallyThisFrame = true;
+            fallTimer = 0f;
+            lockDelayTimer = 0f;
             DrawActive();
             Beep(520f, 0.025f, 0.08f);
         }
 
+        bool CanMoveDown()
+        {
+            if (currentPieceIsSpecial)
+            {
+                var below = origin + Vector2Int.down;
+                return IsInBounds(below) && grid[below.x, below.y] == 0;
+            }
+            return IsValid(origin + Vector2Int.down, rotation);
+        }
+
         void SoftDrop()
         {
-            if (IsValid(origin + Vector2Int.down, rotation))
+            if (puzzlePausedForTacticalTurn)
+                return;
+
+            if (CanMoveDown())
             {
                 origin += Vector2Int.down;
+                touchingGround = false;
+                lockDelayTimer = 0f;
                 DrawActive();
                 UpdateUi();
             }
             else
             {
-                LockPiece();
+                touchingGround = true;
             }
         }
 
         void StepDown()
         {
-            if (IsValid(origin + Vector2Int.down, rotation))
+            if (puzzlePausedForTacticalTurn)
+                return;
+
+            if (CanMoveDown())
             {
                 origin += Vector2Int.down;
+                touchingGround = false;
+                lockDelayTimer = 0f;
                 DrawActive();
             }
             else
             {
-                LockPiece();
+                touchingGround = true;
             }
         }
 
         void HardDrop()
         {
-            while (IsValid(origin + Vector2Int.down, rotation))
-            {
+            if (puzzlePausedForTacticalTurn)
+                return;
+
+            while (CanMoveDown())
                 origin += Vector2Int.down;
-            }
+
+            DrawActive();
             LockPiece();
             shake = 0.16f;
             Beep(110f, 0.08f, 0.18f);
         }
 
+        bool IsInBounds(Vector2Int cell)
+        {
+            return cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height;
+        }
+
         void TryRotate(int direction)
         {
+            if (puzzlePausedForTacticalTurn)
+                return;
+
+            if (rules.RotationLimit > 0 && rotationsThisLevel >= rules.RotationLimit)
+            {
+                Beep(160f, 0.04f, 0.08f);
+                return;
+            }
+
             int nextRotation = (rotation + direction + 4) % 4;
             var kicks = new[] { Vector2Int.zero, Vector2Int.left, Vector2Int.right, new Vector2Int(0, 1), new Vector2Int(-2, 0), new Vector2Int(2, 0) };
             foreach (var kick in kicks)
@@ -1367,6 +4687,7 @@ namespace BrickStacker
                 {
                     origin += kick;
                     rotation = nextRotation;
+                    rotationsThisLevel++;
                     DrawActive();
                     Beep(720f, 0.035f, 0.08f);
                     return;
@@ -1376,7 +4697,7 @@ namespace BrickStacker
 
         void RotateFromButton()
         {
-            if (paused || resolving || gameOver)
+            if (paused || resolving || gameOver || puzzlePausedForTacticalTurn)
                 return;
 
             TryRotate(1);
@@ -1384,10 +4705,11 @@ namespace BrickStacker
 
         void SwapHoldPiece()
         {
-            if (paused || resolving || gameOver || !canHold || currentPieceIsSpecial)
+            if (paused || resolving || gameOver || puzzlePausedForTacticalTurn || !canHold || currentPieceIsSpecial)
                 return;
 
             RuntimeArt.PlayUiSwitchSound();
+            holdsThisLevel++;
             ClearActive();
             if (holdType < 0)
             {
@@ -1399,7 +4721,9 @@ namespace BrickStacker
                 int old = currentType;
                 currentType = holdType;
                 holdType = old;
-                origin = new Vector2Int(Width / 2, Height - 2);
+                currentPieceIsSpecial = false;
+                currentSpecialKind = 0;
+                origin = SpawnOriginForCurrentPiece();
                 rotation = 0;
                 fallTimer = 0f;
                 if (!IsValid(origin, rotation))
@@ -1435,9 +4759,13 @@ namespace BrickStacker
                 if (bombCell.y < Height)
                 {
                     grid[bombCell.x, bombCell.y] = currentType + 1;
-                    var bombBlock = NewBlock("Bomb Block", RuntimeArt.SpecialBlockColor, settledRoot);
-                    bombBlock.transform.position = CellToWorld(bombCell.x, bombCell.y);
-                    lockedBlocks[bombCell.x, bombCell.y] = bombBlock;
+                    if (!usingSceneGameplayCanvas)
+                    {
+                        Color specialColor = currentSpecialKind == 2 ? new Color(0.35f, 0.95f, 1f, 1f) : RuntimeArt.SpecialBlockColor;
+                        var bombBlock = NewBlock(currentSpecialKind == 2 ? "Grand Bomb Block" : "Bomb Block", specialColor, settledRoot);
+                        bombBlock.transform.position = CellToWorld(bombCell.x, bombCell.y);
+                        lockedBlocks[bombCell.x, bombCell.y] = bombBlock;
+                    }
                     bombShouldExplode = true;
                 }
             }
@@ -1446,30 +4774,36 @@ namespace BrickStacker
                 foreach (var localCell in shapes[currentType])
                 {
                     var cell = CellFromLocal(localCell, origin, rotation);
-                    if (cell.y >= Height)
+                    if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height)
                         continue;
 
                     grid[cell.x, cell.y] = currentType + 1;
-                    var block = NewBlock("Locked Block", palette[currentType], settledRoot);
-                    block.transform.position = CellToWorld(cell.x, cell.y);
-                    lockedBlocks[cell.x, cell.y] = block;
+                    if (!usingSceneGameplayCanvas)
+                    {
+                        var block = NewPieceBlock("Locked Block", currentType, settledRoot);
+                        block.transform.position = CellToWorld(cell.x, cell.y);
+                        lockedBlocks[cell.x, cell.y] = block;
+                    }
                 }
             }
 
             piecesLocked++;
             currentPieceIsSpecial = false;
             ClearActive();
-            StartCoroutine(ResolveLinesThenSpawn(bombShouldExplode, bombCell));
+            int specialKind = currentSpecialKind;
+            currentSpecialKind = 0;
+            StartCoroutine(ResolveLinesThenSpawn(bombShouldExplode, bombCell, specialKind));
         }
 
-        IEnumerator ResolveLinesThenSpawn(bool bombShouldExplode, Vector2Int bombCell)
+        IEnumerator ResolveLinesThenSpawn(bool bombShouldExplode, Vector2Int bombCell, int specialKind)
         {
             if (bombShouldExplode)
-                yield return ExplodeSpecialBlock(bombCell);
+                yield return ExplodeSpecialBlock(bombCell, specialKind);
 
             int cleared = FindFullRows().Count;
             if (cleared > 0)
             {
+                maxLinesClearedAtOnce = Mathf.Max(maxLinesClearedAtOnce, cleared);
                 yield return ClearRows();
             }
             else
@@ -1477,18 +4811,22 @@ namespace BrickStacker
                 combo = 0;
             }
 
+            int dangerTick = rules.RisingDangerSeconds > 0 ? Mathf.FloorToInt(gameplayTime / rules.RisingDangerSeconds) : 0;
+            bool risingGarbage = dangerTick > 0 && dangerTick != lastRisingDangerTick;
+            if (risingGarbage)
+                lastRisingDangerTick = dangerTick;
             bool timedGarbage = rules.GarbageEveryPieces > 0 && piecesLocked % rules.GarbageEveryPieces == 0;
             bool surpriseGarbage = cleared == 0 && piecesLocked > 5 && rules.SurpriseGarbageChance > 0f && UnityEngine.Random.value < rules.SurpriseGarbageChance;
-            if (!gameOver && (timedGarbage || surpriseGarbage))
+            if (!gameOver && (timedGarbage || surpriseGarbage || risingGarbage))
             {
                 AddGarbageRow();
                 shake = 0.2f;
                 Beep(82f, 0.12f, 0.2f);
             }
 
-            if (rules.TargetLines > 0 && lines >= rules.TargetLines)
+            if (IsMissionComplete())
             {
-                EndGame(true);
+                LevelComplete();
                 yield break;
             }
 
@@ -1496,14 +4834,15 @@ namespace BrickStacker
             SpawnPiece();
         }
 
-        IEnumerator ExplodeSpecialBlock(Vector2Int center)
+        IEnumerator ExplodeSpecialBlock(Vector2Int center, int specialKind)
         {
             int removed = 0;
-            int touchedRow = Mathf.Clamp(center.y - 1, 0, Height - 1);
-            var rowsToClear = new List<int> { touchedRow };
-            int belowTouchedRow = touchedRow - 1;
-            if (belowTouchedRow >= 0)
-                rowsToClear.Add(belowTouchedRow);
+            // Xóa hàng bombCell đặt vào và 1 hàng kề (ưu tiên hàng dưới, fallback hàng trên).
+            int landedRow = Mathf.Clamp(center.y, 0, Height - 1);
+            var rowsToClear = new List<int> { landedRow };
+            int neighborRow = landedRow - 1 >= 0 ? landedRow - 1 : landedRow + 1;
+            if (neighborRow >= 0 && neighborRow < Height)
+                rowsToClear.Add(neighborRow);
 
             if (center.x >= 0 && center.x < Width && center.y >= 0 && center.y < Height)
             {
@@ -1538,9 +4877,17 @@ namespace BrickStacker
 
             score += Mathf.Max(removed, Width) * 90;
             lines += rowsToClear.Count;
+            levelLines += rowsToClear.Count;
+            PlayerPrefs.SetInt(LevelProgress.TotalLinesClearedKey, PlayerPrefs.GetInt(LevelProgress.TotalLinesClearedKey, 0) + rowsToClear.Count);
+            AwardTacticalMoves(rowsToClear.Count + 2, false);
             shake = 0.32f;
             Beep(160f, 0.16f, 0.28f);
-            yield return new WaitForSeconds(0.18f);
+
+            if (usingSceneGameplayCanvas && scenePuzzleCells != null)
+                yield return FlashAndFadeClearRows(rowsToClear);
+            else
+                yield return new WaitForSeconds(0.18f);
+
             CompactRows(rowsToClear);
             RedrawLocked();
             UpdateUi();
@@ -1566,7 +4913,11 @@ namespace BrickStacker
             combo++;
             int clearCount = rows.Count;
             lines += clearCount;
+            levelLines += clearCount;
+            PlayerPrefs.SetInt(LevelProgress.TotalLinesClearedKey, PlayerPrefs.GetInt(LevelProgress.TotalLinesClearedKey, 0) + clearCount);
             score += clearCount * 120 * rules.ScoreMultiplier;
+            maxComboThisLevel = Mathf.Max(maxComboThisLevel, combo);
+            AwardTacticalMoves(clearCount, combo > 1);
             shake = 0.1f + clearCount * 0.05f;
             Beep(880f + clearCount * 120f, 0.12f, 0.24f);
 
@@ -1585,12 +4936,149 @@ namespace BrickStacker
                 clearParticles.Play();
             }
 
-            yield return new WaitForSeconds(0.18f);
+            // Flash + fade animation for scene canvas mode.
+            if (usingSceneGameplayCanvas && scenePuzzleCells != null)
+                yield return FlashAndFadeClearRows(rows);
+            else
+                yield return new WaitForSeconds(0.18f);
 
             CompactRows(rows);
 
             RedrawLocked();
             UpdateUi();
+        }
+
+        IEnumerator FlashAndFadeClearRows(List<int> rows)
+        {
+            const float flashDuration = 0.05f;
+            const float fadeDuration  = 0.24f;
+            const float smokeDuration = 0.55f;
+
+            // Collect cell world positions before clearing, spawn smoke particles.
+            var smokeParticles = new List<(RectTransform rt, Vector2 vel, Color col)>();
+            var rng = new System.Random();
+
+            if (scenePuzzleGridRect != null)
+            {
+                // 4 fragment directions per cell: top-left, top-right, bottom-left, bottom-right.
+                var dirs = new Vector2[] {
+                    new Vector2(-1f,  1f), new Vector2( 1f,  1f),
+                    new Vector2(-1f, -1f), new Vector2( 1f, -1f)
+                };
+                foreach (int row in rows)
+                {
+                    for (int x = 0; x < Width; x++)
+                    {
+                        var cell = scenePuzzleCells[x, row];
+                        if (cell == null || !cell.enabled) continue;
+
+                        Color cellColor = cell.color;
+                        cellColor.a = 0.9f;
+                        var cellPos  = ScenePuzzleGridToUiPosition(x, row);
+                        var gridAnchor = scenePuzzleGridRect.anchoredPosition;
+                        float halfCell = puzzleCellSizeX * 0.25f;
+                        float speed    = puzzleCellSizeX * 1.8f;
+
+                        foreach (var dir in dirs)
+                        {
+                            var fragGo   = new GameObject("Frag", typeof(RectTransform), typeof(UnityEngine.UI.Image));
+                            var fragImg  = fragGo.GetComponent<UnityEngine.UI.Image>();
+                            fragImg.sprite = cell.sprite;
+                            fragImg.color  = cellColor;
+
+                            var fragRect = fragGo.GetComponent<RectTransform>();
+                            fragRect.SetParent(scenePuzzleGridRect.parent, false);
+                            fragRect.anchorMin = fragRect.anchorMax = new Vector2(0.5f, 0.5f);
+                            fragRect.pivot     = new Vector2(0.5f, 0.5f);
+                            fragRect.anchoredPosition = gridAnchor + cellPos + dir * halfCell;
+                            fragRect.sizeDelta = new Vector2(puzzleCellSizeX * 0.45f, puzzleCellSize * 0.45f);
+                            fragRect.localScale = Vector3.one;
+
+                            float jitter = (float)(rng.NextDouble() * 0.4 + 0.8);
+                            smokeParticles.Add((fragRect, dir * speed * jitter, cellColor));
+                        }
+                    }
+                }
+            }
+
+            // Quét sáng từ trái sang phải — từng cột bừng trắng lần lượt tạo cảm giác "lướt".
+            const float sweepPerColumn = 0.016f;
+            float sweepTime = 0f;
+            int litColumns = 0;
+            while (litColumns < Width)
+            {
+                sweepTime += UnityEngine.Time.deltaTime;
+                int lit = Mathf.Min(Width, Mathf.FloorToInt(sweepTime / sweepPerColumn) + 1);
+                for (int x = litColumns; x < lit; x++)
+                {
+                    foreach (int row in rows)
+                        if (scenePuzzleCells[x, row] != null)
+                        {
+                            scenePuzzleCells[x, row].sprite  = null;
+                            scenePuzzleCells[x, row].color   = new Color(1f, 0.97f, 0.86f, 1f);
+                            scenePuzzleCells[x, row].enabled = true;
+                        }
+                }
+                litColumns = lit;
+                if (litColumns < Width)
+                    yield return null;
+            }
+
+            yield return new WaitForSeconds(flashDuration);
+
+            // Fade mượt bằng smoothstep (nhanh dần rồi hãm lại thay vì tuyến tính).
+            float t = 0f;
+            while (t < fadeDuration)
+            {
+                t += UnityEngine.Time.deltaTime;
+                float p = Mathf.Clamp01(t / fadeDuration);
+                float alpha = 1f - (p * p * (3f - 2f * p));
+                foreach (int row in rows)
+                    for (int x = 0; x < Width; x++)
+                        if (scenePuzzleCells[x, row] != null)
+                            scenePuzzleCells[x, row].color = new Color(1f, 0.97f, 0.86f, alpha);
+                yield return null;
+            }
+            foreach (int row in rows)
+                for (int x = 0; x < Width; x++)
+                    if (scenePuzzleCells[x, row] != null)
+                        scenePuzzleCells[x, row].enabled = false;
+
+            // Fire-and-forget: animate fragments in the background so resolving can clear immediately.
+            if (smokeParticles.Count > 0)
+                StartCoroutine(AnimateFragments(smokeParticles, smokeDuration));
+        }
+
+        IEnumerator AnimateFragments(List<(RectTransform rt, Vector2 vel, Color col)> particles, float duration)
+        {
+            float t = 0f;
+            while (t < duration)
+            {
+                t += UnityEngine.Time.deltaTime;
+                float progress = t / duration;
+                float alpha = Mathf.Lerp(0.9f, 0f, progress);
+                float scale  = Mathf.Lerp(1f, 0.3f, progress);
+                foreach (var (rt, vel, baseCol) in particles)
+                {
+                    if (rt == null) continue;
+                    rt.anchoredPosition += vel * UnityEngine.Time.deltaTime;
+                    rt.localScale = Vector3.one * scale;
+                    var img = rt.GetComponent<UnityEngine.UI.Image>();
+                    if (img != null) img.color = new Color(baseCol.r, baseCol.g, baseCol.b, alpha);
+                }
+                yield return null;
+            }
+            foreach (var (rt, _, _) in particles)
+                if (rt != null) UnityEngine.Object.Destroy(rt.gameObject);
+        }
+
+        void AwardTacticalMoves(int clearedLines, bool comboBonus)
+        {
+            if (tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running || clearedLines <= 0)
+                return;
+
+            tacticalBoard.AddMovesForClearedLines(clearedLines, comboBonus);
+            RefreshTacticalBoardUi();
         }
 
         void CompactRows(List<int> rows)
@@ -1633,6 +5121,12 @@ namespace BrickStacker
                 Destroy(child.gameObject);
 
             lockedBlocks = new GameObject[Width, Height];
+            if (usingSceneGameplayCanvas)
+            {
+                RefreshScenePuzzleBoardUi();
+                return;
+            }
+
             for (int x = 0; x < Width; x++)
             {
                 for (int y = 0; y < Height; y++)
@@ -1640,11 +5134,99 @@ namespace BrickStacker
                     if (grid[x, y] <= 0)
                         continue;
 
-                    var block = NewBlock("Locked Block", palette[grid[x, y] - 1], settledRoot);
+                    var block = NewPieceBlock("Locked Block", grid[x, y] - 1, settledRoot);
                     block.transform.position = CellToWorld(x, y);
                     lockedBlocks[x, y] = block;
                 }
             }
+
+            RefreshScenePuzzleBoardUi();
+        }
+
+        void RefreshScenePuzzleBoardUi()
+        {
+            if (scenePuzzleCells == null)
+                return;
+
+            RefreshScenePuzzleCellSizes();
+
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = 0; y < Height; y++)
+                {
+                    SetScenePuzzleCell(x, y, Color.clear, -1);
+                    if (grid[x, y] > 0)
+                    {
+                        int pieceType = Mathf.Clamp(grid[x, y] - 1, 0, palette.Length - 1);
+                        SetScenePuzzleCell(x, y, Color.white, pieceType);
+                    }
+                }
+            }
+
+            if (!gameOver && !resolving && GhostVisible && !currentPieceIsSpecial)
+            {
+                var ghostOrigin = origin;
+                while (IsValid(ghostOrigin + Vector2Int.down, rotation))
+                    ghostOrigin += Vector2Int.down;
+
+                foreach (var cell in Cells(ghostOrigin, rotation))
+                {
+                    if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height && grid[cell.x, cell.y] == 0)
+                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.22f), -1);
+                }
+            }
+
+            if (!gameOver && !resolving)
+            {
+                Color activeColor = currentPieceIsSpecial
+                    ? (currentSpecialKind == 2 ? new Color(0.35f, 0.95f, 1f, 1f) : RuntimeArt.SpecialBlockColor)
+                    : Color.white;
+
+                foreach (var cell in Cells(origin, rotation))
+                {
+                    if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height)
+                        SetScenePuzzleCell(cell.x, cell.y, activeColor, currentPieceIsSpecial ? -1 : currentType);
+                }
+            }
+        }
+
+        void SetScenePuzzleCell(int x, int y, Color color, int type)
+        {
+            if (scenePuzzleCells == null || x < 0 || x >= Width || y < 0 || y >= Height)
+                return;
+
+            var cell = scenePuzzleCells[x, y];
+            if (cell == null)
+                return;
+
+            cell.sprite = GetPieceBlockSprite(type);
+            cell.color = color.a > 0.01f && type < 0 ? PuzzleBlockColor(color) : color;
+            cell.enabled = color.a > 0.01f;
+        }
+
+        Sprite GetPieceBlockSprite(int type)
+        {
+            if (type >= 0 && pieceBlockSprites != null && pieceBlockSprites.Length > 0)
+            {
+                var sprite = pieceBlockSprites[Mathf.Abs(type) % pieceBlockSprites.Length];
+                if (sprite != null)
+                    return sprite;
+            }
+
+            return blockSprite;
+        }
+
+        Color PuzzleBlockColor(Color color)
+        {
+            if (color.a <= 0.01f)
+                return color;
+
+            Color boosted = Color.Lerp(color, Color.white, 0.10f);
+            boosted.r = Mathf.Clamp01(boosted.r * 1.08f);
+            boosted.g = Mathf.Clamp01(boosted.g * 1.08f);
+            boosted.b = Mathf.Clamp01(boosted.b * 1.08f);
+            boosted.a = color.a;
+            return boosted;
         }
 
         bool IsValid(Vector2Int testOrigin, int testRotation)
@@ -1686,25 +5268,34 @@ namespace BrickStacker
         void DrawActive()
         {
             ClearActive();
+            if (usingSceneGameplayCanvas)
+            {
+                RefreshScenePuzzleBoardUi();
+                return;
+            }
+
             if (currentPieceIsSpecial)
             {
-                var bomb = NewBlock("Active Bomb", RuntimeArt.SpecialBlockColor, activeRoot);
+                Color specialColor = currentSpecialKind == 2 ? new Color(0.35f, 0.95f, 1f, 1f) : RuntimeArt.SpecialBlockColor;
+                var bomb = NewBlock(currentSpecialKind == 2 ? "Active Grand Bomb" : "Active Bomb", specialColor, activeRoot);
                 bomb.transform.position = CellToWorld(origin.x, origin.y);
                 bomb.transform.localScale = Vector3.one;
                 activeBlocks.Add(bomb);
                 DrawGhost();
+                RefreshScenePuzzleBoardUi();
                 return;
             }
 
             foreach (var localCell in shapes[currentType])
             {
                 var cell = CellFromLocal(localCell, origin, rotation);
-                var block = NewBlock("Active Block", palette[currentType], activeRoot);
+                var block = NewPieceBlock("Active Block", currentType, activeRoot);
                 block.transform.position = CellToWorld(cell.x, cell.y);
                 activeBlocks.Add(block);
             }
 
             DrawGhost();
+            RefreshScenePuzzleBoardUi();
         }
 
         void DrawGhost()
@@ -1713,7 +5304,7 @@ namespace BrickStacker
                 Destroy(block);
             ghostBlocks.Clear();
 
-            if (GameSession.SelectedLevel != 1)
+            if (usingSceneGameplayCanvas || !GhostVisible)
                 return;
 
             var ghostOrigin = origin;
@@ -1753,6 +5344,18 @@ namespace BrickStacker
             return block;
         }
 
+        GameObject NewPieceBlock(string name, int type, Transform parent)
+        {
+            var block = new GameObject(name);
+            block.transform.SetParent(parent);
+            block.transform.localScale = Vector3.one * 0.82f;
+            var renderer = block.AddComponent<SpriteRenderer>();
+            renderer.sprite = GetPieceBlockSprite(type);
+            renderer.color = Color.white;
+            renderer.sortingOrder = 10;
+            return block;
+        }
+
         Vector3 CellToWorld(int x, int y)
         {
             return new Vector3(x - Width * 0.5f + 0.5f, y - Height * 0.5f + 0.5f, 0);
@@ -1760,16 +5363,27 @@ namespace BrickStacker
 
         float CurrentFallInterval()
         {
+            float interval = rules.FallInterval;
             if (rules.MaxFallSpeedMultiplier > 1f && rules.SpeedRampSeconds > 0f)
             {
                 float ramp = Mathf.Clamp01(gameplayTime / rules.SpeedRampSeconds);
                 float smoothRamp = Mathf.SmoothStep(0f, 1f, ramp);
                 float multiplier = Mathf.Lerp(1f, rules.MaxFallSpeedMultiplier, smoothRamp);
-                return Mathf.Max(0.09f, rules.FallInterval / multiplier);
+                interval = rules.FallInterval / multiplier;
+            }
+            else
+            {
+                float speedUp = Mathf.Clamp(journeyLevel / 18f, 0f, 0.24f);
+                interval = rules.FallInterval - speedUp;
             }
 
-            float speedUp = Mathf.Clamp(lines / 10f, 0f, 0.22f);
-            return Mathf.Max(0.09f, rules.FallInterval - speedUp);
+            if (rules.FastBlocks && (piecesLocked + currentType) % 5 == 0)
+                interval *= 0.68f;
+
+            if (currentPieceIsSpecial)
+                interval *= 1.8f; // special block falls slower
+
+            return Mathf.Max(0.08f, interval);
         }
 
         void UpdateUi()
@@ -1781,25 +5395,55 @@ namespace BrickStacker
                 PlayerPrefs.Save();
             }
 
-            scoreText.text = score.ToString();
-            linesText.text = rules.Name + " - Scores " + score;
-            levelText.text = "";
-            bestText.text = score > 0 && score >= bestScore ? "NEW BEST!" : "BEST SCORES: " + bestScore;
+            scoreText.text = "";
+            linesText.text = "Màn: " + journeyLevel;
+            levelText.text = tacticalBoard != null ? "Lượt đi: " + tacticalBoard.MoveBank : MissionProgressText();
+            bestText.text = "";
             int nextType = PeekNext(0);
-            nextText.text = "NEXT";
+            nextText.text = "TIẾP";
             RenderPiecePreview(nextPreviewCells, nextType, true);
             RenderPiecePreview(holdPreviewCells, holdType, holdType >= 0);
+            if (MultiplayerMatch.Active)
+            {
+                if (opponentText != null)
+                    opponentText.text = "Đối thủ · " + MultiplayerMatch.OpponentScore + "đ";
+                if (MultiplayerManager.Instance != null)
+                    MultiplayerManager.Instance.SendState(score, lines, 0);
+            }
+            RefreshTacticalBoardUi();
+            RefreshSceneHud();
+            RefreshScenePuzzleBoardUi();
+        }
+
+        string MissionProgressText()
+        {
+            if (tacticalBoard == null)
+                return "";
+            return "Mục tiêu: dụ quái bắt đối thủ  |  Lượt " + tacticalBoard.MoveBank + "  Đã đi " + tacticalBoard.MovesUsed;
+        }
+
+        string MissionDescription()
+        {
+            return "Thắng khi quái bắt được kẻ địch.";
+        }
+
+        bool IsMissionComplete()
+        {
+            return tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Won;
         }
 
         string BestScoreKey()
         {
-            return "BLOCKFALL_BEST_SCORE_MODE_" + GameSession.SelectedLevel;
+            return LevelProgress.BestScoreKeyForLevel(journeyLevel);
         }
 
         void RenderPiecePreview(List<Image> cells, int type, bool visible)
         {
             for (int i = 0; i < cells.Count; i++)
+            {
                 cells[i].color = new Color(1f, 1f, 1f, 0f);
+                cells[i].sprite = GetPieceBlockSprite(type);
+            }
 
             if (!visible || type < 0)
                 return;
@@ -1820,13 +5464,14 @@ namespace BrickStacker
             float shapeCenterX = (minX + maxX) * 0.5f;
             float shapeCenterY = (minY + maxY) * 0.5f;
             float cellSize = cells.Count > 0 ? cells[0].rectTransform.sizeDelta.x : 12.5f;
-            float step = cellSize * 1.20f;
+            float step = PreviewCellStep(cellSize);
             for (int i = 0; i < shape.Length && i < cells.Count; i++)
             {
                 var cell = shape[i];
                 var image = cells[i];
                 image.rectTransform.anchoredPosition = new Vector2((cell.x - shapeCenterX) * step, -(cell.y - shapeCenterY) * step);
-                image.color = palette[type];
+                image.sprite = GetPieceBlockSprite(type);
+                image.color = Color.white;
             }
         }
 
@@ -1842,16 +5487,170 @@ namespace BrickStacker
             return new[] { "I", "J", "L", "O", "S", "T", "Z" }[type];
         }
 
+        void BeginLevelMission(bool showPopup)
+        {
+            rules = LevelRules.CreateJourney(journeyLevel);
+            SetupTacticalBoard();
+            GameSession.JourneyLevel = journeyLevel;
+            levelLines = 0;
+            levelStartScore = score;
+            maxComboThisLevel = 0;
+            combo = 0;
+            rotationsThisLevel = 0;
+            holdsThisLevel = 0;
+            maxLinesClearedAtOnce = 0;
+            lastRisingDangerTick = 0;
+            starsEarned = 0;
+            gameplayTime = 0f;
+            fallTimer = 0f;
+            piecesLocked = 0;
+            RefreshTacticalBoardUi();
+
+            ApplyLevelStartEffects();
+            UpdateUi();
+
+            if (showPopup && missionOverlay != null)
+            {
+                paused = true;
+                Time.timeScale = 0f;
+                missionTitleText.text = "MÀN " + journeyLevel;
+                if (missionDescText != null) missionDescText.text = MissionDescription();
+                UpdateMissionStarRows();
+                missionOverlay.SetActive(true);
+            }
+        }
+
+        void ApplyLevelStartEffects()
+        {
+            if (rules.HasFixedObstacles && journeyLevel % 5 == 0)
+                AddFixedObstaclePattern();
+            else if (rules.HasStoneBlocks && journeyLevel % 4 == 0)
+                AddGarbageRow();
+        }
+
+        void AddFixedObstaclePattern()
+        {
+            int baseY = Mathf.Clamp(1 + (journeyLevel / 5) % 4, 1, 5);
+            int startX = UnityEngine.Random.Range(1, Width - 3);
+            for (int i = 0; i < 3; i++)
+            {
+                int x = startX + i;
+                int y = baseY + (i == 1 ? 1 : 0);
+                if (grid[x, y] == 0)
+                    grid[x, y] = 7;
+            }
+            RedrawLocked();
+        }
+
+        void LevelComplete()
+        {
+            if (MultiplayerMatch.Active)
+            {
+                // Trận 1v1: hoàn thành trước là thắng — không lưu tiến trình solo.
+                int mpBonus = WinScoreBonus(CalculateStars());
+                score += mpBonus; // gửi cho đối thủ cùng cờ kết thúc trong MultiplayerEndMatch
+                MultiplayerEndMatch(true, "Bạn hoàn thành bàn cờ trước đối thủ!\nĐiểm thưởng +" + mpBonus);
+                return;
+            }
+
+            resolving = true;
+            ClearActive();
+            starsEarned = CalculateStars();
+            // Điểm thưởng thắng bàn cờ — cộng chung vào điểm xóa hàng; bàn cờ chỉ
+            // sinh điểm khi thắng, di chuyển không cho điểm.
+            int winBonus = WinScoreBonus(starsEarned);
+            score += winBonus;
+            LevelProgress.SaveLevelResult(journeyLevel, starsEarned);
+            LevelProgress.SaveLevelBestScore(journeyLevel, score);
+            LevelProgress.AddCoins(rules.CoinReward);
+            PlayerPrefs.Save();
+            CloudSaveSync.Push();
+            LeaderboardsSync.SubmitScore(score);
+
+            levelClearTitleText.text = "HOÀN THÀNH MÀN " + journeyLevel + "\n" + StarText(starsEarned);
+            levelClearBodyText.color = new Color(1f, 0.91f, 0.74f);
+            levelClearBodyText.fontStyle = FontStyle.Normal;
+            levelClearBodyText.text = tacticalBoard != null && rules.TacticalData != null
+                ? "Quái đã bắt được đối thủ\nĐã dùng " + tacticalBoard.MovesUsed + " lượt\nĐiểm thưởng +" + winBonus + "  ·  Tổng điểm " + score + "\nXu +" + rules.CoinReward
+                : "Nhiệm vụ hoàn thành\nĐiểm thưởng +" + winBonus + "  ·  Tổng điểm " + score + "\nXu +" + rules.CoinReward;
+            levelClearOverlay.SetActive(true);
+
+            continueButton.interactable = true;
+            continueButton.GetComponentInChildren<Text>().text = "Bản đồ màn";
+            continueButton.onClick.RemoveAllListeners();
+            continueButton.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                Time.timeScale = 1f;
+                SceneManager.LoadScene("BrickLevel");
+            });
+
+            stopButton.interactable = true;
+            stopButton.GetComponentInChildren<Text>().text = "Chơi lại";
+            stopButton.onClick.RemoveAllListeners();
+            stopButton.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                Restart();
+            });
+            Beep(1180f, 0.22f, 0.35f);
+        }
+
+        // Điểm thưởng thắng bàn cờ: 300 gốc + 200/sao (3 sao = 900).
+        static int WinScoreBonus(int stars)
+        {
+            return 300 + Mathf.Clamp(stars, 0, 3) * 200;
+        }
+
+        int CalculateStars()
+        {
+            if (tacticalBoard != null && rules.TacticalData != null)
+            {
+                if (tacticalBoard.MovesUsed <= rules.TacticalData.ThreeStarMoveLimit)
+                    return 3;
+                if (tacticalBoard.MovesUsed <= rules.TacticalData.TwoStarMoveLimit)
+                    return 2;
+            }
+            return 1;
+        }
+
+        string StarText(int stars)
+        {
+            if (stars >= 3) return "★★★";
+            if (stars == 2) return "★★☆";
+            return "★☆☆";
+        }
+
+        void UpdateMissionStarRows()
+        {
+            if (missionStar1CondText == null) return;
+            missionStar1CondText.text = "Hoàn thành";
+            if (rules != null && rules.TacticalData != null)
+            {
+                missionStar2CondText.text = "≤ " + rules.TacticalData.TwoStarMoveLimit + " lượt";
+                missionStar3CondText.text = "≤ " + rules.TacticalData.ThreeStarMoveLimit + " lượt";
+                return;
+            }
+            missionStar2CondText.text = "—";
+            missionStar3CondText.text = "—";
+        }
+
         void EndGame(bool won)
         {
+            if (MultiplayerMatch.Active && !won)
+            {
+                MultiplayerEndMatch(false, GameOverMessage());
+                return;
+            }
+
             gameOver = true;
             resolving = false;
             StopBackgroundMusic();
             ClearActive();
             statusText.text = "";
-            gameOverTitleText.text = won ? "LEVEL CLEAR" : "GAME OVER";
+            gameOverTitleText.text = won ? "HOÀN THÀNH" : "THUA RỒI";
             gameOverTitleText.color = won ? new Color(1f, 0.86f, 0.56f) : new Color(1f, 0.62f, 0.36f);
-            gameOverScoreText.text = rules.TargetLines > 0 ? "Score  " + score + "\nLines  " + lines + "/" + rules.TargetLines : "Score  " + score + "\nLines  " + lines;
+            gameOverScoreText.text = won ? "Điểm  " + score + "\nHàng  " + lines : GameOverMessage();
             gameOverOverlay.SetActive(true);
             shake = won ? 0.35f : 0.2f;
             if (won)
@@ -1860,15 +5659,299 @@ namespace BrickStacker
                 RuntimeArt.PlayGameOverSound();
         }
 
+        // Bàn cờ + bàn xếp gạch thu nhỏ của đối thủ, xếp chồng ở cột phải dưới nút Xoay.
+        void BuildOpponentMiniBoard(Transform parent)
+        {
+            // --- Bàn cờ chiến thuật mini (tường vẽ sẵn — cùng level nên giống mình) ---
+            var tacticalData = rules != null ? rules.TacticalData : null;
+            int tacticalW = tacticalData != null ? Mathf.Max(1, tacticalData.BoardWidth) : 8;
+            int tacticalH = tacticalData != null ? Mathf.Max(1, tacticalData.BoardHeight) : 8;
+
+            // Prefix "Runtime " để SwitchGameplayRoot tự dời panel khi đổi root mobile/tablet.
+            var tacticalPanel = Ui.Panel(parent, "Runtime Opponent Mini Tactical", new Color(0.14f, 0.06f, 0.022f, 0.90f));
+            opponentTacticalPanelRect = tacticalPanel.GetComponent<RectTransform>();
+            Ui.Rect(tacticalPanel, new Vector2(0.815f, 0.760f), new Vector2(0.960f, 0.850f), Vector2.zero);
+            tacticalPanel.GetComponent<Image>().raycastTarget = false;
+
+            opponentText = Ui.Text(tacticalPanel.transform, "Đối thủ", font, 34, new Color(0.62f, 0.92f, 1f), TextAnchor.MiddleCenter);
+            opponentText.fontStyle = FontStyle.Bold;
+            opponentText.resizeTextForBestFit = true;
+            opponentText.resizeTextMaxSize = 34;
+            opponentText.resizeTextMinSize = 18;
+            Ui.Rect(opponentText, new Vector2(-0.35f, 1.03f), new Vector2(1.35f, 1.30f), Vector2.zero);
+            opponentText.raycastTarget = false;
+            AddDarkWoodTextEdge(opponentText, 0.6f, 0.85f);
+
+            opponentTacticalCells = new Image[tacticalW, tacticalH];
+            var emptyColor = new Color(0.30f, 0.16f, 0.07f, 0.55f);
+            for (int x = 0; x < tacticalW; x++)
+            {
+                for (int y = 0; y < tacticalH; y++)
+                {
+                    var cell = Ui.Panel(tacticalPanel.transform, "MiniTacCell", emptyColor).GetComponent<Image>();
+                    Ui.Rect(cell,
+                        new Vector2((x + 0.08f) / tacticalW, (y + 0.08f) / tacticalH),
+                        new Vector2((x + 0.92f) / tacticalW, (y + 0.92f) / tacticalH),
+                        Vector2.zero);
+                    cell.raycastTarget = false;
+                    opponentTacticalCells[x, y] = cell;
+                }
+            }
+
+            if (tacticalData != null)
+            {
+                var wallColor = new Color(0.48f, 0.30f, 0.14f, 0.95f);
+                foreach (var wall in tacticalData.WallPositions)
+                    if (wall.x >= 0 && wall.x < tacticalW && wall.y >= 0 && wall.y < tacticalH)
+                        opponentTacticalCells[wall.x, wall.y].color = wallColor;
+            }
+
+            // --- Bàn xếp gạch mini ---
+            var panel = Ui.Panel(parent, "Runtime Opponent Mini Board", new Color(0.14f, 0.06f, 0.022f, 0.90f));
+            opponentMiniPanelRect = panel.GetComponent<RectTransform>();
+            // Anchor mặc định cho fallback path; scene layout sẽ đặt lại mỗi lần responsive chạy.
+            Ui.Rect(panel, new Vector2(0.815f, 0.520f), new Vector2(0.960f, 0.745f), Vector2.zero);
+            panel.GetComponent<Image>().raycastTarget = false;
+
+            opponentMiniCells = new Image[Width, Height];
+            for (int x = 0; x < Width; x++)
+            {
+                for (int y = 0; y < Height; y++)
+                {
+                    var cell = Ui.Panel(panel.transform, "MiniCell", Color.white).GetComponent<Image>();
+                    Ui.Rect(cell,
+                        new Vector2((x + 0.06f) / Width, (y + 0.06f) / Height),
+                        new Vector2((x + 0.94f) / Width, (y + 0.94f) / Height),
+                        Vector2.zero);
+                    cell.raycastTarget = false;
+                    cell.enabled = false;
+                    opponentMiniCells[x, y] = cell;
+                }
+            }
+        }
+
+        // Cột phải: bàn cờ mini (vuông) chồng trên bàn gạch mini (1:2), cell giữ tỉ lệ vuông.
+        void LayoutOpponentMiniBoard(float sideLeft, float sideRight, float areaTop, float areaBottom, float aspect)
+        {
+            if (opponentMiniPanelRect == null)
+                return;
+
+            int tacticalCols = opponentTacticalCells != null ? opponentTacticalCells.GetLength(0) : 8;
+            int tacticalRows = opponentTacticalCells != null ? opponentTacticalCells.GetLength(1) : 8;
+            float tacticalRatio = aspect * ((float)tacticalRows / tacticalCols); // height = width * ratio
+            float puzzleRatio = aspect * ((float)Height / Width);
+            const float stackGap = 0.010f;
+
+            float miniTop = areaTop - 0.034f; // chừa chỗ nhãn "Đối thủ"
+            float maxH = miniTop - areaBottom - 0.006f;
+            // Tổng chiều cao theo bề rộng w: w*tacticalRatio + gap + w*puzzleRatio
+            float maxW = (sideRight - sideLeft) * 0.94f;
+            float width = Mathf.Min(maxW, (maxH - stackGap) / (tacticalRatio + puzzleRatio));
+            float totalH = width * (tacticalRatio + puzzleRatio) + stackGap;
+            bool visible = totalH > 0.08f && width > 0.03f;
+
+            opponentMiniPanelRect.gameObject.SetActive(visible);
+            if (opponentTacticalPanelRect != null)
+                opponentTacticalPanelRect.gameObject.SetActive(visible);
+            if (!visible)
+                return;
+
+            float center = (sideLeft + sideRight) * 0.5f;
+            float tacticalHFrac = width * tacticalRatio;
+            if (opponentTacticalPanelRect != null)
+                ApplySceneRect(opponentTacticalPanelRect,
+                    new Vector2(center - width * 0.5f, miniTop - tacticalHFrac),
+                    new Vector2(center + width * 0.5f, miniTop));
+
+            float puzzleTop = miniTop - tacticalHFrac - stackGap;
+            ApplySceneRect(opponentMiniPanelRect,
+                new Vector2(center - width * 0.5f, puzzleTop - width * puzzleRatio),
+                new Vector2(center + width * 0.5f, puzzleTop));
+        }
+
+        // Gửi ảnh chụp bàn của mình cho đối thủ, tối đa 2 lần/giây và chỉ khi thay đổi.
+        void SendBoardSnapshotIfNeeded()
+        {
+            var manager = MultiplayerManager.Instance;
+            if (manager == null || Time.unscaledTime < nextBoardSendTime)
+                return;
+            nextBoardSendTime = Time.unscaledTime + 0.5f;
+
+            if (boardSnapshot == null || boardSnapshot.Length != Width * Height)
+                boardSnapshot = new byte[Width * Height];
+
+            for (int x = 0; x < Width; x++)
+                for (int y = 0; y < Height; y++)
+                    boardSnapshot[x + y * Width] = (byte)Mathf.Clamp(grid[x, y], 0, 255);
+
+            if (!gameOver && !resolving)
+            {
+                byte activeValue = (byte)(currentType >= 0 ? currentType + 1 : 8);
+                foreach (var cell in Cells(origin, rotation))
+                    if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height)
+                        boardSnapshot[cell.x + cell.y * Width] = activeValue;
+            }
+
+            if (tacticalSnapshot == null)
+                tacticalSnapshot = new byte[6];
+            if (tacticalBoard != null)
+            {
+                WriteTacticalPos(0, tacticalBoard.PlayerPosition);
+                WriteTacticalPos(2, tacticalBoard.EnemyPosition);
+                WriteTacticalPos(4, tacticalBoard.MonsterPosition);
+            }
+            else
+            {
+                for (int i = 0; i < 6; i++)
+                    tacticalSnapshot[i] = 255;
+            }
+
+            int hash = 17;
+            for (int i = 0; i < boardSnapshot.Length; i++)
+                hash = hash * 31 + boardSnapshot[i];
+            for (int i = 0; i < tacticalSnapshot.Length; i++)
+                hash = hash * 31 + tacticalSnapshot[i];
+            if (hash == lastBoardHash)
+                return;
+            lastBoardHash = hash;
+
+            manager.SendBoard(boardSnapshot, (byte)Width, (byte)Height, tacticalSnapshot);
+        }
+
+        void WriteTacticalPos(int index, Vector2Int pos)
+        {
+            bool valid = pos.x >= 0 && pos.x < 255 && pos.y >= 0 && pos.y < 255;
+            tacticalSnapshot[index] = valid ? (byte)pos.x : (byte)255;
+            tacticalSnapshot[index + 1] = valid ? (byte)pos.y : (byte)255;
+        }
+
+        void RepaintOpponentMiniBoard()
+        {
+            MultiplayerMatch.OpponentBoardDirty = false;
+            var board = MultiplayerMatch.OpponentBoard;
+            if (opponentMiniCells != null && board != null)
+            {
+                int cols = MultiplayerMatch.OpponentBoardCols;
+                int rows = MultiplayerMatch.OpponentBoardRows;
+                for (int x = 0; x < Width; x++)
+                {
+                    for (int y = 0; y < Height; y++)
+                    {
+                        byte value = x < cols && y < rows ? board[x + y * cols] : (byte)0;
+                        var cell = opponentMiniCells[x, y];
+                        cell.enabled = value > 0;
+                        if (value > 0)
+                            cell.color = value - 1 < palette.Length ? palette[value - 1] : new Color(0.9f, 0.9f, 0.9f);
+                    }
+                }
+            }
+
+            RepaintOpponentTacticalBoard();
+        }
+
+        void RepaintOpponentTacticalBoard()
+        {
+            if (opponentTacticalCells == null)
+                return;
+
+            int cols = opponentTacticalCells.GetLength(0);
+            int rows = opponentTacticalCells.GetLength(1);
+            var emptyColor = new Color(0.30f, 0.16f, 0.07f, 0.55f);
+            var wallColor = new Color(0.48f, 0.30f, 0.14f, 0.95f);
+
+            // Vẽ lại nền + tường (tường lấy từ level của mình — hai bên giống nhau).
+            for (int x = 0; x < cols; x++)
+                for (int y = 0; y < rows; y++)
+                    opponentTacticalCells[x, y].color = emptyColor;
+
+            if (rules != null && rules.TacticalData != null)
+                foreach (var wall in rules.TacticalData.WallPositions)
+                    if (wall.x >= 0 && wall.x < cols && wall.y >= 0 && wall.y < rows)
+                        opponentTacticalCells[wall.x, wall.y].color = wallColor;
+
+            PaintTacticalEntity(MultiplayerMatch.OpponentTacticalMonster, new Color(0.75f, 0.35f, 0.90f)); // quái tím
+            PaintTacticalEntity(MultiplayerMatch.OpponentTacticalEnemy, new Color(0.95f, 0.30f, 0.25f));   // địch đỏ
+            PaintTacticalEntity(MultiplayerMatch.OpponentTacticalPlayer, new Color(0.30f, 0.85f, 0.40f));  // người chơi xanh
+        }
+
+        void PaintTacticalEntity(Vector2Int pos, Color color)
+        {
+            if (opponentTacticalCells == null || pos.x < 0 || pos.y < 0)
+                return;
+            if (pos.x >= opponentTacticalCells.GetLength(0) || pos.y >= opponentTacticalCells.GetLength(1))
+                return;
+            opponentTacticalCells[pos.x, pos.y].color = color;
+        }
+
+        // Đối thủ báo kết thúc hoặc rời trận — xử ở đầu Update mỗi frame.
+        void CheckOpponentMatchEvents()
+        {
+            if (MultiplayerMatch.OpponentFinished)
+                MultiplayerEndMatch(false, "Đối thủ đã hoàn thành bàn cờ trước!");
+            else if (MultiplayerMatch.OpponentLost)
+                MultiplayerEndMatch(true, "Đối thủ đã bị quái bắt!");
+            else if (MultiplayerMatch.OpponentLeft)
+                MultiplayerEndMatch(true, "Đối thủ đã rời trận.");
+        }
+
+        void MultiplayerEndMatch(bool won, string reason)
+        {
+            if (gameOver)
+                return;
+            gameOver = true;
+            resolving = false;
+            Time.timeScale = 1f;
+            StopBackgroundMusic();
+            ClearActive();
+            statusText.text = "";
+
+            var manager = MultiplayerManager.Instance;
+            if (manager != null)
+                manager.SendState(score, lines, won ? MultiplayerManager.FlagFinished : MultiplayerManager.FlagLost);
+
+            gameOverTitleText.text = won ? "THẮNG TRẬN!" : "THUA TRẬN";
+            gameOverTitleText.color = won ? new Color(1f, 0.86f, 0.56f) : new Color(1f, 0.62f, 0.36f);
+            gameOverScoreText.text = reason + "\nBạn  " + score + " điểm · " + lines + " hàng"
+                + "\nĐối thủ  " + MultiplayerMatch.OpponentScore + " điểm · " + MultiplayerMatch.OpponentLines + " hàng";
+            gameOverOverlay.SetActive(true);
+            shake = won ? 0.35f : 0.2f;
+            if (won)
+                Beep(1180f, 0.22f, 0.35f);
+            else
+                RuntimeArt.PlayGameOverSound();
+
+            // Chờ chút cho cờ kết thúc kịp đến đối thủ rồi mới rời phòng.
+            StartCoroutine(LeaveMatchAfterDelay(1.5f));
+        }
+
+        System.Collections.IEnumerator LeaveMatchAfterDelay(float seconds)
+        {
+            yield return new WaitForSecondsRealtime(seconds);
+            if (MultiplayerManager.Instance != null)
+                _ = MultiplayerManager.Instance.LeaveAsync();
+            else
+                MultiplayerMatch.Reset();
+        }
+
         void Restart()
         {
             Time.timeScale = 1f;
             SceneManager.LoadScene("BrickGame");
         }
 
+        string GameOverMessage()
+        {
+            if (tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Failed)
+                return "Quái đã bắt được bạn\nLượt đã dùng  " + tacticalBoard.MovesUsed + "\nXóa dòng để kiếm lượt và dụ quái tốt hơn";
+            return "Điểm  " + score;
+        }
+
         void BackToMenu()
         {
             Time.timeScale = 1f;
+            // Bỏ trận giữa chừng: rời phòng để đối thủ được xử thắng vắng mặt.
+            if (MultiplayerMatch.Active && MultiplayerManager.Instance != null)
+                _ = MultiplayerManager.Instance.LeaveAsync();
             SceneManager.LoadScene("BrickMenu");
         }
 
@@ -1878,8 +5961,11 @@ namespace BrickStacker
                 return;
             paused = !paused;
             Time.timeScale = paused ? 0f : 1f;
-            pauseOverlay.SetActive(paused);
-            pauseButton.GetComponentInChildren<Text>().text = "II";
+            if (pauseOverlay != null)
+                pauseOverlay.SetActive(paused);
+            var pauseText = pauseButton != null ? pauseButton.GetComponentInChildren<Text>() : null;
+            if (pauseText != null)
+                pauseText.text = "II";
             if (musicSource != null)
             {
                 if (paused)
@@ -1992,10 +6078,28 @@ namespace BrickStacker
         static Sprite woodBackdropSprite;
         static Sprite blurredWoodBackdropSprite;
         static Sprite pauseButtonSprite;
+        static Sprite rotateButtonSprite;
+        static Sprite tacticalCellSprite;
+        static Sprite tacticalHighlightSprite;
+        static Sprite tacticalWallSprite;
+        static Sprite tacticalPlayerSprite;
+        static Sprite tacticalEnemySprite;
+        static Sprite tacticalMonsterSprite;
+
+        public static void ResetTacticalSpriteCache()
+        {
+            tacticalPlayerSprite  = null;
+            tacticalEnemySprite   = null;
+            tacticalMonsterSprite = null;
+        }
         static Sprite woodPanelSprite;
         static Sprite woodButtonSprite;
+        static Sprite rewardChestSprite;
+        static Sprite backArrowSprite;
+        static Sprite bookSprite;
         static Sprite solidSprite;
         static Font displayFont;
+        static Font uiFont;
         static AudioSource oneShotSource;
         static AudioClip uiSwitchClip;
         static AudioClip gameOverClip;
@@ -2050,49 +6154,175 @@ namespace BrickStacker
             if (displayFont != null)
                 return displayFont;
 
-            displayFont = Resources.Load<Font>("BrickStacker/Moment Vintage");
+            displayFont = Resources.Load<Font>("BrickStacker/Batangas_Bold");
             if (displayFont != null)
                 return displayFont;
 
-            displayFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf") ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            displayFont = Resources.Load<Font>("BrickStacker/DFVN_Moju_Light");
+            if (displayFont != null)
+                return displayFont;
+
+            displayFont = Resources.Load<Font>("BrickStacker/VietnameseArial");
+            if (displayFont != null)
+                return displayFont;
+
+            displayFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (displayFont != null)
+                return displayFont;
+
             return displayFont;
+        }
+
+        public static Font LoadUiFont()
+        {
+            if (uiFont != null)
+                return uiFont;
+
+            uiFont = Resources.Load<Font>("BrickStacker/DFVN_Moju_Light");
+            if (uiFont != null)
+                return uiFont;
+
+            uiFont = Resources.Load<Font>("BrickStacker/VietnameseArial");
+            if (uiFont != null)
+                return uiFont;
+
+            uiFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (uiFont != null)
+                return uiFont;
+
+            return LoadDisplayFont();
+        }
+
+        public static Sprite[] LoadPieceBlockSprites()
+        {
+            var sprites = new Sprite[7];
+            for (int i = 0; i < sprites.Length; i++)
+            {
+                string assetName = "BrickStacker/SlicedAssets/block_pieces_" + (i + 1).ToString("00");
+                sprites[i] = Resources.Load<Sprite>(assetName);
+                if (sprites[i] == null)
+                {
+                    var texture = Resources.Load<Texture2D>(assetName);
+                    if (texture != null)
+                    {
+                        texture.filterMode = FilterMode.Bilinear;
+                        texture.wrapMode = TextureWrapMode.Clamp;
+                        sprites[i] = CreateFullRectSpriteSafe(texture);
+                    }
+                }
+            }
+            return sprites;
+        }
+
+        static Sprite CreateFullRectSpriteSafe(Texture2D texture)
+        {
+            if (texture == null)
+                return null;
+
+            try
+            {
+                return Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        static Sprite CreateAlphaTrimmedSquareSprite(Texture2D texture)
+        {
+            if (texture == null)
+                return null;
+
+            try
+            {
+                var pixels = texture.GetPixels32();
+                int minX = texture.width;
+                int minY = texture.height;
+                int maxX = -1;
+                int maxY = -1;
+
+                for (int y = 0; y < texture.height; y++)
+                {
+                    int row = y * texture.width;
+                    for (int x = 0; x < texture.width; x++)
+                    {
+                        if (pixels[row + x].a <= 8)
+                            continue;
+
+                        minX = Mathf.Min(minX, x);
+                        minY = Mathf.Min(minY, y);
+                        maxX = Mathf.Max(maxX, x);
+                        maxY = Mathf.Max(maxY, y);
+                    }
+                }
+
+                if (maxX < minX || maxY < minY)
+                    return Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+
+                int contentWidth = maxX - minX + 1;
+                int contentHeight = maxY - minY + 1;
+                int squareSize = Mathf.Min(Mathf.Max(contentWidth, contentHeight), Mathf.Min(texture.width, texture.height));
+                int centerX = Mathf.RoundToInt((minX + maxX) * 0.5f);
+                int centerY = Mathf.RoundToInt((minY + maxY) * 0.5f);
+                int rectX = Mathf.Clamp(centerX - squareSize / 2, 0, texture.width - squareSize);
+                int rectY = Mathf.Clamp(centerY - squareSize / 2, 0, texture.height - squareSize);
+                return Sprite.Create(texture, new Rect(rectX, rectY, squareSize, squareSize), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         public static Sprite CreateBlockSprite()
         {
-            const int size = 32;
+            const int size = 40;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            texture.filterMode = FilterMode.Point;
-            var woodData = Resources.Load<TextAsset>("BrickStacker/board_frame_source") ?? Resources.Load<TextAsset>("BrickStacker/wood_background_source");
-            Texture2D woodTexture = null;
-            if (woodData != null)
-            {
-                woodTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!woodTexture.LoadImage(woodData.bytes))
-                    woodTexture = null;
-            }
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
 
             for (int x = 0; x < size; x++)
             {
                 for (int y = 0; y < size; y++)
                 {
-                    bool edge = x < 2 || y < 2 || x > size - 3 || y > size - 3;
-                    bool darkEdge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
-                    bool shine = x > 4 && x < 14 && y > 21 && y < 27;
-                    Color wood = woodTexture != null
-                        ? woodTexture.GetPixelBilinear(0.36f + x / (float)size * 0.22f, 0.28f + y / (float)size * 0.24f)
-                        : new Color(0.76f, 0.62f, 0.45f, 1f);
-                    float luminance = wood.grayscale;
-                    float fineGrain = (Mathf.PerlinNoise(x * 0.22f, y * 0.055f) - 0.5f) * 0.24f;
-                    float longGrain = Mathf.Sin((x * 0.20f) + Mathf.PerlinNoise(y * 0.07f, x * 0.025f) * 2.8f) * 0.10f;
-                    float streak = Mathf.Sin((x + y * 0.18f) * 0.72f) * 0.045f;
-                    float value = Mathf.Clamp01(0.82f + (luminance - 0.5f) * 0.56f + fineGrain + longGrain + streak);
-                    Color color = new Color(value, value, value, 1f);
+                    float u = x / (float)(size - 1);
+                    float v = y / (float)(size - 1);
+                    float edgeDistance = Mathf.Min(Mathf.Min(x, y), Mathf.Min(size - 1 - x, size - 1 - y));
+                    float cornerDistance = Mathf.Min(
+                        Vector2.Distance(new Vector2(x, y), new Vector2(4f, 4f)),
+                        Mathf.Min(
+                            Vector2.Distance(new Vector2(x, y), new Vector2(size - 5f, 4f)),
+                            Mathf.Min(
+                                Vector2.Distance(new Vector2(x, y), new Vector2(4f, size - 5f)),
+                                Vector2.Distance(new Vector2(x, y), new Vector2(size - 5f, size - 5f)))));
 
-                    if (shine)
-                        color = Color.Lerp(color, Color.white, 0.36f);
-                    if (edge)
-                        color = Color.Lerp(color, new Color(0.30f, 0.30f, 0.30f, 1f), darkEdge ? 0.72f : 0.32f);
+                    bool roundedCorner = (x < 5 || x > size - 6) && (y < 5 || y > size - 6) && cornerDistance > 5.4f;
+                    if (roundedCorner)
+                    {
+                        texture.SetPixel(x, y, Color.clear);
+                        continue;
+                    }
+
+                    float bevel = Mathf.Clamp01(edgeDistance / 7f);
+                    float topLeftLight = Mathf.Clamp01((1f - u) * 0.42f + v * 0.34f);
+                    float bottomRightShade = Mathf.Clamp01(u * 0.32f + (1f - v) * 0.38f);
+                    float fineGrain = (Mathf.PerlinNoise(x * 0.17f, y * 0.19f) - 0.5f) * 0.055f;
+                    float softStreak = Mathf.Sin((x * 0.28f + y * 0.11f) + Mathf.PerlinNoise(y * 0.05f, x * 0.04f) * 1.4f) * 0.018f;
+                    float centerGlow = Mathf.Clamp01(1f - Vector2.Distance(new Vector2(u, v), new Vector2(0.42f, 0.58f)) * 1.65f) * 0.08f;
+                    float value = 0.86f + fineGrain + softStreak + centerGlow + topLeftLight * 0.10f - bottomRightShade * 0.08f;
+
+                    if (edgeDistance < 1.5f)
+                        value = 0.34f;
+                    else if (edgeDistance < 3.0f)
+                        value = Mathf.Lerp(0.42f, value, 0.38f);
+                    else
+                        value = Mathf.Lerp(0.55f, value, bevel);
+
+                    if (x > 6 && x < size - 7 && y > size - 11 && y < size - 5)
+                        value = Mathf.Lerp(value, 1f, 0.16f);
+
+                    Color color = new Color(Mathf.Clamp01(value), Mathf.Clamp01(value), Mathf.Clamp01(value), 1f);
 
                     texture.SetPixel(x, y, color);
                 }
@@ -2101,8 +6331,43 @@ namespace BrickStacker
             return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
         }
 
+        public static Sprite CreateBackArrowSprite()
+        {
+            if (backArrowSprite != null)
+                return backArrowSprite;
+
+            var texture = Resources.Load<Texture2D>("BrickStacker/back_arrow");
+            if (texture == null)
+                return CreateWoodButtonSprite();
+
+            backArrowSprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
+            return backArrowSprite;
+        }
+
+        public static Sprite CreateBookSprite()
+        {
+            if (bookSprite != null)
+                return bookSprite;
+
+            bookSprite = LoadSimpleSprite("BrickStacker/book") ?? CreateWoodButtonSprite();
+            return bookSprite;
+        }
+
+        static Sprite LoadSimpleSprite(string resourcePath)
+        {
+            var texture = Resources.Load<Texture2D>(resourcePath);
+            if (texture == null)
+                return null;
+
+            return Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
+        }
+
         public static Sprite CreatePauseButtonSprite()
         {
+            if (pauseButtonSprite != null)
+                return pauseButtonSprite;
+
+            pauseButtonSprite = CreateSpriteFromAtlas("BrickStacker/ui_wood_buttons_atlas", 0.105f, 0.160f, 0.165f, 0.255f, 100f);
             if (pauseButtonSprite != null)
                 return pauseButtonSprite;
 
@@ -2163,6 +6428,85 @@ namespace BrickStacker
             texture.Apply();
             pauseButtonSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
             return pauseButtonSprite;
+        }
+
+        public static Sprite CreateRotateButtonSprite()
+        {
+            if (rotateButtonSprite != null)
+                return rotateButtonSprite;
+
+            rotateButtonSprite = CreateSpriteFromAtlas("BrickStacker/ui_wood_buttons_atlas", 0.305f, 0.160f, 0.165f, 0.255f, 100f);
+            return rotateButtonSprite ?? CreatePauseButtonSprite();
+        }
+
+        public static Sprite CreateTacticalCellSprite()
+        {
+            if (tacticalCellSprite != null)
+                return tacticalCellSprite;
+
+            tacticalCellSprite = CreateSpriteFromAtlas("BrickStacker/tactical_tiles_atlas", 0.050f, 0.105f, 0.145f, 0.205f, 100f);
+            return tacticalCellSprite ?? CreateWoodButtonSprite();
+        }
+
+        public static Sprite CreateTacticalHighlightSprite()
+        {
+            if (tacticalHighlightSprite != null)
+                return tacticalHighlightSprite;
+
+            tacticalHighlightSprite = CreateSpriteFromAtlas("BrickStacker/tactical_tiles_atlas", 0.395f, 0.095f, 0.175f, 0.230f, 100f);
+            return tacticalHighlightSprite ?? CreateTacticalCellSprite();
+        }
+
+        public static Sprite CreateTacticalWallSprite()
+        {
+            if (tacticalWallSprite != null)
+                return tacticalWallSprite;
+
+            tacticalWallSprite = CreateSpriteFromAtlas("BrickStacker/tactical_tiles_atlas", 0.610f, 0.095f, 0.170f, 0.230f, 100f);
+            return tacticalWallSprite ?? CreateTacticalCellSprite();
+        }
+
+        public static Sprite CreateTacticalPlayerSprite()
+        {
+            if (tacticalPlayerSprite != null)
+                return tacticalPlayerSprite;
+
+            tacticalPlayerSprite = CreateSpriteFromAtlas("BrickStacker/tactical_pieces_atlas", 0.2307f, 0.1335f, 0.1278f, 0.2339f, 100f);
+            return tacticalPlayerSprite;
+        }
+
+        public static Sprite CreateTacticalEnemySprite()
+        {
+            if (tacticalEnemySprite != null)
+                return tacticalEnemySprite;
+
+            tacticalEnemySprite = CreateSpriteFromAtlas("BrickStacker/tactical_pieces_atlas", 0.4406f, 0.1400f, 0.1312f, 0.2256f, 100f);
+            return tacticalEnemySprite;
+        }
+
+        public static Sprite CreateTacticalMonsterSprite()
+        {
+            if (tacticalMonsterSprite != null)
+                return tacticalMonsterSprite;
+
+            tacticalMonsterSprite = CreateSpriteFromAtlas("BrickStacker/tactical_pieces_atlas", 0.6457f, 0.1538f, 0.1506f, 0.2155f, 100f);
+            return tacticalMonsterSprite;
+        }
+
+        static Sprite CreateSpriteFromAtlas(string resourcePath, float normalizedX, float normalizedTop, float normalizedWidth, float normalizedHeight, float pixelsPerUnit)
+        {
+            var texture = Resources.Load<Texture2D>(resourcePath);
+            if (texture == null)
+                return null;
+
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            float x = Mathf.Clamp01(normalizedX) * texture.width;
+            float width = Mathf.Clamp01(normalizedWidth) * texture.width;
+            float height = Mathf.Clamp01(normalizedHeight) * texture.height;
+            float y = texture.height - (Mathf.Clamp01(normalizedTop) * texture.height) - height;
+            var rect = new Rect(Mathf.Round(x), Mathf.Round(Mathf.Clamp(y, 0, texture.height - height)), Mathf.Round(width), Mathf.Round(height));
+            return Sprite.Create(texture, rect, new Vector2(0.5f, 0.5f), pixelsPerUnit, 0, SpriteMeshType.FullRect);
         }
 
         public static Sprite CreateWoodPanelSprite()
@@ -2402,6 +6746,11 @@ namespace BrickStacker
             return woodBackdropSprite;
         }
 
+        public static Sprite CreateWoodBackgroundSprite()
+        {
+            return CreateWoodBackdropSprite();
+        }
+
         static Sprite CreateBlurredWoodBackdropSprite()
         {
             if (blurredWoodBackdropSprite != null)
@@ -2567,7 +6916,9 @@ namespace BrickStacker
             var scaler = canvasObject.GetComponent<CanvasScaler>();
             scaler.referenceResolution = new Vector2(720, 1280);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = Screen.width <= Screen.height ? 0f : 1f;
+            float screenAspect = Screen.height > 0 ? Screen.width / (float)Screen.height : scaler.referenceResolution.x / scaler.referenceResolution.y;
+            float referenceAspect = scaler.referenceResolution.x / scaler.referenceResolution.y;
+            scaler.matchWidthOrHeight = screenAspect >= referenceAspect ? 1f : 0f;
             canvasObject.AddComponent<ResponsiveCanvasScaler>();
             canvasObject.AddComponent<GraphicRaycaster>();
             return canvas;
@@ -2652,9 +7003,30 @@ namespace BrickStacker
             rect.offsetMax = Vector2.zero;
         }
 
-        public static void ApplySafeArea(RectTransform rect)
+        // Screen.safeArea can be stale in the Editor when the Game View size changes
+        // (it may still describe the previous resolution). On devices the safe area is
+        // always consistent with the screen, so implausible values are treated as
+        // full-screen instead of blindly trusted.
+        public static Rect SafeArea()
         {
             Rect safe = Screen.safeArea;
+            float w = Mathf.Max(1, Screen.width);
+            float h = Mathf.Max(1, Screen.height);
+            // Real devices only inset one axis at a time (top/bottom in portrait,
+            // left/right in landscape), so the safe area spans the full screen on at
+            // least one axis. Editor game views often report the raw panel pixel size
+            // instead, which shrinks both axes — reject those too.
+            bool valid = safe.width > 0f && safe.height > 0f
+                && safe.xMin >= 0f && safe.yMin >= 0f
+                && safe.xMax <= w + 0.5f && safe.yMax <= h + 0.5f
+                && safe.width >= w * 0.7f && safe.height >= h * 0.7f
+                && (Mathf.Abs(safe.width - w) <= 1f || Mathf.Abs(safe.height - h) <= 1f);
+            return valid ? safe : new Rect(0f, 0f, w, h);
+        }
+
+        public static void ApplySafeArea(RectTransform rect)
+        {
+            Rect safe = SafeArea();
             Vector2 min = safe.position;
             Vector2 max = safe.position + safe.size;
             min.x /= Mathf.Max(1, Screen.width);
@@ -2689,7 +7061,123 @@ namespace BrickStacker
                 return;
 
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = Screen.width <= Screen.height ? 0f : 1f;
+            if (scaler.referenceResolution.x <= 0f || scaler.referenceResolution.y <= 0f)
+                scaler.referenceResolution = new Vector2(1080f, 1920f);
+
+            float screenAspect = Screen.height > 0 ? Screen.width / (float)Screen.height : scaler.referenceResolution.x / scaler.referenceResolution.y;
+            float referenceAspect = scaler.referenceResolution.x / scaler.referenceResolution.y;
+            scaler.matchWidthOrHeight = screenAspect >= referenceAspect ? 1f : 0f;
+        }
+    }
+
+    public class RectTransformSafeAreaFitter : MonoBehaviour
+    {
+        public float Padding = 24f;
+        public float MaxScale = 1f;
+        public bool UseOwnRectWhenLarge = true;
+
+        RectTransform rect;
+        RectTransform parentRect;
+        Vector3 baseScale;
+        int lastWidth;
+        int lastHeight;
+        Rect lastSafeArea;
+        bool initialized;
+
+        void Awake()
+        {
+            Initialize();
+            ApplyNow();
+        }
+
+        void LateUpdate()
+        {
+            if (Screen.width == lastWidth && Screen.height == lastHeight && Screen.safeArea == lastSafeArea)
+                return;
+            ApplyNow();
+        }
+
+        void Initialize()
+        {
+            if (initialized)
+                return;
+
+            rect = transform as RectTransform;
+            parentRect = rect != null ? rect.parent as RectTransform : null;
+            baseScale = rect != null ? rect.localScale : transform.localScale;
+            initialized = true;
+        }
+
+        public void ApplyNow()
+        {
+            Initialize();
+            if (rect == null || parentRect == null || Screen.width <= 0 || Screen.height <= 0)
+                return;
+
+            Bounds contentBounds = CalculateContentBounds();
+            if (contentBounds.size.x <= 1f || contentBounds.size.y <= 1f)
+                return;
+
+            Rect safe = Ui.SafeArea();
+            Rect parent = parentRect.rect;
+            float safeWidth = parent.width * Mathf.Clamp01(safe.width / Screen.width);
+            float safeHeight = parent.height * Mathf.Clamp01(safe.height / Screen.height);
+            float safeCenterX = parent.xMin + parent.width * Mathf.Clamp01((safe.xMin + safe.width * 0.5f) / Screen.width);
+            float safeCenterY = parent.yMin + parent.height * Mathf.Clamp01((safe.yMin + safe.height * 0.5f) / Screen.height);
+
+            float availableWidth = Mathf.Max(1f, safeWidth - Padding * 2f);
+            float availableHeight = Mathf.Max(1f, safeHeight - Padding * 2f);
+            float fit = Mathf.Min(availableWidth / contentBounds.size.x, availableHeight / contentBounds.size.y);
+            float scale = Mathf.Min(MaxScale, fit);
+
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.localScale = baseScale * scale;
+            rect.anchoredPosition = new Vector2(safeCenterX, safeCenterY) - (Vector2)contentBounds.center * scale;
+
+            lastWidth = Screen.width;
+            lastHeight = Screen.height;
+            lastSafeArea = Screen.safeArea;
+        }
+
+        Bounds CalculateContentBounds()
+        {
+            Rect ownRect = rect.rect;
+            if (UseOwnRectWhenLarge && ownRect.width > 120f && ownRect.height > 120f)
+                return new Bounds(ownRect.center, ownRect.size);
+
+            var children = rect.GetComponentsInChildren<RectTransform>(true);
+            bool hasBounds = false;
+            Bounds bounds = new Bounds(Vector3.zero, Vector3.zero);
+            var corners = new Vector3[4];
+
+            for (int i = 0; i < children.Length; i++)
+            {
+                var child = children[i];
+                if (child == null || child == rect || !child.gameObject.activeInHierarchy)
+                    continue;
+
+                child.GetWorldCorners(corners);
+                for (int c = 0; c < corners.Length; c++)
+                {
+                    Vector3 local = rect.InverseTransformPoint(corners[c]);
+                    if (!hasBounds)
+                    {
+                        bounds = new Bounds(local, Vector3.zero);
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(local);
+                    }
+                }
+            }
+
+            if (!hasBounds)
+                bounds = new Bounds(ownRect.center, ownRect.size);
+
+            return bounds;
         }
     }
 
@@ -2770,6 +7258,84 @@ namespace BrickStacker
             lastWidth = Screen.width;
             lastHeight = Screen.height;
             lastSafeArea = Screen.safeArea;
+        }
+    }
+
+    public class LevelNodePulse : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
+    {
+        public float Amount = 0.035f;
+        public float Speed = 2.2f;
+        public float PressedScale = 0.92f;
+        RectTransform rect;
+        Vector3 baseScale;
+        bool pressed;
+
+        void Awake()
+        {
+            rect = GetComponent<RectTransform>();
+            baseScale = rect != null ? rect.localScale : transform.localScale;
+        }
+
+        void LateUpdate()
+        {
+            if (rect == null)
+                rect = GetComponent<RectTransform>();
+            if (rect == null)
+                return;
+
+            float scale = (1f + Mathf.Sin(Time.unscaledTime * Speed) * Amount) * (pressed ? PressedScale : 1f);
+            rect.localScale = baseScale * scale;
+        }
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            pressed = true;
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            pressed = false;
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            pressed = false;
+        }
+    }
+
+    public class TacticalCellInput : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
+    {
+        public BrickGameController Controller;
+        public int X;
+        public int Y;
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            Controller?.HandleTacticalPointerDown(X, Y, eventData.position);
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            Controller?.HandleTacticalPointerUp(X, Y, eventData.position);
+        }
+    }
+
+    public class PressScaleFeedback : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
+    {
+        public float PressedScale = 0.94f;
+        // When set, scale this target instead of self (use to avoid shrinking the hit area).
+        public Transform VisualTarget;
+
+        public void OnPointerDown(PointerEventData eventData) => ApplyScale(PressedScale);
+        public void OnPointerUp(PointerEventData eventData) => ApplyScale(1f);
+        public void OnPointerExit(PointerEventData eventData) => ApplyScale(1f);
+
+        void ApplyScale(float scale)
+        {
+            var t = VisualTarget != null ? VisualTarget : transform;
+            var r = t.GetComponent<RectTransform>();
+            if (r != null)
+                r.localScale = new Vector3(scale, scale, 1f);
         }
     }
 }

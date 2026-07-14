@@ -1,0 +1,819 @@
+fileFormatVersion: 2
+guid: 4f0c875b48b255a4d9a3dfb5a4167d2a
+TextureImporter:
+  internalIDToNameTable:
+  - first:
+      213: 5789599376932951871
+    second: level_glow_nodes_atlas_0
+  - first:
+      213: 243329596508201194
+    second: level_glow_nodes_atlas_1
+  - first:
+      213: -7801526485268021918
+    second: level_glow_nodes_atlas_2
+  - first:
+      213: 931875221277972044
+    second: level_glow_nodes_atlas_3
+  - first:
+      213: 2081972224974740980
+    second: level_glow_nodes_atlas_4
+  - first:
+      213: -3698930163092257510
+    second: level_glow_nodes_atlas_5
+  - first:
+      213: 8336819043487904384
+    second: level_glow_nodes_atlas_6
+  - first:
+      213: 4969214673121050772
+    second: level_glow_nodes_atlas_7
+  - first:
+      213: -9039473479121037312
+    second: level_glow_nodes_atlas_8
+  - first:
+      213: 195631791358928764
+    second: level_glow_nodes_atlas_9
+  - first:
+      213: -9186981363550449519
+    second: level_glow_nodes_atlas_10
+  - first:
+      213: -3446468148828432050
+    second: level_glow_nodes_atlas_11
+  - first:
+      213: 4305034128775219004
+    second: level_glow_nodes_atlas_12
+  - first:
+      213: 3916968244425511836
+    second: level_glow_nodes_atlas_13
+  - first:
+      213: -653203787753815167
+    second: level_glow_nodes_atlas_14
+  - first:
+      213: 9095610754787091084
+    second: level_glow_nodes_atlas_15
+  - first:
+      213: -5201032517547380619
+    second: level_glow_nodes_atlas_16
+  - first:
+      213: -8156763862477980687
+    second: level_glow_nodes_atlas_17
+  - first:
+      213: -899661937914294648
+    second: level_glow_nodes_atlas_18
+  - first:
+      213: -7075367099168256614
+    second: level_glow_nodes_atlas_19
+  - first:
+      213: -4325026360106130515
+    second: level_glow_nodes_atlas_20
+  - first:
+      213: 8164820583748699439
+    second: level_glow_nodes_atlas_21
+  - first:
+      213: 2061325963392730912
+    second: level_glow_nodes_atlas_22
+  - first:
+      213: 9148831318311723138
+    second: level_glow_nodes_atlas_23
+  - first:
+      213: -7774744265353293082
+    second: level_glow_nodes_atlas_24
+  externalObjects: {}
+  serializedVersion: 13
+  mipmaps:
+    mipMapMode: 0
+    enableMipMap: 0
+    sRGBTexture: 1
+    linearTexture: 0
+    fadeOut: 0
+    borderMipMap: 0
+    mipMapsPreserveCoverage: 0
+    alphaTestReferenceValue: 0.5
+    mipMapFadeDistanceStart: 1
+    mipMapFadeDistanceEnd: 3
+  bumpmap:
+    convertToNormalMap: 0
+    externalNormalMap: 0
+    heightScale: 0.25
+    normalMapFilter: 0
+    flipGreenChannel: 0
+  isReadable: 0
+  streamingMipmaps: 0
+  streamingMipmapsPriority: 0
+  vTOnly: 0
+  ignoreMipmapLimit: 0
+  grayScaleToAlpha: 0
+  generateCubemap: 6
+  cubemapConvolution: 0
+  seamlessCubemap: 0
+  textureFormat: 1
+  maxTextureSize: 2048
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  nPOTScale: 0
+  lightmap: 0
+  compressionQuality: 50
+  spriteMode: 2
+  spriteExtrude: 1
+  spriteMeshType: 1
+  alignment: 0
+  spritePivot: {x: 0.5, y: 0.5}
+  spritePixelsToUnits: 100
+  spriteBorder: {x: 0, y: 0, z: 0, w: 0}
+  spriteGenerateFallbackPhysicsShape: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  spriteTessellationDetail: -1
+  textureType: 8
+  textureShape: 1
+  singleChannelComponent: 0
+  flipbookRows: 1
+  flipbookColumns: 1
+  maxTextureSizeSet: 0
+  compressionQualitySet: 0
+  textureFormatSet: 0
+  ignorePngGamma: 0
+  applyGammaDecoding: 0
+  swizzle: 50462976
+  cookieLightType: 0
+  platformSettings:
+  - serializedVersion: 4
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 75
+    crunchedCompression: 1
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: iOS
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Standalone
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WebGL
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: WindowsStoreApps
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
+  spriteSheet:
+    serializedVersion: 2
+    sprites:
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_0
+      rect:
+        serializedVersion: 2
+        x: 0
+        y: 733
+        width: 644
+        height: 353
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: f3759ed65f9c85050800000000000000
+      internalID: 5789599376932951871
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_1
+      rect:
+        serializedVersion: 2
+        x: 802
+        y: 692
+        width: 646
+        height: 394
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: ae0e5339afa706300800000000000000
+      internalID: 243329596508201194
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_2
+      rect:
+        serializedVersion: 2
+        x: 229
+        y: 376
+        width: 256
+        height: 288
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 26d3cc3fef86bb390800000000000000
+      internalID: -7801526485268021918
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_3
+      rect:
+        serializedVersion: 2
+        x: 597
+        y: 377
+        width: 254
+        height: 287
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c461343939faeec00800000000000000
+      internalID: 931875221277972044
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_4
+      rect:
+        serializedVersion: 2
+        x: 963
+        y: 376
+        width: 253
+        height: 288
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4fd59d535b6a4ec10800000000000000
+      internalID: 2081972224974740980
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_5
+      rect:
+        serializedVersion: 2
+        x: 123
+        y: 225
+        width: 51
+        height: 87
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: a1588eb4d92caacc0800000000000000
+      internalID: -3698930163092257510
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_6
+      rect:
+        serializedVersion: 2
+        x: 241
+        y: 225
+        width: 63
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 082fecbefb452b370800000000000000
+      internalID: 8336819043487904384
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_7
+      rect:
+        serializedVersion: 2
+        x: 373
+        y: 223
+        width: 63
+        height: 91
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4900a0cca6236f440800000000000000
+      internalID: 4969214673121050772
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_8
+      rect:
+        serializedVersion: 2
+        x: 504
+        y: 224
+        width: 69
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 0081d6093c65d8280800000000000000
+      internalID: -9039473479121037312
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_9
+      rect:
+        serializedVersion: 2
+        x: 635
+        y: 223
+        width: 63
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c77e8b6e31607b200800000000000000
+      internalID: 195631791358928764
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_10
+      rect:
+        serializedVersion: 2
+        x: 760
+        y: 223
+        width: 66
+        height: 92
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 1901173ef19418080800000000000000
+      internalID: -9186981363550449519
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_11
+      rect:
+        serializedVersion: 2
+        x: 884
+        y: 225
+        width: 61
+        height: 87
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: e4912639a7fab20d0800000000000000
+      internalID: -3446468148828432050
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_12
+      rect:
+        serializedVersion: 2
+        x: 1005
+        y: 223
+        width: 65
+        height: 91
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c3784972bbd8ebb30800000000000000
+      internalID: 4305034128775219004
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_13
+      rect:
+        serializedVersion: 2
+        x: 1132
+        y: 222
+        width: 66
+        height: 92
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c93d7758ddddb5630800000000000000
+      internalID: 3916968244425511836
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_14
+      rect:
+        serializedVersion: 2
+        x: 1250
+        y: 223
+        width: 102
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 1838ef8ad9a5fe6f0800000000000000
+      internalID: -653203787753815167
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_15
+      rect:
+        serializedVersion: 2
+        x: 0
+        y: 0
+        width: 174
+        height: 166
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: c82ae467ac91a3e70800000000000000
+      internalID: 9095610754787091084
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_16
+      rect:
+        serializedVersion: 2
+        x: 241
+        y: 79
+        width: 64
+        height: 90
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 57035564b7832d7b0800000000000000
+      internalID: -5201032517547380619
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_17
+      rect:
+        serializedVersion: 2
+        x: 372
+        y: 78
+        width: 64
+        height: 90
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 1fbb144cb7a5dce80800000000000000
+      internalID: -8156763862477980687
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_18
+      rect:
+        serializedVersion: 2
+        x: 504
+        y: 78
+        width: 69
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 88ecdaceb32c383f0800000000000000
+      internalID: -899661937914294648
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_19
+      rect:
+        serializedVersion: 2
+        x: 634
+        y: 78
+        width: 64
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: a9d07963c1f3fcd90800000000000000
+      internalID: -7075367099168256614
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_20
+      rect:
+        serializedVersion: 2
+        x: 760
+        y: 78
+        width: 66
+        height: 91
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: da36ca1c07b6af3c0800000000000000
+      internalID: -4325026360106130515
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_21
+      rect:
+        serializedVersion: 2
+        x: 884
+        y: 78
+        width: 61
+        height: 88
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: f258325df054f4170800000000000000
+      internalID: 8164820583748699439
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_22
+      rect:
+        serializedVersion: 2
+        x: 1005
+        y: 78
+        width: 65
+        height: 91
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 0274056da0d4b9c10800000000000000
+      internalID: 2061325963392730912
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_23
+      rect:
+        serializedVersion: 2
+        x: 1131
+        y: 77
+        width: 66
+        height: 92
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 28060f58c9d27fe70800000000000000
+      internalID: 9148831318311723138
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: level_glow_nodes_atlas_24
+      rect:
+        serializedVersion: 2
+        x: 1249
+        y: 78
+        width: 103
+        height: 89
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 6e29c14784f8a1490800000000000000
+      internalID: -7774744265353293082
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    outline: []
+    customData: 
+    physicsShape: []
+    bones: []
+    spriteID: 
+    internalID: 0
+    vertices: []
+    indices: 
+    edges: []
+    weights: []
+    secondaryTextures: []
+    spriteCustomMetadata:
+      entries: []
+    nameFileIdTable:
+      level_glow_nodes_atlas_0: 5789599376932951871
+      level_glow_nodes_atlas_1: 243329596508201194
+      level_glow_nodes_atlas_10: -9186981363550449519
+      level_glow_nodes_atlas_11: -3446468148828432050
+      level_glow_nodes_atlas_12: 4305034128775219004
+      level_glow_nodes_atlas_13: 3916968244425511836
+      level_glow_nodes_atlas_14: -653203787753815167
+      level_glow_nodes_atlas_15: 9095610754787091084
+      level_glow_nodes_atlas_16: -5201032517547380619
+      level_glow_nodes_atlas_17: -8156763862477980687
+      level_glow_nodes_atlas_18: -899661937914294648
+      level_glow_nodes_atlas_19: -7075367099168256614
+      level_glow_nodes_atlas_2: -7801526485268021918
+      level_glow_nodes_atlas_20: -4325026360106130515
+      level_glow_nodes_atlas_21: 8164820583748699439
+      level_glow_nodes_atlas_22: 2061325963392730912
+      level_glow_nodes_atlas_23: 9148831318311723138
+      level_glow_nodes_atlas_24: -7774744265353293082
+      level_glow_nodes_atlas_3: 931875221277972044
+      level_glow_nodes_atlas_4: 2081972224974740980
+      level_glow_nodes_atlas_5: -3698930163092257510
+      level_glow_nodes_atlas_6: 8336819043487904384
+      level_glow_nodes_atlas_7: 4969214673121050772
+      level_glow_nodes_atlas_8: -9039473479121037312
+      level_glow_nodes_atlas_9: 195631791358928764
+  mipmapLimitGroupName: 
+  pSDRemoveMatte: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

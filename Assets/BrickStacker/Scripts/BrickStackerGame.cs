@@ -71,60 +71,75 @@ namespace BrickStacker
                 LevelId = Mathf.Max(1, level),
                 BoardWidth = width,
                 BoardHeight = height,
-                PlayerStartPosition = new Vector2Int(2, 2),
-                EnemyStartPosition = new Vector2Int(5, 5),
-                MonsterStartPosition = new Vector2Int(2, 6),
-                ThreeStarMoveLimit = Mathf.Max(6, 8 + level / 3),
-                TwoStarMoveLimit = Mathf.Max(10, 13 + level / 2),
+                // Cân bằng nguy hiểm: quái mở màn săn ENEMY (gần hơn player 1-2 ô),
+                // nhưng player đứng sát đường đuổi — đi ẩu là thành mục tiêu gần hơn
+                // và bị quay xe săn ngay (quái 2 bước thì không chạy thoát được).
+                PlayerStartPosition = new Vector2Int(6, 1),
+                EnemyStartPosition = new Vector2Int(1, 5),
+                MonsterStartPosition = new Vector2Int(4, 4),
+                ThreeStarMoveLimit = Mathf.Max(8, 10 + level / 3),
+                TwoStarMoveLimit = Mathf.Max(14, 16 + level / 2),
                 InitialFallSpeed = Mathf.Max(0.34f, 0.82f - Mathf.Min(level, 30) * 0.010f),
                 LineToMoveRate = 1,
                 CoinReward = 45 + level * 5,
                 UnlockNextLevel = true
             };
 
+            // Mỗi pattern: dist(quái→enemy) 4 ≤ dist(quái→player) ≤ dist(quái→enemy)+2.
+            // Quái mở màn săn enemy; player đứng gần đường đuổi nên vẫn phải dè chừng.
             int pattern = (level - 1) % 6;
             if (pattern == 1)
             {
-                data.MonsterStartPosition = new Vector2Int(1, 6);
-                data.WallPositions.Add(new Vector2Int(2, 3));
-                data.WallPositions.Add(new Vector2Int(5, 6));
+                data.PlayerStartPosition = new Vector2Int(4, 2);
+                data.EnemyStartPosition = new Vector2Int(5, 6);
+                data.MonsterStartPosition = new Vector2Int(2, 5);
+                data.WallPositions.Add(new Vector2Int(3, 4));
+                data.WallPositions.Add(new Vector2Int(1, 2));
+                data.WallPositions.Add(new Vector2Int(5, 3));
             }
             else if (pattern == 2)
             {
-                data.PlayerStartPosition = new Vector2Int(1, 1);
-                data.EnemyStartPosition = new Vector2Int(6, 5);
-                data.MonsterStartPosition = new Vector2Int(3, 6);
-                data.WallPositions.Add(new Vector2Int(1, 4));
-                data.WallPositions.Add(new Vector2Int(5, 2));
+                data.PlayerStartPosition = new Vector2Int(6, 6);
+                data.EnemyStartPosition = new Vector2Int(2, 1);
+                data.MonsterStartPosition = new Vector2Int(5, 2);
+                data.WallPositions.Add(new Vector2Int(4, 4));
+                data.WallPositions.Add(new Vector2Int(3, 0));
+                data.WallPositions.Add(new Vector2Int(6, 3));
             }
             else if (pattern == 3)
             {
-                data.MonsterStartPosition = new Vector2Int(1, 5);
-                data.WallPositions.Add(new Vector2Int(3, 2));
-                data.WallPositions.Add(new Vector2Int(3, 3));
-                data.WallPositions.Add(new Vector2Int(4, 5));
+                data.PlayerStartPosition = new Vector2Int(3, 1);
+                data.EnemyStartPosition = new Vector2Int(3, 5);
+                data.MonsterStartPosition = new Vector2Int(1, 3);
+                data.WallPositions.Add(new Vector2Int(2, 5));
+                data.WallPositions.Add(new Vector2Int(0, 6));
+                data.WallPositions.Add(new Vector2Int(4, 3));
+                data.WallPositions.Add(new Vector2Int(5, 5));
             }
             else if (pattern == 4)
             {
-                data.EnemyStartPosition = new Vector2Int(6, 6);
-                data.MonsterStartPosition = new Vector2Int(4, 2);
-                data.WallPositions.Add(new Vector2Int(1, 1));
-                data.WallPositions.Add(new Vector2Int(6, 3));
+                data.PlayerStartPosition = new Vector2Int(4, 4);
+                data.EnemyStartPosition = new Vector2Int(3, 5);
+                data.MonsterStartPosition = new Vector2Int(6, 6);
+                data.WallPositions.Add(new Vector2Int(5, 4));
+                data.WallPositions.Add(new Vector2Int(2, 6));
+                data.WallPositions.Add(new Vector2Int(6, 2));
             }
             else if (pattern == 5)
             {
-                data.PlayerStartPosition = new Vector2Int(1, 0);
-                data.EnemyStartPosition = new Vector2Int(6, 6);
-                data.MonsterStartPosition = new Vector2Int(3, 4);
-                data.WallPositions.Add(new Vector2Int(0, 4));
-                data.WallPositions.Add(new Vector2Int(7, 4));
+                data.PlayerStartPosition = new Vector2Int(6, 2);
+                data.EnemyStartPosition = new Vector2Int(1, 2);
+                data.MonsterStartPosition = new Vector2Int(3, 0);
+                data.WallPositions.Add(new Vector2Int(2, 2));
+                data.WallPositions.Add(new Vector2Int(4, 3));
+                data.WallPositions.Add(new Vector2Int(1, 1));
             }
             else
             {
-                data.WallPositions.Add(new Vector2Int(1, 5));
+                data.WallPositions.Add(new Vector2Int(3, 3));
                 data.WallPositions.Add(new Vector2Int(5, 5));
-                data.WallPositions.Add(new Vector2Int(3, 1));
-                data.WallPositions.Add(new Vector2Int(7, 0));
+                data.WallPositions.Add(new Vector2Int(2, 2));
+                data.WallPositions.Add(new Vector2Int(6, 4));
             }
 
             // Quái luôn đi 2 bước — độ khó nằm ở cách bố trí tường và vị trí xuất phát,
@@ -295,8 +310,9 @@ namespace BrickStacker
             if (Evaluate() != TacticalBoardStatus.Running)
                 return Status;
 
-            // Enemy đứng yên — không né quái. Quái bước vào ô enemy là thắng ngay
-            // (Evaluate chạy sau từng bước trong MoveMonster). Độ khó đến từ layout.
+            // Nhịp mỗi lượt: player 1 ô → enemy 1 ô (chạy trốn quái) → quái 2 ô.
+            // Quái bước trúng ô enemy là thắng NGAY (Evaluate sau từng bước quái).
+            MoveEnemy();
             MoveMonster();
             Evaluate();
             return Status;
@@ -325,6 +341,34 @@ namespace BrickStacker
         bool IsWalkableForPlayer(Vector2Int cell)
         {
             return IsWalkable(cell) && cell != EnemyPosition && cell != MonsterPosition;
+        }
+
+        bool IsWalkableForEnemy(Vector2Int cell)
+        {
+            return IsWalkable(cell) && cell != PlayerPosition && cell != MonsterPosition;
+        }
+
+        // Enemy đi đúng 1 ô mỗi lượt, chọn ô làm tăng khoảng cách đường đi tới quái
+        // (hòa thì né xa player). Đứng yên nếu không có ô nào tốt hơn.
+        void MoveEnemy()
+        {
+            Vector2Int best = EnemyPosition;
+            int bestDistance = PathDistance(EnemyPosition, MonsterPosition);
+            for (int i = 0; i < Directions.Length; i++)
+            {
+                var candidate = EnemyPosition + Directions[i];
+                if (!IsWalkableForEnemy(candidate))
+                    continue;
+
+                int distance = PathDistance(candidate, MonsterPosition);
+                if (distance > bestDistance || (distance == bestDistance && best != EnemyPosition && Manhattan(candidate, PlayerPosition) > Manhattan(best, PlayerPosition)))
+                {
+                    best = candidate;
+                    bestDistance = distance;
+                }
+            }
+
+            EnemyPosition = best;
         }
 
         void MoveMonster()
@@ -601,6 +645,101 @@ namespace BrickStacker
             BuildCamera();
             BuildBackground();
             BuildUi();
+            PromptNameOnFirstLaunch();
+        }
+
+        const string NamePromptedKey = "BLOCKFALL_NAME_PROMPTED";
+
+        // Lần đầu vào game (chưa từng hỏi + chưa có tên trên server) → hỏi tên luôn.
+        async void PromptNameOnFirstLaunch()
+        {
+            if (PlayerPrefs.GetInt(NamePromptedKey, 0) == 1)
+                return;
+
+            await ServicesManager.EnsureSignedInAsync();
+            if (this == null || mapOverlay != null)
+                return;
+            if (!string.IsNullOrEmpty(ServicesManager.PlayerName))
+            {
+                PlayerPrefs.SetInt(NamePromptedKey, 1);
+                return;
+            }
+
+            var panel = GameObject.Find("Menu Panel");
+            if (panel != null)
+                ShowNamePopup(panel.transform);
+        }
+
+        void ShowNamePopup(Transform parent)
+        {
+            if (mapOverlay != null) Destroy(mapOverlay);
+            mapOverlay = Ui.Panel(parent, "Name Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(mapOverlay);
+
+            var box = Ui.Panel(mapOverlay.transform, "Name Box", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(680, 560));
+            StyleWoodPopupFrame(box);
+
+            var titleLabel = Ui.Text(box.transform, "CHÀO BẠN!", font, 52, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            titleLabel.fontStyle = FontStyle.Bold;
+            Ui.Rect(titleLabel, new Vector2(0.5f, 0.84f), new Vector2(0.5f, 0.84f), new Vector2(500, 100));
+            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
+            AddWarmTitleFinish(titleLabel, 0.48f);
+
+            var descLabel = Ui.Text(box.transform, "Đặt tên hiển thị của bạn —\ndùng cho bảng xếp hạng và trận đấu 1v1.", font, 26, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+            Ui.Rect(descLabel, new Vector2(0.5f, 0.655f), new Vector2(0.5f, 0.655f), new Vector2(580, 90));
+            AddDarkWoodTextEdge(descLabel, 0.6f, 0.74f);
+
+            var nameInput = BuildNameInput(box.transform, new Vector2(0.5f, 0.46f), new Vector2(420, 78));
+
+            var statusLabel = Ui.Text(box.transform, "", font, 22, new Color(1f, 0.86f, 0.60f, 0.9f), TextAnchor.MiddleCenter);
+            Ui.Rect(statusLabel, new Vector2(0.5f, 0.335f), new Vector2(0.5f, 0.335f), new Vector2(580, 40));
+            AddDarkWoodTextEdge(statusLabel, 0.5f, 0.7f);
+
+            var (confirmBtn, _) = AddMenuButton(box.transform, "XÁC NHẬN", new Vector2(0.5f, 0.185f), Vector2.zero, () => { }, new Vector2(420, 84), 34);
+            confirmBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                ConfirmFirstName(nameInput, statusLabel, confirmBtn);
+            });
+
+            // Nút đóng = bỏ qua (vẫn đặt được sau trong Bảng xếp hạng), không hỏi lại nữa.
+            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                PlayerPrefs.SetInt(NamePromptedKey, 1);
+                PlayerPrefs.Save();
+                Destroy(mapOverlay);
+            });
+            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.85f), new Vector2(0.118f, 0.85f), new Vector2(60, 60));
+            StyleMapBackButton(closeBtn);
+        }
+
+        async void ConfirmFirstName(InputField nameInput, Text statusLabel, Button confirmBtn)
+        {
+            string name = nameInput.text != null ? nameInput.text.Trim() : "";
+            if (name.Length < 2)
+            {
+                statusLabel.text = "Tên cần ít nhất 2 ký tự.";
+                return;
+            }
+
+            confirmBtn.interactable = false;
+            statusLabel.text = "Đang lưu tên...";
+            bool ok = await ServicesManager.SetPlayerNameAsync(name);
+            if (this == null || mapOverlay == null)
+                return;
+            if (ok)
+            {
+                PlayerPrefs.SetInt(NamePromptedKey, 1);
+                PlayerPrefs.Save();
+                Destroy(mapOverlay);
+            }
+            else
+            {
+                statusLabel.text = "Không lưu được tên. Kiểm tra mạng rồi thử lại.";
+                confirmBtn.interactable = true;
+            }
         }
 
         void BuildCamera()
@@ -660,8 +799,9 @@ namespace BrickStacker
             titleLine.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -54);
 
             // Subtitle: mô tả đúng tính chất game
-            var subtitle = Ui.Text(panel.transform, "Xếp gạch · Giành lượt đi · Chiến thắng đối thủ", font, 26, new Color(1f, 0.86f, 0.60f), TextAnchor.MiddleCenter);
-            Ui.Rect(subtitle, new Vector2(0.5f, 0.561f), new Vector2(0.5f, 0.561f), new Vector2(560, 52));
+            // Ngắt dòng chủ động — để tự wrap thì chữ "thủ" rơi xuống dòng một mình.
+            var subtitle = Ui.Text(panel.transform, "Xếp gạch · Giành lượt đi\nChiến thắng đối thủ", font, 26, new Color(1f, 0.86f, 0.60f), TextAnchor.MiddleCenter);
+            Ui.Rect(subtitle, new Vector2(0.5f, 0.561f), new Vector2(0.5f, 0.561f), new Vector2(560, 76));
             AddDarkWoodTextEdge(subtitle, 0.70f, 0.74f);
             AddWarmTitleFinish(subtitle, 0.32f);
 
@@ -684,9 +824,10 @@ namespace BrickStacker
             }, new Vector2(440, 92), 42);
             StartCoroutine(PulseButton(startBtn.transform, startShadow.transform));
 
-            AddMenuButton(panel.transform, "ĐẤU 1V1", new Vector2(0.5f, 0.5f), new Vector2(0, -262), () =>
+            AddMenuButton(panel.transform, "1 vs 1", new Vector2(0.5f, 0.5f), new Vector2(0, -262), () =>
             {
                 RuntimeArt.PlayUiSwitchSound();
+                MultiplayerManager.PrewarmQuickQuery();
                 ShowMultiplayerOverlay(panel.transform);
             }, new Vector2(440, 84), 36);
 
@@ -698,7 +839,7 @@ namespace BrickStacker
             AddDarkWoodTextEdge(hint, 0.55f, 0.70f);
 
             // Số bản build nhỏ để đối chiếu khi test nhiều thiết bị (cache trình duyệt).
-            var versionLabel = Ui.Text(panel.transform, "v1.7", font, 16, new Color(1f, 0.86f, 0.60f, 0.45f), TextAnchor.MiddleCenter);
+            var versionLabel = Ui.Text(panel.transform, "v1.1", font, 16, new Color(1f, 0.86f, 0.60f, 0.45f), TextAnchor.MiddleCenter);
             Ui.Rect(versionLabel, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(160, 26));
             versionLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 24);
 
@@ -802,7 +943,63 @@ namespace BrickStacker
             Ui.Rect(statusLabel, new Vector2(0.5f, 0.48f), new Vector2(0.5f, 0.48f), new Vector2(560, 200));
             AddDarkWoodTextEdge(statusLabel, 0.65f, 0.74f);
 
+            // Khu đặt tên hiển thị (dùng cho bảng xếp hạng + trận 1v1)
+            var nameInput = BuildNameInput(box.transform, new Vector2(0.38f, 0.092f), new Vector2(340, 70));
+            nameInput.text = ServicesManager.PlayerName;
+
+            var (saveBtn, _) = AddMenuButton(box.transform, "LƯU TÊN", new Vector2(0.79f, 0.092f), Vector2.zero, () => { }, new Vector2(180, 70), 24);
+
+            var nameStatus = Ui.Text(box.transform, "Tên hiển thị trên bảng xếp hạng và trận đấu.", font, 20, new Color(1f, 0.86f, 0.60f, 0.8f), TextAnchor.MiddleCenter);
+            Ui.Rect(nameStatus, new Vector2(0.5f, 0.036f), new Vector2(0.5f, 0.036f), new Vector2(600, 32));
+            AddDarkWoodTextEdge(nameStatus, 0.5f, 0.7f);
+
+            saveBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                SavePlayerName(box, nameInput, saveBtn, nameStatus);
+            });
+
             PopulateLeaderboard(box, statusLabel);
+        }
+
+        InputField BuildNameInput(Transform parent, Vector2 anchor, Vector2 size)
+        {
+            var frame = Ui.Panel(parent, "Name Input", new Color(0.16f, 0.07f, 0.025f, 0.92f));
+            Ui.Rect(frame, anchor, anchor, size);
+
+            var placeholder = Ui.Text(frame.transform, "Tên của bạn...", font, 24, new Color(1f, 0.88f, 0.62f, 0.45f), TextAnchor.MiddleCenter);
+            Ui.Stretch(placeholder.gameObject);
+            placeholder.fontStyle = FontStyle.Italic;
+
+            var inputText = Ui.Text(frame.transform, "", font, 28, new Color(1f, 0.94f, 0.75f), TextAnchor.MiddleCenter);
+            Ui.Stretch(inputText.gameObject);
+            inputText.supportRichText = false;
+
+            var input = frame.AddComponent<InputField>();
+            input.textComponent = inputText;
+            input.placeholder = placeholder;
+            input.characterLimit = 12;
+            input.contentType = InputField.ContentType.Alphanumeric;
+            return input;
+        }
+
+        async void SavePlayerName(GameObject box, InputField nameInput, Button saveBtn, Text nameStatus)
+        {
+            string name = nameInput.text != null ? nameInput.text.Trim() : "";
+            if (name.Length < 2)
+            {
+                nameStatus.text = "Tên cần ít nhất 2 ký tự.";
+                return;
+            }
+
+            saveBtn.interactable = false;
+            nameStatus.text = "Đang lưu tên...";
+            bool ok = await ServicesManager.SetPlayerNameAsync(name);
+            if (box == null) return; // popup đã đóng
+            nameStatus.text = ok
+                ? "Đã lưu tên: " + ServicesManager.PlayerName
+                : "Không lưu được tên. Kiểm tra mạng rồi thử lại.";
+            saveBtn.interactable = true;
         }
 
         async void PopulateLeaderboard(GameObject box, Text statusLabel)
@@ -854,7 +1051,12 @@ namespace BrickStacker
                 AddDarkWoodTextEdge(rankText, 0.6f, 0.78f);
 
                 string name = LeaderboardsSync.DisplayName(entry);
-                if (isOwn) name = "Bạn";
+                // Dòng của mình hiện tên người chơi đã đặt (popup CHÀO BẠN! / LƯU TÊN);
+                // chưa đặt tên mới rơi về "Bạn". Dòng vẫn tô xanh để nhận ra.
+                if (isOwn && !string.IsNullOrEmpty(ServicesManager.PlayerName))
+                    name = ServicesManager.PlayerName;
+                else if (isOwn)
+                    name = "Bạn";
                 var nameText = Ui.Text(box.transform, name, font, 28, color, TextAnchor.MiddleLeft);
                 if (isOwn) nameText.fontStyle = FontStyle.Bold;
                 nameText.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -871,14 +1073,14 @@ namespace BrickStacker
             }
 
             var bottomSep = Ui.Panel(box.transform, "BottomSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
-            Ui.Rect(bottomSep, new Vector2(0.5f, 0.148f), new Vector2(0.5f, 0.148f), new Vector2(620, 4));
+            Ui.Rect(bottomSep, new Vector2(0.5f, 0.208f), new Vector2(0.5f, 0.208f), new Vector2(620, 4));
 
             string ownLine = me != null
                 ? "Hạng của bạn: #" + (me.Rank + 1) + "   ·   " + ((int)me.Score).ToString("N0") + " điểm"
                 : "Bạn chưa có điểm hôm nay — chơi ngay!";
             var ownText = Ui.Text(box.transform, ownLine, font, 26, ownColor, TextAnchor.MiddleCenter);
             ownText.fontStyle = FontStyle.Bold;
-            Ui.Rect(ownText, new Vector2(0.5f, 0.098f), new Vector2(0.5f, 0.098f), new Vector2(600, 48));
+            Ui.Rect(ownText, new Vector2(0.5f, 0.168f), new Vector2(0.5f, 0.168f), new Vector2(600, 48));
             AddDarkWoodTextEdge(ownText, 0.65f, 0.78f);
         }
 
@@ -903,7 +1105,7 @@ namespace BrickStacker
             Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.888f), new Vector2(0.118f, 0.888f), new Vector2(60, 60));
             StyleMapBackButton(closeBtn);
 
-            var titleLabel = Ui.Text(box.transform, "ĐẤU 1V1", font, 52, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            var titleLabel = Ui.Text(box.transform, "1 vs 1", font, 52, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
             titleLabel.fontStyle = FontStyle.Bold;
             Ui.Rect(titleLabel, new Vector2(0.5f, 0.884f), new Vector2(0.5f, 0.884f), new Vector2(460, 100));
             AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
@@ -982,14 +1184,45 @@ namespace BrickStacker
                     button.interactable = value;
         }
 
+        Coroutine statusDotsRoutine;
+
+        // Chấm động "Đang tạo phòng." → ".." → "..." trong lúc chờ dịch vụ Unity
+        // (tạo phòng mất vài giây do lobby + relay — cho người chơi thấy game còn sống).
+        void StartStatusDots(Text label, string baseText)
+        {
+            StopStatusDots();
+            statusDotsRoutine = StartCoroutine(AnimateStatusDots(label, baseText));
+        }
+
+        void StopStatusDots()
+        {
+            if (statusDotsRoutine != null)
+            {
+                StopCoroutine(statusDotsRoutine);
+                statusDotsRoutine = null;
+            }
+        }
+
+        System.Collections.IEnumerator AnimateStatusDots(Text label, string baseText)
+        {
+            int tick = 0;
+            while (label != null)
+            {
+                label.text = baseText + new string('.', 1 + tick % 3);
+                tick++;
+                yield return new WaitForSecondsRealtime(0.35f);
+            }
+        }
+
         async void QuickMatch(GameObject box, Text statusLabel, Button[] buttons)
         {
             SetButtonsInteractable(buttons, false);
-            statusLabel.text = "Đang tìm đối thủ...";
+            StartStatusDots(statusLabel, "Đang tìm đối thủ");
             try
             {
                 var manager = MultiplayerManager.Ensure();
                 bool joined = await manager.QuickMatchAsync();
+                StopStatusDots();
                 if (box == null) return; // popup đã đóng
                 statusLabel.text = joined
                     ? "Đã tìm thấy đối thủ!\nĐang vào trận..."
@@ -999,6 +1232,7 @@ namespace BrickStacker
             catch (Exception e)
             {
                 Debug.LogWarning($"[Multiplayer] Ghép nhanh thất bại: {e.Message}");
+                StopStatusDots();
                 if (box == null) return;
                 statusLabel.text = "Không ghép được trận.\nKiểm tra kết nối mạng rồi thử lại.";
                 SetButtonsInteractable(buttons, true);
@@ -1008,11 +1242,12 @@ namespace BrickStacker
         async void CreateRoom(GameObject box, Text codeLabel, Text statusLabel, Button[] buttons)
         {
             SetButtonsInteractable(buttons, false);
-            statusLabel.text = "Đang tạo phòng...";
+            StartStatusDots(statusLabel, "Đang tạo phòng");
             try
             {
                 var manager = MultiplayerManager.Ensure();
                 string code = await manager.CreateRoomAsync();
+                StopStatusDots();
                 if (box == null) return; // popup đã đóng
                 codeLabel.text = code;
                 statusLabel.text = "Gửi mã này cho bạn bè.\nĐang chờ đối thủ vào...";
@@ -1021,6 +1256,7 @@ namespace BrickStacker
             catch (Exception e)
             {
                 Debug.LogWarning($"[Multiplayer] Không tạo được phòng: {e.Message}");
+                StopStatusDots();
                 if (box == null) return;
                 statusLabel.text = "Không tạo được phòng.\nKiểm tra kết nối mạng rồi thử lại.";
                 SetButtonsInteractable(buttons, true);
@@ -1037,17 +1273,19 @@ namespace BrickStacker
             }
 
             SetButtonsInteractable(buttons, false);
-            statusLabel.text = "Đang tìm phòng " + code + "...";
+            StartStatusDots(statusLabel, "Đang tìm phòng " + code);
             try
             {
                 var manager = MultiplayerManager.Ensure();
                 await manager.JoinRoomAsync(code);
+                StopStatusDots();
                 if (box == null) return;
                 statusLabel.text = "Đã vào phòng!\nĐang chờ trận bắt đầu...";
                 // Host sẽ gửi START ngay khi thấy mình kết nối → scene tự load.
             }
             catch (InvalidOperationException e)
             {
+                StopStatusDots();
                 if (box == null) return;
                 statusLabel.text = e.Message; // "Không tìm thấy phòng XXXX..."
                 SetButtonsInteractable(buttons, true);
@@ -1055,6 +1293,7 @@ namespace BrickStacker
             catch (Exception e)
             {
                 Debug.LogWarning($"[Multiplayer] Không vào được phòng: {e.Message}");
+                StopStatusDots();
                 if (box == null) return;
                 statusLabel.text = "Không vào được phòng.\nKiểm tra kết nối mạng rồi thử lại.";
                 SetButtonsInteractable(buttons, true);
@@ -1121,19 +1360,23 @@ namespace BrickStacker
             var topSep = Ui.Panel(box.transform, "TopSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
             Ui.Rect(topSep, new Vector2(0.5f, 0.822f), new Vector2(0.5f, 0.822f), new Vector2(620, 4));
 
-            int totalPages = 3;
+            int totalPages = 5;
             var pageAccentColors = new Color[]
             {
                 new Color(0.38f, 0.72f, 1.00f, 1f),
                 new Color(0.42f, 0.94f, 0.58f, 1f),
-                new Color(1.00f, 0.84f, 0.30f, 1f)
+                new Color(1.00f, 0.84f, 0.30f, 1f),
+                new Color(1.00f, 0.52f, 0.38f, 1f),
+                new Color(0.82f, 0.56f, 1.00f, 1f)
             };
-            var pageTitles = new[] { "Xếp gạch", "Giành lượt đi", "Chiến thắng" };
+            var pageTitles = new[] { "Xếp gạch", "Giành lượt đi", "Thắng bàn cờ", "Đấu 1 vs 1", "Đạn rác 1 vs 1" };
             var pageContents = new[]
             {
                 "Kéo khối gạch sang trái hoặc phải\nđể căn vị trí chính xác.\n\nXoay khối cho khớp khoảng trống.\n\nXếp kín hàng ngang để phá dòng.",
-                "Mỗi hàng phá được = 1 lượt đi.\n\nLượt đi dùng để di chuyển\ntrên bàn cờ chiến thuật.\n\nPhá nhiều hàng → nhiều lượt mạnh hơn.",
-                "Dùng lượt đi để di chuyển\nquái vật (màu tím).\n\nDụ quái vật bắt đối thủ (đỏ)\n→ THẮNG.\n\nQuái vật bắt bạn (xanh) → THUA."
+                "Mỗi hàng phá được = 1 lượt đi.\n\nPhá nhiều hàng cùng lúc\n→ càng nhiều lượt đi.\n\nDùng lượt đi để đi quân\ntrên bàn cờ phía trên.",
+                "Dùng lượt đi để di chuyển\nquân của bạn (màu xanh).\n\nBạn đi 1 ô → địch (đỏ) chạy 1 ô,\nquái (tím) đuổi theo 2 ô.\n\nDụ quái bắt được địch → THẮNG.\nĐể quái bắt bạn → THUA.",
+                "GHÉP NHANH với người lạ, hoặc\nTẠO PHÒNG lấy mã 4 số gửi bạn bè.\n\nHai người chơi cùng màn,\ncùng thứ tự khối gạch.\n\nAi xong bàn cờ trước → THẮNG.",
+                "Phá 3 hàng cùng lúc nạp 1 viên rác,\n4 hàng nạp 2 viên (giữ tối đa 3).\n\nBấm nút RÁC để thả một hàng rác\nsang bàn của đối thủ.\n\nCanh bàn mini đối thủ mà bắn!"
             };
 
             var pages = new GameObject[totalPages];
@@ -1172,7 +1415,7 @@ namespace BrickStacker
             for (int i = 0; i < totalPages; i++)
             {
                 var dot = Ui.Panel(box.transform, "Dot" + i, Color.white);
-                Ui.Rect(dot, new Vector2(0.5f + (i - 1) * 0.100f, 0.112f), new Vector2(0.5f + (i - 1) * 0.100f, 0.112f), new Vector2(18, 18));
+                Ui.Rect(dot, new Vector2(0.5f + (i - 2) * 0.072f, 0.112f), new Vector2(0.5f + (i - 2) * 0.072f, 0.112f), new Vector2(18, 18));
                 dots[i] = dot.GetComponent<Image>();
                 dots[i].color = i == 0 ? new Color(1f, 0.78f, 0.36f, 1f) : new Color(0.58f, 0.36f, 0.14f, 0.55f);
             }
@@ -1394,6 +1637,15 @@ namespace BrickStacker
         byte[] tacticalSnapshot;    // 6 byte vị trí quân bàn cờ của mình
         float nextBoardSendTime;
         int lastBoardHash;
+        float garbageWarnUntil;     // > 0 = đang nhấp nháy cảnh báo rác sắp vào
+        Text garbageWarningText;
+        int attackCharges;          // đạn rác đã nạp (clear 3+ hàng), tối đa 3
+        float nextAttackTime;       // chống spam: giãn cách giữa hai phát
+        Button attackButton;
+        RectTransform attackButtonRect;
+        Image attackButtonImage;
+        Text attackLabel;
+        Image[] attackPips;
         Text statusText;
         Text nextText;
         Text tacticalMovesText;
@@ -1421,6 +1673,7 @@ namespace BrickStacker
         Text missionStar2CondText;
         Text missionStar1CondText;
         TMP_Text levelClearTitleText;
+        Text levelClearStarsText;
         Text levelClearBodyText;
         Button continueButton;
         Button stopButton;
@@ -1530,7 +1783,8 @@ namespace BrickStacker
             pieceBlockSprites = RuntimeArt.LoadPieceBlockSprites();
             BuildWorld();
             BuildUi();
-            BeginLevelMission(true);
+            // Trận 1v1 không có khái niệm màn/sao — vào thẳng, khỏi popup nhiệm vụ.
+            BeginLevelMission(!MultiplayerMatch.Active);
             // Trận 1v1: cùng seed để hai bên nhận chuỗi khối giống nhau.
             if (MultiplayerMatch.Active)
                 UnityEngine.Random.InitState(MultiplayerMatch.Seed);
@@ -1563,6 +1817,7 @@ namespace BrickStacker
             {
                 if (!gameOver)
                     CheckOpponentMatchEvents();
+                ApplyPendingGarbage();
                 SendBoardSnapshotIfNeeded();
                 if (MultiplayerMatch.OpponentBoardDirty)
                     RepaintOpponentMiniBoard();
@@ -2365,6 +2620,9 @@ namespace BrickStacker
             var gridRect = gridRoot.GetComponent<RectTransform>();
             Ui.Rect(gridRoot, new Vector2(0.075f, 0.075f), new Vector2(0.925f, 0.925f), Vector2.zero);
             gridRect.SetAsLastSibling();
+            // Canvas con: 64 nút bàn cờ chỉ rebuild khi có nước đi, không bị kéo theo
+            // mỗi lần khối gạch nhích (và ngược lại). Cần raycaster riêng cho nút.
+            MakeIsolatedCanvas(gridRoot, true);
 
             for (int y = 0; y < height; y++)
             {
@@ -2379,6 +2637,17 @@ namespace BrickStacker
                     SetupSceneTacticalCell(cell.GetComponent<RectTransform>(), x, y);
                 }
             }
+        }
+
+        // Canvas con cô lập vùng UI hay thay đổi — canvas cha không phải rebuild
+        // toàn bộ mesh mỗi khi vùng này đổi màu/sprite. KHÔNG dùng cho vùng nằm
+        // trong RectMask2D (mask không clip được canvas con).
+        static void MakeIsolatedCanvas(GameObject go, bool needRaycaster)
+        {
+            if (go.GetComponent<Canvas>() == null)
+                go.AddComponent<Canvas>();
+            if (needRaycaster && go.GetComponent<GraphicRaycaster>() == null)
+                go.AddComponent<GraphicRaycaster>();
         }
 
         void BuildScenePuzzleGrid()
@@ -2738,10 +3007,20 @@ namespace BrickStacker
             fallTimer = 0f;
         }
 
+        readonly List<Image> tacticalCellImageCache = new List<Image>();
+
         void RefreshTacticalBoardUi()
         {
             if (tacticalBoard == null || tacticalCellButtons.Count == 0)
                 return;
+
+            // Cache Image một lần — GetComponent 64 lần mỗi refresh là lãng phí.
+            if (tacticalCellImageCache.Count != tacticalCellButtons.Count)
+            {
+                tacticalCellImageCache.Clear();
+                for (int i = 0; i < tacticalCellButtons.Count; i++)
+                    tacticalCellImageCache.Add(tacticalCellButtons[i].GetComponent<Image>());
+            }
 
             int width = tacticalBoard.Data.BoardWidth;
             int height = tacticalBoard.Data.BoardHeight;
@@ -2756,7 +3035,7 @@ namespace BrickStacker
 
                     var cell = new Vector2Int(x, y);
                     var button = tacticalCellButtons[index];
-                    var image = button.GetComponent<Image>();
+                    var image = tacticalCellImageCache[index];
                     var label = tacticalCellLabels[index];
                     var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
 
@@ -2861,6 +3140,12 @@ namespace BrickStacker
                 tacticalStatusText.text = "Cần lượt đi để di chuyển.";
         }
 
+        int hudCachedMoveBank = int.MinValue;
+        int hudCachedLevel = -1;
+        bool hudCachedMultiplayer;
+
+        // Chạy mỗi frame — chỉ đụng vào Text khi giá trị đổi thật, tránh cấp phát
+        // chuỗi + dirty canvas 60 lần/giây (WebGL mobile rất nhạy khoản này).
         void RefreshSceneHud()
         {
             if (!usingSceneGameplayCanvas)
@@ -2868,11 +3153,21 @@ namespace BrickStacker
 
             EnsureSceneRuntimeGameplayUi();
 
-            if (sceneLevelText != null)
-                sceneLevelText.text = "Màn: " + journeyLevel;
-            if (sceneMoveText != null)
-                sceneMoveText.text = tacticalBoard != null ? "Lượt đi: " + tacticalBoard.MoveBank : "Lượt đi: 0";
-            if (sceneNextText != null)
+            if (sceneLevelText != null && (hudCachedLevel != journeyLevel || hudCachedMultiplayer != MultiplayerMatch.Active))
+            {
+                hudCachedLevel = journeyLevel;
+                hudCachedMultiplayer = MultiplayerMatch.Active;
+                sceneLevelText.text = hudCachedMultiplayer ? "1 vs 1" : "Màn: " + journeyLevel;
+            }
+
+            int moveBank = tacticalBoard != null ? tacticalBoard.MoveBank : 0;
+            if (sceneMoveText != null && moveBank != hudCachedMoveBank)
+            {
+                hudCachedMoveBank = moveBank;
+                sceneMoveText.text = "Lượt đi: " + moveBank;
+            }
+
+            if (sceneNextText != null && sceneNextText.text != "TIẾP")
                 sceneNextText.text = "TIẾP";
         }
 
@@ -3382,11 +3677,16 @@ namespace BrickStacker
             StyleWoodPopupFrame(box);
 
             levelClearTitleText = CreatePopupTitle(box.transform, "HOÀN THÀNH", 76, new Color(1f, 0.84f, 0.50f));
-            Ui.Rect(levelClearTitleText, new Vector2(0.5f, 0.865f), new Vector2(0.5f, 0.865f), new Vector2(720, 126));
+            Ui.Rect(levelClearTitleText, new Vector2(0.5f, 0.882f), new Vector2(0.5f, 0.882f), new Vector2(780, 126));
 
-            levelClearBodyText = Ui.Text(box.transform, "", font, 30, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
-            Ui.Rect(levelClearBodyText, new Vector2(0.5f, 0.765f), new Vector2(0.5f, 0.765f), new Vector2(778, 156));
-            AddDarkWoodTextEdge(levelClearBodyText, 0.8f, 0.78f);
+            // Sao vẽ bằng font UI (font tiêu đề TMP thiếu ký tự ★ → hiện ô vuông).
+            levelClearStarsText = Ui.Text(box.transform, "", font, 84, new Color(1f, 0.85f, 0.30f), TextAnchor.MiddleCenter);
+            Ui.Rect(levelClearStarsText, new Vector2(0.5f, 0.775f), new Vector2(0.5f, 0.775f), new Vector2(500, 110));
+            AddDarkWoodTextEdge(levelClearStarsText, 1.1f, 0.88f);
+
+            levelClearBodyText = Ui.Text(box.transform, "", font, 40, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
+            Ui.Rect(levelClearBodyText, new Vector2(0.5f, 0.52f), new Vector2(0.5f, 0.52f), new Vector2(800, 480));
+            AddDarkWoodTextEdge(levelClearBodyText, 0.9f, 0.80f);
 
             var lcSep = Ui.Panel(box.transform, "LC Sep", new Color(0.75f, 0.48f, 0.22f, 0.40f));
             Ui.Rect(lcSep, new Vector2(0.5f, 0.272f), new Vector2(0.5f, 0.272f), new Vector2(760, 3));
@@ -3519,6 +3819,10 @@ namespace BrickStacker
             // updates reach the visible root instead of the deactivated one.
             sceneLevelText = FindTmpText(toContent, "LevelText");
             sceneMoveText = FindTmpText(toContent, "MoveText");
+            // Text vừa bind lại còn nguyên chữ mẫu của scene ("Level:") — phải vô
+            // hiệu cache HUD để RefreshSceneHud ghi đè ngay frame sau.
+            hudCachedLevel = -1;
+            hudCachedMoveBank = int.MinValue;
 
             // Rebind Next panel text and preview to the new active layout's scene objects.
             sceneNextText = FindTmpText(toContent, "NextPanel");
@@ -3762,8 +4066,15 @@ namespace BrickStacker
                         new Vector2(rotateCenter - rotateWidth * 0.5f, rotateBottom),
                         new Vector2(rotateCenter + rotateWidth * 0.5f, rotateBottom + rotateHeight));
 
+                float attackBottom = rotateBottom + rotateHeight + 0.010f;
+                const float attackH = 0.038f;
+                if (attackButtonRect != null)
+                    ApplySceneRect(attackButtonRect,
+                        new Vector2(sideLeft + 0.010f, attackBottom),
+                        new Vector2(sideRight - 0.010f, attackBottom + attackH));
+
                 LayoutOpponentMiniBoard(sideLeft, sideRight,
-                    nextPanelTop, rotateBottom + rotateHeight + 0.014f, aspect);
+                    nextPanelTop, attackBottom + attackH + 0.014f, aspect);
             }
             else
             {
@@ -3858,7 +4169,14 @@ namespace BrickStacker
                         new Vector2(rotCx - rotW * 0.5f, rotBottom),
                         new Vector2(rotCx + rotW * 0.5f, rotBottom + rotH));
 
-                LayoutOpponentMiniBoard(rLeft, rRight, nextTop, rotBottom + rotH + 0.012f, aspect);
+                float attackBottom = rotBottom + rotH + 0.008f;
+                const float attackH = 0.034f;
+                if (attackButtonRect != null)
+                    ApplySceneRect(attackButtonRect,
+                        new Vector2(rLeft + 0.008f, attackBottom),
+                        new Vector2(rRight - 0.008f, attackBottom + attackH));
+
+                LayoutOpponentMiniBoard(rLeft, rRight, nextTop, attackBottom + attackH + 0.012f, aspect);
             }
             else
             {
@@ -4879,7 +5197,8 @@ namespace BrickStacker
             lines += rowsToClear.Count;
             levelLines += rowsToClear.Count;
             PlayerPrefs.SetInt(LevelProgress.TotalLinesClearedKey, PlayerPrefs.GetInt(LevelProgress.TotalLinesClearedKey, 0) + rowsToClear.Count);
-            AwardTacticalMoves(rowsToClear.Count + 2, false);
+            // Khối đặc biệt nổ chỉ thưởng đúng 1 lượt đi — lượt "xịn" phải từ xóa hàng thường.
+            AwardTacticalMoves(1, false);
             shake = 0.32f;
             Beep(160f, 0.16f, 0.28f);
 
@@ -4920,6 +5239,20 @@ namespace BrickStacker
             AwardTacticalMoves(clearCount, combo > 1);
             shake = 0.1f + clearCount * 0.05f;
             Beep(880f + clearCount * 120f, 0.12f, 0.24f);
+
+            // Trận 1v1: clear 3 hàng nạp 1 đạn rác, 4+ hàng nạp 2 (kho tối đa 3).
+            // Không gửi tự động — người chơi CHỦ ĐỘNG bấm nút RÁC để tấn công đúng lúc.
+            if (MultiplayerMatch.Active && clearCount >= 3)
+            {
+                int gained = clearCount >= 4 ? 2 : 1;
+                attackCharges = Mathf.Min(3, attackCharges + gained);
+                RefreshAttackButton();
+                if (tacticalBoard != null)
+                {
+                    tacticalBoard.LastMessage = "+" + gained + " đạn rác! Bấm nút RÁC để tấn công.";
+                    RefreshTacticalBoardUi();
+                }
+            }
 
             foreach (int row in rows)
             {
@@ -5396,7 +5729,7 @@ namespace BrickStacker
             }
 
             scoreText.text = "";
-            linesText.text = "Màn: " + journeyLevel;
+            linesText.text = MultiplayerMatch.Active ? "1 vs 1" : "Màn: " + journeyLevel;
             levelText.text = tacticalBoard != null ? "Lượt đi: " + tacticalBoard.MoveBank : MissionProgressText();
             bestText.text = "";
             int nextType = PeekNext(0);
@@ -5406,7 +5739,10 @@ namespace BrickStacker
             if (MultiplayerMatch.Active)
             {
                 if (opponentText != null)
-                    opponentText.text = "Đối thủ · " + MultiplayerMatch.OpponentScore + "đ";
+                {
+                    string oppName = string.IsNullOrEmpty(MultiplayerMatch.OpponentName) ? "Đối thủ" : MultiplayerMatch.OpponentName;
+                    opponentText.text = oppName + " · " + MultiplayerMatch.OpponentScore + "đ";
+                }
                 if (MultiplayerManager.Instance != null)
                     MultiplayerManager.Instance.SendState(score, lines, 0);
             }
@@ -5518,6 +5854,60 @@ namespace BrickStacker
                 UpdateMissionStarRows();
                 missionOverlay.SetActive(true);
             }
+            else if (MultiplayerMatch.Active)
+            {
+                StartCoroutine(MultiplayerCountdownRoutine());
+            }
+        }
+
+        // Đếm ngược 3-2-1 trước trận 1v1 — hai bên nhận START gần như cùng lúc nên
+        // cùng vào trận một nhịp, không ai bị khối rơi bất ngờ.
+        System.Collections.IEnumerator MultiplayerCountdownRoutine()
+        {
+            paused = true;
+            Time.timeScale = 0f;
+
+            Transform overlayParent = missionOverlay != null
+                ? missionOverlay.transform.parent
+                : (safeAreaRoot != null ? safeAreaRoot.transform : transform);
+            var overlay = Ui.Panel(overlayParent, "Countdown Overlay", new Color(0f, 0f, 0f, 0.60f));
+            Ui.Stretch(overlay);
+
+            var label = Ui.Text(overlay.transform, "3", font, 220, new Color(1f, 0.84f, 0.40f), TextAnchor.MiddleCenter);
+            label.fontStyle = FontStyle.Bold;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            Ui.Stretch(label.gameObject);
+            AddDarkWoodTextEdge(label, 1.2f, 0.9f);
+
+            // Ẩn 1 frame đầu — CanvasScaler chưa layout xong, chữ sẽ chớp sai vị trí.
+            overlay.SetActive(false);
+            yield return null;
+            overlay.SetActive(true);
+
+            for (int i = 3; i >= 1; i--)
+            {
+                label.text = i.ToString();
+                RuntimeArt.PlayUiSwitchSound();
+                yield return new WaitForSecondsRealtime(0.8f);
+            }
+
+            label.fontSize = 100;
+            label.text = "BẮT ĐẦU!";
+            RuntimeArt.PlayUiSwitchSound();
+            yield return new WaitForSecondsRealtime(0.6f);
+
+            Destroy(overlay);
+            // Chỉ resume nếu không có popup khác chen vào giữa chừng
+            // (đối thủ thoát ngay trong lúc đếm → popup kết thúc trận đã mở).
+            bool otherPopupOpen = (pauseOverlay != null && pauseOverlay.activeSelf)
+                || (gameOverOverlay != null && gameOverOverlay.activeSelf)
+                || (levelClearOverlay != null && levelClearOverlay.activeSelf);
+            if (!otherPopupOpen)
+            {
+                paused = false;
+                Time.timeScale = 1f;
+            }
         }
 
         void ApplyLevelStartEffects()
@@ -5546,8 +5936,8 @@ namespace BrickStacker
         {
             if (MultiplayerMatch.Active)
             {
-                // Trận 1v1: hoàn thành trước là thắng — không lưu tiến trình solo.
-                int mpBonus = WinScoreBonus(CalculateStars());
+                // Trận 1v1: không có sao — thưởng thắng cố định, không lưu tiến trình solo.
+                const int mpBonus = 500;
                 score += mpBonus; // gửi cho đối thủ cùng cờ kết thúc trong MultiplayerEndMatch
                 MultiplayerEndMatch(true, "Bạn hoàn thành bàn cờ trước đối thủ!\nĐiểm thưởng +" + mpBonus);
                 return;
@@ -5567,12 +5957,14 @@ namespace BrickStacker
             CloudSaveSync.Push();
             LeaderboardsSync.SubmitScore(score);
 
-            levelClearTitleText.text = "HOÀN THÀNH MÀN " + journeyLevel + "\n" + StarText(starsEarned);
+            levelClearTitleText.text = "HOÀN THÀNH MÀN " + journeyLevel;
+            if (levelClearStarsText != null)
+                levelClearStarsText.text = StarRowRich(starsEarned);
             levelClearBodyText.color = new Color(1f, 0.91f, 0.74f);
             levelClearBodyText.fontStyle = FontStyle.Normal;
             levelClearBodyText.text = tacticalBoard != null && rules.TacticalData != null
-                ? "Quái đã bắt được đối thủ\nĐã dùng " + tacticalBoard.MovesUsed + " lượt\nĐiểm thưởng +" + winBonus + "  ·  Tổng điểm " + score + "\nXu +" + rules.CoinReward
-                : "Nhiệm vụ hoàn thành\nĐiểm thưởng +" + winBonus + "  ·  Tổng điểm " + score + "\nXu +" + rules.CoinReward;
+                ? "Quái đã bắt được đối thủ!\n\nĐã dùng " + tacticalBoard.MovesUsed + " lượt\nĐiểm thưởng  +" + winBonus + "\nTổng điểm  " + score + "\nXu  +" + rules.CoinReward
+                : "Nhiệm vụ hoàn thành!\n\nĐiểm thưởng  +" + winBonus + "\nTổng điểm  " + score + "\nXu  +" + rules.CoinReward;
             levelClearOverlay.SetActive(true);
 
             continueButton.interactable = true;
@@ -5600,6 +5992,17 @@ namespace BrickStacker
         static int WinScoreBonus(int stars)
         {
             return 300 + Mathf.Clamp(stars, 0, 3) * 200;
+        }
+
+        // Hàng sao bằng rich text: sao đạt màu vàng, sao chưa đạt màu nâu mờ.
+        // Dùng ★ cho cả hai (font UI không chắc có ☆).
+        static string StarRowRich(int stars)
+        {
+            stars = Mathf.Clamp(stars, 0, 3);
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 3; i++)
+                sb.Append(i < stars ? "<color=#FFD84D>★</color>" : "<color=#5C432688>★</color>");
+            return sb.ToString();
         }
 
         int CalculateStars()
@@ -5672,6 +6075,7 @@ namespace BrickStacker
             opponentTacticalPanelRect = tacticalPanel.GetComponent<RectTransform>();
             Ui.Rect(tacticalPanel, new Vector2(0.815f, 0.760f), new Vector2(0.960f, 0.850f), Vector2.zero);
             tacticalPanel.GetComponent<Image>().raycastTarget = false;
+            MakeIsolatedCanvas(tacticalPanel, false); // repaint 2Hz không kéo cả canvas chính
 
             opponentText = Ui.Text(tacticalPanel.transform, "Đối thủ", font, 34, new Color(0.62f, 0.92f, 1f), TextAnchor.MiddleCenter);
             opponentText.fontStyle = FontStyle.Bold;
@@ -5712,6 +6116,7 @@ namespace BrickStacker
             // Anchor mặc định cho fallback path; scene layout sẽ đặt lại mỗi lần responsive chạy.
             Ui.Rect(panel, new Vector2(0.815f, 0.520f), new Vector2(0.960f, 0.745f), Vector2.zero);
             panel.GetComponent<Image>().raycastTarget = false;
+            MakeIsolatedCanvas(panel, false); // repaint 2Hz không kéo cả canvas chính
 
             opponentMiniCells = new Image[Width, Height];
             for (int x = 0; x < Width; x++)
@@ -5727,6 +6132,37 @@ namespace BrickStacker
                     cell.enabled = false;
                     opponentMiniCells[x, y] = cell;
                 }
+            }
+
+            // Nút tấn công — bấm để thả đạn rác đã nạp (clear 3+ hàng để nạp).
+            // Chữ "RÁC" + 3 chấm đạn bên dưới; nút ánh cam khi có đạn, xám khi rỗng.
+            attackButton = Ui.Button(parent, "", font, 26, () =>
+            {
+                TryLaunchGarbageAttack();
+            });
+            attackButton.gameObject.name = "Runtime Attack Button";
+            StyleWoodRectButton(attackButton, 28);
+            attackButtonRect = attackButton.GetComponent<RectTransform>();
+            Ui.Rect(attackButton.gameObject, new Vector2(0.815f, 0.47f), new Vector2(0.960f, 0.51f), Vector2.zero);
+            attackButton.interactable = false;
+            attackButtonImage = attackButton.GetComponent<Image>();
+
+            attackLabel = Ui.Text(attackButton.transform, "RÁC", font, 26, new Color(1f, 0.88f, 0.62f), TextAnchor.MiddleCenter);
+            attackLabel.fontStyle = FontStyle.Bold;
+            attackLabel.raycastTarget = false;
+            Ui.Rect(attackLabel, new Vector2(0.06f, 0.34f), new Vector2(0.94f, 0.96f), Vector2.zero);
+            AddDarkWoodTextEdge(attackLabel, 0.8f, 0.82f);
+
+            attackPips = new Image[3];
+            for (int p = 0; p < 3; p++)
+            {
+                float cx = 0.5f + (p - 1) * 0.20f;
+                var pip = Ui.Panel(attackButton.transform, "Pip" + p, Color.white).GetComponent<Image>();
+                pip.sprite = RuntimeArt.CreateWoodPanelSprite();
+                pip.type = Image.Type.Sliced;
+                pip.raycastTarget = false;
+                Ui.Rect(pip, new Vector2(cx, 0.17f), new Vector2(cx, 0.17f), new Vector2(20, 20));
+                attackPips[p] = pip;
             }
         }
 
@@ -5883,6 +6319,127 @@ namespace BrickStacker
             opponentTacticalCells[pos.x, pos.y].color = color;
         }
 
+        // Áp hàng rác đối thủ gửi sang: nhấp nháy cảnh báo 1 giây rồi mới chèn rác
+        // (hàng rác 1 lỗ, chèn đáy). Chờ lúc "yên" để không phá dở animation.
+        void ApplyPendingGarbage()
+        {
+            if (MultiplayerMatch.PendingGarbage <= 0)
+            {
+                if (garbageWarnUntil > 0f)
+                    HideGarbageWarning();
+                return;
+            }
+
+            if (gameOver || resolving || paused || puzzlePausedForTacticalTurn)
+                return;
+
+            if (garbageWarnUntil <= 0f)
+            {
+                // Bắt đầu pha cảnh báo — chưa chèn rác vội.
+                garbageWarnUntil = Time.unscaledTime + 1f;
+                ShowGarbageWarning();
+                Beep(660f, 0.10f, 0.25f);
+                return;
+            }
+
+            if (Time.unscaledTime < garbageWarnUntil)
+            {
+                FlashGarbageWarning();
+                return;
+            }
+
+            HideGarbageWarning();
+            int rows = Mathf.Min(MultiplayerMatch.PendingGarbage, 4);
+            MultiplayerMatch.PendingGarbage = 0;
+            for (int i = 0; i < rows; i++)
+                AddGarbageRow();
+
+            shake = 0.3f;
+            RuntimeArt.PlayUiSwitchSound();
+            Beep(220f, 0.18f, 0.3f);
+            if (tacticalBoard != null)
+            {
+                string senderName = string.IsNullOrEmpty(MultiplayerMatch.OpponentName) ? "Đối thủ" : MultiplayerMatch.OpponentName;
+                tacticalBoard.LastMessage = senderName + " gửi " + rows + " hàng rác cho bạn!";
+                RefreshTacticalBoardUi();
+            }
+        }
+
+        // Người chơi bấm nút RÁC — tiêu 1 đạn, gửi 1 hàng rác. Giãn 1,5s giữa hai phát.
+        void TryLaunchGarbageAttack()
+        {
+            if (!MultiplayerMatch.Active || gameOver || attackCharges <= 0)
+                return;
+            if (Time.unscaledTime < nextAttackTime)
+                return;
+
+            attackCharges--;
+            nextAttackTime = Time.unscaledTime + 1.5f;
+            if (MultiplayerManager.Instance != null)
+                MultiplayerManager.Instance.SendGarbage(1);
+
+            RuntimeArt.PlayUiSwitchSound();
+            shake = 0.15f;
+            RefreshAttackButton();
+            if (tacticalBoard != null)
+            {
+                tacticalBoard.LastMessage = "Đã thả 1 hàng rác sang đối thủ!";
+                RefreshTacticalBoardUi();
+            }
+        }
+
+        void RefreshAttackButton()
+        {
+            if (attackButton == null)
+                return;
+
+            bool armed = attackCharges > 0;
+            attackButton.interactable = armed;
+
+            if (attackButtonImage != null)
+                attackButtonImage.color = armed
+                    ? new Color(0.94f, 0.46f, 0.16f, 1f)   // cam nóng — sẵn sàng bắn
+                    : new Color(0.42f, 0.26f, 0.13f, 0.92f); // gỗ tối — chưa có đạn
+            if (attackLabel != null)
+                attackLabel.color = armed ? new Color(1f, 0.95f, 0.80f) : new Color(1f, 0.88f, 0.62f, 0.55f);
+
+            if (attackPips != null)
+                for (int p = 0; p < attackPips.Length; p++)
+                    if (attackPips[p] != null)
+                        attackPips[p].color = p < attackCharges
+                            ? new Color(1f, 0.84f, 0.25f, 1f)
+                            : new Color(0f, 0f, 0f, 0.35f);
+        }
+
+        void ShowGarbageWarning()
+        {
+            if (garbageWarningText == null)
+            {
+                var parent = safeAreaRoot != null ? safeAreaRoot.transform : transform;
+                garbageWarningText = Ui.Text(parent, "!! SẮP CÓ HÀNG RÁC !!", font, 38, new Color(1f, 0.35f, 0.2f), TextAnchor.MiddleCenter);
+                garbageWarningText.fontStyle = FontStyle.Bold;
+                garbageWarningText.raycastTarget = false;
+                Ui.Rect(garbageWarningText, new Vector2(0.5f, 0.44f), new Vector2(0.5f, 0.44f), new Vector2(640, 60));
+                AddDarkWoodTextEdge(garbageWarningText, 0.9f, 0.9f);
+            }
+            garbageWarningText.gameObject.SetActive(true);
+        }
+
+        void FlashGarbageWarning()
+        {
+            if (garbageWarningText == null)
+                return;
+            float alpha = 0.35f + 0.65f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 12f));
+            garbageWarningText.color = new Color(1f, 0.35f, 0.2f, alpha);
+        }
+
+        void HideGarbageWarning()
+        {
+            garbageWarnUntil = 0f;
+            if (garbageWarningText != null)
+                garbageWarningText.gameObject.SetActive(false);
+        }
+
         // Đối thủ báo kết thúc hoặc rời trận — xử ở đầu Update mỗi frame.
         void CheckOpponentMatchEvents()
         {
@@ -5911,8 +6468,9 @@ namespace BrickStacker
 
             gameOverTitleText.text = won ? "THẮNG TRẬN!" : "THUA TRẬN";
             gameOverTitleText.color = won ? new Color(1f, 0.86f, 0.56f) : new Color(1f, 0.62f, 0.36f);
+            string opponentLabel = string.IsNullOrEmpty(MultiplayerMatch.OpponentName) ? "Đối thủ" : MultiplayerMatch.OpponentName;
             gameOverScoreText.text = reason + "\nBạn  " + score + " điểm · " + lines + " hàng"
-                + "\nĐối thủ  " + MultiplayerMatch.OpponentScore + " điểm · " + MultiplayerMatch.OpponentLines + " hàng";
+                + "\n" + opponentLabel + "  " + MultiplayerMatch.OpponentScore + " điểm · " + MultiplayerMatch.OpponentLines + " hàng";
             gameOverOverlay.SetActive(true);
             shake = won ? 0.35f : 0.2f;
             if (won)
@@ -7326,16 +7884,41 @@ namespace BrickStacker
         // When set, scale this target instead of self (use to avoid shrinking the hit area).
         public Transform VisualTarget;
 
-        public void OnPointerDown(PointerEventData eventData) => ApplyScale(PressedScale);
-        public void OnPointerUp(PointerEventData eventData) => ApplyScale(1f);
-        public void OnPointerExit(PointerEventData eventData) => ApplyScale(1f);
+        // Scale phải nhân tương đối với scale gốc bắt tại lúc nhấn — node map level
+        // có scale scene ≈ 2.26, ghi đè tuyệt đối làm node co vĩnh viễn khi bấm ô khóa.
+        Vector3 baseScale;
+        bool pressed;
 
-        void ApplyScale(float scale)
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            var r = TargetRect();
+            if (r == null)
+                return;
+            if (!pressed)
+            {
+                baseScale = r.localScale;
+                pressed = true;
+            }
+            r.localScale = new Vector3(baseScale.x * PressedScale, baseScale.y * PressedScale, baseScale.z);
+        }
+
+        public void OnPointerUp(PointerEventData eventData) => Release();
+        public void OnPointerExit(PointerEventData eventData) => Release();
+
+        void Release()
+        {
+            if (!pressed)
+                return;
+            pressed = false;
+            var r = TargetRect();
+            if (r != null)
+                r.localScale = baseScale;
+        }
+
+        RectTransform TargetRect()
         {
             var t = VisualTarget != null ? VisualTarget : transform;
-            var r = t.GetComponent<RectTransform>();
-            if (r != null)
-                r.localScale = new Vector3(scale, scale, 1f);
+            return t as RectTransform;
         }
     }
 }

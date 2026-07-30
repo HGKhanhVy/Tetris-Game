@@ -72,6 +72,11 @@ namespace BrickStacker
         // Ngưỡng để quái đổi từ đuổi player sang enemy (design §2.6).
         public int TargetSwitchThreshold = 2;
 
+        // Loại Enemy của màn (design §2.8). Mặc định "nhút nhát" = hành vi cũ.
+        public TacticalEnemyType EnemyType = TacticalEnemyType.Shy;
+        // Tuyến tuần tra cho Enemy loại Patrol (danh sách waypoint theo thứ tự).
+        public List<Vector2Int> EnemyPatrol = new List<Vector2Int>();
+
         public static TacticalLevelData Create(int level)
         {
             const int width = 8;
@@ -162,6 +167,12 @@ namespace BrickStacker
             data.MaxMovementPoint = level >= 18 ? 3 : (level >= 10 ? 4 : 5);
             data.TargetSwitchThreshold = 2;
 
+            // Design §2.8: mỗi màn một loại Enemy để đa dạng chiến thuật.
+            // Màn đầu dễ (đứng yên/nhút nhát), về sau xuất hiện loại khó hơn.
+            data.EnemyType = PickEnemyType(level);
+            if (data.EnemyType == TacticalEnemyType.Patrol)
+                data.BuildDefaultPatrolRoute();
+
             // Drop pattern walls that collide with start positions first — a wall on a
             // start cell makes the connectivity check in AddProgressiveWalls always fail.
             data.RemoveInvalidWalls();
@@ -227,6 +238,46 @@ namespace BrickStacker
             return visited.Contains(EnemyStartPosition) && visited.Contains(MonsterStartPosition);
         }
 
+        // Chọn loại Enemy theo tiến trình màn (design §2.8).
+        static TacticalEnemyType PickEnemyType(int level)
+        {
+            if (level <= 1) return TacticalEnemyType.Stationary; // màn hướng dẫn: tự dụ quái
+            switch ((level - 2) % 5)
+            {
+                case 0: return TacticalEnemyType.Shy;
+                case 1: return TacticalEnemyType.Patrol;
+                case 2: return TacticalEnemyType.Mimic;
+                case 3: return level >= 8 ? TacticalEnemyType.Smart : TacticalEnemyType.Shy;
+                default: return TacticalEnemyType.Shy;
+            }
+        }
+
+        // Tuyến tuần tra mặc định: một hình chữ nhật quanh vị trí xuất phát Enemy,
+        // bỏ waypoint rơi vào tường để không kẹt.
+        public void BuildDefaultPatrolRoute()
+        {
+            EnemyPatrol.Clear();
+            var wallSet = new HashSet<Vector2Int>(WallPositions);
+            var candidates = new List<Vector2Int>
+            {
+                EnemyStartPosition,
+                EnemyStartPosition + new Vector2Int(1, 0),
+                EnemyStartPosition + new Vector2Int(1, 1),
+                EnemyStartPosition + new Vector2Int(0, 1),
+            };
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                if (c.x >= 0 && c.x < BoardWidth && c.y >= 0 && c.y < BoardHeight && !wallSet.Contains(c))
+                    EnemyPatrol.Add(c);
+            }
+            if (EnemyPatrol.Count < 2)
+            {
+                EnemyPatrol.Clear();
+                EnemyPatrol.Add(EnemyStartPosition);
+            }
+        }
+
         void RemoveInvalidWalls()
         {
             for (int i = WallPositions.Count - 1; i >= 0; i--)
@@ -262,14 +313,28 @@ namespace BrickStacker
         // Ô kế tiếp quái sẽ bước tới. HUD nhấp nháy ô này.
         public Vector2Int NextMonsterStep { get; private set; }
 
+        public TacticalEnemyType EnemyType { get; private set; } = TacticalEnemyType.Shy;
+        // Hướng player vừa đi (cho Enemy loại Mimic).
+        public Vector2Int LastPlayerMove { get; private set; }
+        // Vị trí trong tuyến tuần tra + chiều đi (cho Enemy loại Patrol).
+        public int PatrolIndex { get; private set; }
+        public int PatrolDirection { get; private set; } = 1;
+
         readonly HashSet<Vector2Int> walls = new HashSet<Vector2Int>();
-        static readonly Vector2Int[] Directions =
+        internal static readonly Vector2Int[] Directions =
         {
             Vector2Int.up,
             Vector2Int.right,
             Vector2Int.down,
             Vector2Int.left
         };
+
+        // === Truy vấn bàn cờ cho module hành vi Enemy (Offline/EnemyBehaviors.cs) ===
+        public bool EnemyCanEnter(Vector2Int cell) => IsWalkableForEnemy(cell);
+        public bool CellOpen(Vector2Int cell) => IsWalkable(cell);
+        public int PathLen(Vector2Int from, Vector2Int to) => PathDistance(from, to);
+        internal void SetEnemyPosition(Vector2Int pos) => EnemyPosition = pos;
+        internal void AdvancePatrol(int index, int direction) { PatrolIndex = index; PatrolDirection = direction; }
 
         public TacticalBoardManager(TacticalLevelData data)
         {
@@ -289,6 +354,11 @@ namespace BrickStacker
             walls.Clear();
             for (int i = 0; i < Data.WallPositions.Count; i++)
                 walls.Add(Data.WallPositions[i]);
+
+            EnemyType = Data.EnemyType;
+            LastPlayerMove = Vector2Int.zero;
+            PatrolIndex = 0;
+            PatrolDirection = 1;
 
             MonsterTimer = Data.MonsterAutoMoveInterval;
             CurrentTarget = TacticalTarget.Player;
@@ -344,6 +414,7 @@ namespace BrickStacker
             }
 
             PlayerPosition = target;
+            LastPlayerMove = direction;
             MoveBank--;
             MovesUsed++;
             if (Evaluate() != TacticalBoardStatus.Running)
@@ -444,28 +515,15 @@ namespace BrickStacker
             return IsWalkable(cell) && cell != PlayerPosition && cell != MonsterPosition;
         }
 
-        // Enemy đi đúng 1 ô mỗi lượt player, chọn ô làm tăng khoảng cách đường đi tới quái
-        // (hòa thì né xa player). Đứng yên nếu không có ô nào tốt hơn.
+        // Enemy đi 1 ô mỗi lượt player theo hành vi của loại (design §2.8).
+        // Logic từng loại nằm ở Offline/EnemyBehaviors.cs.
         void MoveEnemy()
         {
-            Vector2Int best = EnemyPosition;
-            int bestDistance = PathDistance(EnemyPosition, MonsterPosition);
-            for (int i = 0; i < Directions.Length; i++)
-            {
-                var candidate = EnemyPosition + Directions[i];
-                if (!IsWalkableForEnemy(candidate))
-                    continue;
-
-                int distance = PathDistance(candidate, MonsterPosition);
-                if (distance > bestDistance || (distance == bestDistance && best != EnemyPosition && Manhattan(candidate, PlayerPosition) > Manhattan(best, PlayerPosition)))
-                {
-                    best = candidate;
-                    bestDistance = distance;
-                }
-            }
-
-            EnemyPosition = best;
+            EnemyPosition = EnemyBehaviors.ChooseMove(this);
         }
+
+        // Dùng chung cho hành vi "nhút nhát"/"thông minh": né xa quái theo đường đi.
+        public int ManhattanTo(Vector2Int a, Vector2Int b) => Manhattan(a, b);
 
         // Quái đi đúng 1 bước theo mục tiêu hiện tại.
         void StepMonsterOnce()

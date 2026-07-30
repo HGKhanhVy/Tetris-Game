@@ -82,7 +82,7 @@ namespace BrickStacker
                 scaler = canvas.gameObject.AddComponent<CanvasScaler>();
 
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1080f, 1920f);
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
 
             // Set matchWidthOrHeight immediately so Canvas.ForceUpdateCanvases() in ApplyScrollLayout
@@ -293,7 +293,21 @@ namespace BrickStacker
             var canvasRT = canvas.GetComponent<RectTransform>();
             float availWidth = canvasRT.rect.width * (safeR - safeL) / sw - 24f;
 
-            float scale = Mathf.Clamp(availWidth / bounds.size.x, 0.1f, 3f);
+            // Portrait: bản đồ chiếm trọn bề ngang, cuộn dọc.
+            // Landscape: fit theo chiều cao để thấy nhiều node cùng lúc (kẹp tối thiểu
+            // 0.40 giữ node đủ lớn để bấm — bản đồ dài hơn màn hình thì vẫn cuộn dọc).
+            float scale;
+            if (Screen.width > Screen.height)
+            {
+                float viewportHeightForFit = scrollRect != null ? scrollRect.viewport.rect.height : canvasRT.rect.height;
+                float fitHeight = (viewportHeightForFit - 56f) / bounds.size.y;
+                float fitWidth = availWidth / bounds.size.x;
+                scale = Mathf.Clamp(Mathf.Min(fitWidth, Mathf.Max(fitHeight, 0.40f)), 0.1f, 3f);
+            }
+            else
+            {
+                scale = Mathf.Clamp(availWidth / bounds.size.x, 0.1f, 3f);
+            }
             rootRect.localScale = Vector3.one * scale;
 
             // Visual gap (canvas units) between content edge and safe-area boundary.

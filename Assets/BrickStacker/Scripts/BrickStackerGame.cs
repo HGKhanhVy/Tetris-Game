@@ -635,12 +635,14 @@ namespace BrickStacker
     {
         Font font;
         Font titleFont;
+        Font boldFont;
         GameObject mapOverlay;
 
         void Start()
         {
             font = LoadFont();
             titleFont = RuntimeArt.LoadDisplayFont();
+            boldFont = Resources.Load<Font>("BrickStacker/VietnameseArial") ?? font;
             Time.timeScale = 1f;
             BuildCamera();
             BuildBackground();
@@ -766,83 +768,118 @@ namespace BrickStacker
 
         void BuildBackground()
         {
-            RuntimeArt.CreateWoodBackdrop("Menu Wood Backdrop", Camera.main, 1.2f, new Color(0.12f, 0.045f, 0.015f, 0.24f));
+            var cam = Camera.main ?? FindAnyObjectByType<Camera>();
+            if (cam != null)
+                cam.backgroundColor = new Color(0.42f, 0.68f, 0.92f);
         }
 
         void BuildUi()
         {
             var canvas = Ui.CreateCanvas("Menu Canvas");
-            var safe = Ui.Panel(canvas.transform, "Menu Safe Area", new Color(0, 0, 0, 0));
+            bool landscape = Screen.width > Screen.height;
+
+            // Background toàn màn hình
+            var bgSpr = RuntimeArt.LoadV3Sprite("screen-menu/bg-menu.png");
+            if (bgSpr != null)
+            {
+                var bg = Ui.Panel(canvas.transform, "BG", Color.white);
+                Ui.Stretch(bg);
+                bg.transform.SetAsFirstSibling();
+                var bgImg = bg.GetComponent<Image>();
+                bgImg.sprite = bgSpr; bgImg.type = Image.Type.Simple; bgImg.preserveAspect = false;
+
+                // "Cover": giữ tỉ lệ ảnh nền, phủ kín màn hình (không bóp méo khiên VS trên máy hẹp).
+                var bgRt = bg.GetComponent<RectTransform>();
+                if (landscape)
+                {
+                    // Ảnh nền gốc là dọc — landscape chỉ hiện được ~1/3 chiều cao.
+                    // Neo đáy để giữ sân đấu + 2 nhân vật; logo bị cắt sẽ overlay riêng bên dưới.
+                    bgRt.anchorMin = bgRt.anchorMax = new Vector2(0.5f, 0f);
+                    bgRt.pivot = new Vector2(0.5f, 0f);
+                }
+                else
+                {
+                    bgRt.anchorMin = bgRt.anchorMax = new Vector2(0.5f, 0.5f);
+                    bgRt.pivot = new Vector2(0.5f, 0.5f);
+                }
+                bgRt.anchoredPosition = Vector2.zero;
+                var arf = bg.AddComponent<AspectRatioFitter>();
+                arf.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                arf.aspectRatio = (float)bgSpr.texture.width / bgSpr.texture.height;
+            }
+
+            var safe = Ui.Panel(canvas.transform, "Safe", new Color(0, 0, 0, 0));
             Ui.Stretch(safe);
             safe.AddComponent<SafeAreaFitter>();
-            var panel = Ui.Panel(safe.transform, "Menu Panel", new Color(0, 0, 0, 0));
+            var panel = Ui.Panel(safe.transform, "Panel", new Color(0, 0, 0, 0));
             Ui.Stretch(panel);
 
-            // Glow frame encompasses title + button zone
-            AddMenuGlowFrame(panel.transform, new Vector2(0.5f, 0.500f), new Vector2(600, 820));
-
-            // Title block — directly on panel, reduced scale to avoid overflow
-            var titleGroup = Ui.Panel(panel.transform, "Title Group", new Color(0, 0, 0, 0));
-            Ui.Rect(titleGroup, new Vector2(0.5f, 0.630f), new Vector2(0.5f, 0.630f), new Vector2(820, 200));
-
-            var title = Ui.Text(titleGroup.transform, "BLOCKFALL", titleFont, 100, new Color(1f, 0.84f, 0.42f), TextAnchor.MiddleCenter);
-            Ui.Rect(title, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(820, 144));
-            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 22);
-            title.GetComponent<RectTransform>().localScale = new Vector3(1.03f, 1.02f, 1f);
-            AddDarkWoodTextEdge(title, 1.10f, 0.74f);
-            AddCloseTitleShadow(title);
-            AddBlockfallWoodGrain(titleGroup.transform);
-            title.transform.SetAsLastSibling();
-
-            var titleLine = Ui.Panel(titleGroup.transform, "Title Accent", new Color(1f, 0.64f, 0.32f, 0.85f));
-            Ui.Rect(titleLine, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(480, 5));
-            titleLine.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -54);
-
-            // Subtitle: mô tả đúng tính chất game
-            // Ngắt dòng chủ động — để tự wrap thì chữ "thủ" rơi xuống dòng một mình.
-            var subtitle = Ui.Text(panel.transform, "Xếp gạch · Giành lượt đi\nChiến thắng đối thủ", font, 26, new Color(1f, 0.86f, 0.60f), TextAnchor.MiddleCenter);
-            Ui.Rect(subtitle, new Vector2(0.5f, 0.561f), new Vector2(0.5f, 0.561f), new Vector2(560, 76));
-            AddDarkWoodTextEdge(subtitle, 0.70f, 0.74f);
-            AddWarmTitleFinish(subtitle, 0.32f);
-
-            AddBookHelpButton(panel.transform, () =>
+            // Portrait: tiêu đề + sân đấu + khiên VS + 2 nhân vật đã vẽ sẵn trong bg-menu.png.
+            // Landscape: nền neo đáy cắt mất logo → dựng tiêu đề bằng font hiển thị + ván gỗ
+            // (crop từ ảnh nền sẽ dính nền trời thành khối chữ nhật lệch màu).
+            if (landscape)
             {
-                RuntimeArt.PlayUiSwitchSound();
-                ShowTutorialOverlay(panel.transform);
-            });
+                var titleText = Ui.Text(panel.transform, "BLOCK FALL", titleFont != null ? titleFont : font, 108, new Color(1f, 0.78f, 0.16f), TextAnchor.MiddleCenter);
+                titleText.fontStyle = FontStyle.Bold;
+                titleText.raycastTarget = false;
+                var titleRt = titleText.rectTransform;
+                titleRt.anchorMin = titleRt.anchorMax = new Vector2(0.5f, 1f);
+                titleRt.pivot = new Vector2(0.5f, 1f);
+                titleRt.sizeDelta = new Vector2(900f, 130f);
+                titleRt.anchoredPosition = new Vector2(0f, -18f);
+                AddDarkWoodTextEdge(titleText, 1.4f, 1f);
+                AddWarmTitleFinish(titleText, 0.5f);
 
-            AddLeaderboardButton(panel.transform, () =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                ShowLeaderboardOverlay(panel.transform);
-            });
+                var board = Ui.Panel(panel.transform, "Title Board", Color.white);
+                var boardImg = board.GetComponent<Image>();
+                boardImg.sprite = RuntimeArt.CreateWoodButtonSprite();
+                boardImg.type = Image.Type.Sliced;
+                boardImg.color = new Color(0.62f, 0.36f, 0.16f, 0.97f);
+                boardImg.raycastTarget = false;
+                var boardRt = board.GetComponent<RectTransform>();
+                boardRt.anchorMin = boardRt.anchorMax = new Vector2(0.5f, 1f);
+                boardRt.pivot = new Vector2(0.5f, 1f);
+                boardRt.sizeDelta = new Vector2(520f, 74f);
+                boardRt.anchoredPosition = new Vector2(0f, -156f);
 
-            var (startBtn, startShadow) = AddMenuButton(panel.transform, "BẮT ĐẦU", new Vector2(0.5f, 0.5f), new Vector2(0, -148), () =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                SceneManager.LoadScene("BrickLevel");
-            }, new Vector2(440, 92), 42);
-            StartCoroutine(PulseButton(startBtn.transform, startShadow.transform));
+                var subText = Ui.Text(board.transform, "Xếp Hình Đối Kháng", font, 34, new Color(1f, 0.93f, 0.78f), TextAnchor.MiddleCenter);
+                subText.fontStyle = FontStyle.Bold;
+                subText.raycastTarget = false;
+                Ui.Stretch(subText.gameObject);
+                AddDarkWoodTextEdge(subText, 0.8f, 0.8f);
+            }
 
-            AddMenuButton(panel.transform, "1 vs 1", new Vector2(0.5f, 0.5f), new Vector2(0, -262), () =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                MultiplayerManager.PrewarmQuickQuery();
-                ShowMultiplayerOverlay(panel.transform);
-            }, new Vector2(440, 84), 36);
+            // Vị trí nút: portrait xếp cột giữa sát nhau; landscape giãn dọc hơn
+            // (canvas thấp — 1080 thay vì 1920 — nên giữ khoảng cách theo px nút).
+            Vector2 startPos = landscape ? new Vector2(0.5f, 0.470f) : new Vector2(0.5f, 0.488f);
+            Vector2 duelPos  = landscape ? new Vector2(0.5f, 0.315f) : new Vector2(0.5f, 0.386f);
+            float rowY = landscape ? 0.170f : 0.307f;
+            float guideX = landscape ? 0.375f : 0.322f;
+            float rankX  = landscape ? 0.625f : 0.706f;
 
-            int totalStars = LevelProgress.TotalStars();
-            string hintText = totalStars > 0 ? "★  " + totalStars + " sao đã thu thập" : "Chạm để bắt đầu hành trình!";
-            var hint = Ui.Text(panel.transform, hintText, font, 22, new Color(1f, 0.84f, 0.56f, 0.80f), TextAnchor.MiddleCenter);
-            Ui.Rect(hint, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(400, 38));
-            hint.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -336);
-            AddDarkWoodTextEdge(hint, 0.55f, 0.70f);
+            // BẮT ĐẦU — nút ngang, full width (cam)
+            var (startBtn, _) = AddV3MainButton(panel.transform, "BẮT ĐẦU",
+                "screen-menu/btn-batdau-notext.png", startPos, new Vector2(413, 145), 43,
+                () => { RuntimeArt.PlayUiSwitchSound(); SceneManager.LoadScene("BrickLevel"); });
+            StartCoroutine(PulseButton(startBtn.transform, null));
 
-            // Số bản build nhỏ để đối chiếu khi test nhiều thiết bị (cache trình duyệt).
-            var versionLabel = Ui.Text(panel.transform, "v1.1", font, 16, new Color(1f, 0.86f, 0.60f, 0.45f), TextAnchor.MiddleCenter);
-            Ui.Rect(versionLabel, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(160, 26));
-            versionLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 24);
+            // ĐẤU 1 VS 1 — nút ngang, full width (xanh dương). Sát ngay dưới BẮT ĐẦU.
+            AddV3MainButton(panel.transform, "1 VS 1",
+                "screen-menu/btn-1vs1-notext.png", duelPos, new Vector2(413, 132), 40,
+                () => { RuntimeArt.PlayUiSwitchSound(); MultiplayerManager.PrewarmQuickQuery(); ShowMultiplayerOverlay(panel.transform); });
 
+            // Hàng dưới: HƯỚNG DẪN (xanh lá) dài hơn · BXH (tím) ngắn hơn.
+            var guideSize = new Vector2(292, 88);
+            var rankSize = new Vector2(224, 88);
+            var (guideBtn, _) = AddV3MainButton(panel.transform, "HƯỚNG DẪN",
+                "screen-menu/btn-huongdan-notext.png", new Vector2(guideX, rowY), guideSize, 24,
+                () => { RuntimeArt.PlayUiSwitchSound(); ShowTutorialOverlay(panel.transform); }, 0.31f);
+            guideBtn.GetComponent<Image>().preserveAspect = false;
+
+            var (rankBtn, _) = AddV3MainButton(panel.transform, "BXH",
+                "screen-menu/btn-bxh-notext.png", new Vector2(rankX, rowY), rankSize, 28,
+                () => { RuntimeArt.PlayUiSwitchSound(); ShowLeaderboardOverlay(panel.transform); }, 0.18f);
+            rankBtn.GetComponent<Image>().preserveAspect = false;
         }
 
         System.Collections.IEnumerator PulseButton(Transform btn, Transform shadow)
@@ -1582,6 +1619,230 @@ namespace BrickStacker
             image.sprite = RuntimeArt.CreateWoodPanelSprite();
             image.type = Image.Type.Sliced;
             image.color = Color.white;
+        }
+
+        // ── V3.0 menu helpers ────────────────────────────────────────────────
+
+        void AddV3TitleArea(Transform parent)
+        {
+            // title.png — BLOCKFALL + crown
+            var titleSpr = RuntimeArt.LoadV3Sprite("screen-menu/title.png");
+            if (titleSpr != null)
+            {
+                var go = Ui.Panel(parent, "Title Logo", Color.white);
+                Ui.Rect(go, new Vector2(0.5f, 0.85f), new Vector2(0.5f, 0.85f), new Vector2(600, 450));
+                var img = go.GetComponent<Image>();
+                img.sprite = titleSpr; img.type = Image.Type.Simple; img.preserveAspect = true;
+                img.raycastTarget = false;
+            }
+
+        }
+
+        void AddV3Characters(Transform parent)
+        {
+            // Hiệp sĩ xanh — player-xanh-menu.png
+            var knightSpr = RuntimeArt.LoadV3Sprite("screen-menu/player-xanh-menu.png");
+            if (knightSpr != null)
+            {
+                var go = Ui.Panel(parent, "Blue Knight", Color.white);
+                Ui.Rect(go, new Vector2(0.22f, 0.39f), new Vector2(0.22f, 0.39f), new Vector2(360, 360));
+                var img = go.GetComponent<Image>();
+                img.sprite = knightSpr; img.type = Image.Type.Simple; img.preserveAspect = true;
+            }
+
+            // Quỷ đỏ — enemy-do-menu.png
+            var demonSpr = RuntimeArt.LoadV3Sprite("screen-menu/enemy-do-menu.png");
+            if (demonSpr != null)
+            {
+                var go = Ui.Panel(parent, "Red Demon", Color.white);
+                Ui.Rect(go, new Vector2(0.78f, 0.39f), new Vector2(0.78f, 0.39f), new Vector2(360, 360));
+                var img = go.GetComponent<Image>();
+                img.sprite = demonSpr; img.type = Image.Type.Simple; img.preserveAspect = true;
+            }
+
+        }
+
+        (Button btn, GameObject shadow) AddV3MainButton(Transform parent, string label, string spriteAsset,
+            Vector2 anchor, Vector2 size, int fontSize, UnityEngine.Events.UnityAction action, float leftInsetFrac = 0.24f)
+        {
+            var button = Ui.Button(parent, label, font, fontSize, action);
+            Ui.Rect(button.gameObject, anchor, anchor, size);
+
+            var bg = button.GetComponent<Image>();
+            var spr = RuntimeArt.LoadV3Sprite(spriteAsset);
+            if (spr != null) { bg.sprite = spr; bg.type = Image.Type.Simple; bg.preserveAspect = true; bg.color = Color.white; }
+            else bg.color = new Color(0.72f, 0.48f, 0.14f);
+
+            var txt = button.GetComponentInChildren<Text>();
+            if (txt != null)
+            {
+                txt.font = RuntimeArt.LoadMenuButtonFont();
+                txt.color = new Color(1f, 0.97f, 0.84f);
+                txt.fontSize = fontSize;
+                txt.fontStyle = FontStyle.Bold;
+                txt.resizeTextMaxSize = fontSize;
+                txt.resizeTextMinSize = Mathf.Max(16, fontSize - 10);
+                // Nút notext có icon bên trái → chữ căn giữa trong vùng bên phải sau icon,
+                // lề đều 2 bên nên chữ nằm chính giữa khoảng còn lại.
+                // vNudge: đẩy chữ lên vì font BTDanta hơi lệch xuống → cân giữa theo chiều dọc.
+                const float sideMargin = 0.03f;
+                float vNudge = size.y * 0.09f;
+                var txtRect = txt.GetComponent<RectTransform>();
+                txtRect.offsetMin = new Vector2(size.x * (leftInsetFrac + sideMargin), vNudge);
+                txtRect.offsetMax = new Vector2(-size.x * sideMargin, vNudge);
+                // Ép 1 dòng: không xuống dòng, để bestfit tự co cho vừa bề ngang.
+                txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+                AddDarkWoodTextEdge(txt, 1.15f, 0.92f);
+                // Viền đen quanh chữ.
+                var outline = txt.GetComponent<Outline>();
+                if (outline != null)
+                {
+                    outline.effectColor = Color.black;
+                    outline.effectDistance = new Vector2(Mathf.Max(2f, fontSize * 0.06f), Mathf.Max(2f, fontSize * 0.06f));
+                }
+            }
+
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.90f, 0.74f, 1f);
+            colors.pressedColor = new Color(0.75f, 0.65f, 0.55f, 1f);
+            button.colors = colors;
+
+            AddPressScaleFeedback(button.gameObject, 0.96f);
+            return (button, null);
+        }
+
+        void AddV3CornerButton(Transform parent, string label, string bgAsset, string iconAsset, bool isLeft,
+            UnityEngine.Events.UnityAction action)
+        {
+            var btnAnchor = isLeft ? new Vector2(0f, 0f) : new Vector2(1f, 0f);
+            float x = isLeft ? 96f : -96f;
+
+            var button = Ui.Button(parent, "", font, 1, action);
+            Ui.Rect(button.gameObject, btnAnchor, btnAnchor, new Vector2(215, 215));
+            button.GetComponent<RectTransform>().anchoredPosition = new Vector2(x, 72f);
+
+            var bg = button.GetComponent<Image>();
+            var bgSpr = RuntimeArt.LoadV3Sprite(bgAsset);
+            if (bgSpr != null) { bg.sprite = bgSpr; bg.type = Image.Type.Simple; bg.preserveAspect = false; bg.color = Color.white; }
+            else bg.color = new Color(0.55f, 0.32f, 0.08f);
+
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.92f, 0.80f, 1f);
+            colors.pressedColor = new Color(0.78f, 0.68f, 0.58f, 1f);
+            button.colors = colors;
+            AddPressScaleFeedback(button.gameObject, 0.90f);
+
+        }
+
+        // Nút vuông kiểu btn-bxh: nền bóng + icon (sprite hoặc chữ) phía trên + nhãn phía dưới.
+        // Dùng cho hàng 3 nút đều nhau ở menu (HƯỚNG DẪN · 1 VS 1 · BXH).
+        void AddV3SquareButton(Transform parent, string label, Sprite bgSprite, Sprite iconSprite,
+            string iconText, Vector2 anchor, Vector2 size, UnityEngine.Events.UnityAction action)
+        {
+            var button = Ui.Button(parent, "", font, 1, action);
+            Ui.Rect(button.gameObject, anchor, anchor, size);
+
+            var bg = button.GetComponent<Image>();
+            if (bgSprite != null) { bg.sprite = bgSprite; bg.type = Image.Type.Simple; bg.preserveAspect = true; bg.color = Color.white; }
+            else bg.color = new Color(0.55f, 0.32f, 0.08f);
+
+            bool hasLabel = !string.IsNullOrEmpty(label);
+            // Vị trí icon: có nhãn → dịch lên trên chừa chỗ chữ; không nhãn → giữa.
+            var iconAnchor = hasLabel ? new Vector2(0.5f, 0.60f) : new Vector2(0.5f, 0.5f);
+
+            if (iconSprite != null)
+            {
+                var icon = Ui.Panel(button.transform, "Icon", Color.white).GetComponent<Image>();
+                icon.sprite = iconSprite; icon.type = Image.Type.Simple; icon.preserveAspect = true;
+                icon.raycastTarget = false;
+                icon.color = new Color(1f, 0.98f, 0.92f);
+                Ui.Rect(icon, iconAnchor, iconAnchor, new Vector2(size.x * 0.46f, size.y * 0.46f));
+            }
+            else if (!string.IsNullOrEmpty(iconText))
+            {
+                var icoTxt = Ui.Text(button.transform, iconText, boldFont, 64, new Color(1f, 0.98f, 0.90f), TextAnchor.MiddleCenter);
+                icoTxt.fontStyle = FontStyle.Bold;
+                icoTxt.raycastTarget = false;
+                Ui.Rect(icoTxt, iconAnchor, iconAnchor, new Vector2(size.x * 0.9f, size.y * 0.55f));
+                AddDarkWoodTextEdge(icoTxt, 0.9f, 0.85f);
+            }
+
+            if (hasLabel)
+            {
+                var lbl = Ui.Text(button.transform, label, boldFont, 26, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+                lbl.fontStyle = FontStyle.Bold;
+                lbl.raycastTarget = false;
+                lbl.resizeTextForBestFit = true;
+                lbl.resizeTextMaxSize = 28;
+                lbl.resizeTextMinSize = 14;
+                lbl.horizontalOverflow = HorizontalWrapMode.Wrap;
+                Ui.Rect(lbl, new Vector2(0.5f, 0.19f), new Vector2(0.5f, 0.19f), new Vector2(size.x * 0.86f, size.y * 0.3f));
+                AddDarkWoodTextEdge(lbl, 0.9f, 0.9f);
+            }
+
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.94f, 0.82f, 1f);
+            colors.pressedColor = new Color(0.82f, 0.74f, 0.66f, 1f);
+            button.colors = colors;
+            AddPressScaleFeedback(button.gameObject, 0.90f);
+        }
+
+        void ShowSettingsOverlay(Transform parent)
+        {
+            if (mapOverlay != null) Destroy(mapOverlay);
+            mapOverlay = Ui.Panel(parent, "Settings Overlay", new Color(0, 0, 0, 0.72f));
+            Ui.Stretch(mapOverlay);
+
+            var box = Ui.Panel(mapOverlay.transform, "Settings Box", Color.white);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(600, 480));
+            StyleWoodPopupFrame(box);
+
+            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                Destroy(mapOverlay);
+            });
+            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.872f), new Vector2(0.118f, 0.872f), new Vector2(60, 60));
+            StyleMapBackButton(closeBtn);
+
+            var titleLabel = Ui.Text(box.transform, "CÀI ĐẶT", font, 52, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            titleLabel.fontStyle = FontStyle.Bold;
+            Ui.Rect(titleLabel, new Vector2(0.5f, 0.862f), new Vector2(0.5f, 0.862f), new Vector2(460, 96));
+            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
+            AddWarmTitleFinish(titleLabel, 0.48f);
+
+            var sep = Ui.Panel(box.transform, "Sep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
+            Ui.Rect(sep, new Vector2(0.5f, 0.788f), new Vector2(0.5f, 0.788f), new Vector2(540, 4));
+
+            // Nút bật/tắt âm thanh
+            bool soundOn = PlayerPrefs.GetInt("BLOCKFALL_SOUND", 1) == 1;
+            AudioListener.volume = soundOn ? 1f : 0f;
+
+            var soundLabel = Ui.Text(box.transform, "Âm thanh", font, 34, new Color(1f, 0.90f, 0.72f), TextAnchor.MiddleLeft);
+            Ui.Rect(soundLabel, new Vector2(0.12f, 0.62f), new Vector2(0.12f, 0.62f), new Vector2(280, 60));
+            AddDarkWoodTextEdge(soundLabel, 0.75f, 0.80f);
+
+            var (toggleBtn, _) = AddMenuButton(box.transform, soundOn ? "BẬT" : "TẮT",
+                new Vector2(0.82f, 0.62f), Vector2.zero, () => { }, new Vector2(130, 58), 28);
+            toggleBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                bool cur = PlayerPrefs.GetInt("BLOCKFALL_SOUND", 1) == 1;
+                bool next = !cur;
+                PlayerPrefs.SetInt("BLOCKFALL_SOUND", next ? 1 : 0);
+                PlayerPrefs.Save();
+                AudioListener.volume = next ? 1f : 0f;
+                var t = toggleBtn.GetComponentInChildren<Text>();
+                if (t != null) t.text = next ? "BẬT" : "TẮT";
+            });
+
+            var verLabel = Ui.Text(box.transform, "Blockfall v3.0", font, 22,
+                new Color(1f, 0.86f, 0.60f, 0.65f), TextAnchor.MiddleCenter);
+            Ui.Rect(verLabel, new Vector2(0.5f, 0.12f), new Vector2(0.5f, 0.12f), new Vector2(400, 36));
+            AddDarkWoodTextEdge(verLabel, 0.5f, 0.65f);
         }
 
         Font LoadFont()
@@ -4100,6 +4361,13 @@ namespace BrickStacker
 
         void ApplyTabletGameplayRegionLayout(float aspect)
         {
+            // Màn hình ngang thật (rộng hơn cao): bố cục 3 cột thay vì xếp chồng dọc.
+            if (aspect >= 1f)
+            {
+                ApplyLandscapeGameplayRegionLayout(aspect);
+                return;
+            }
+
             const float top = 0.982f;
             const float bottom = 0.018f;
             const float cx = 0.5f;
@@ -4198,6 +4466,104 @@ namespace BrickStacker
                 ApplySceneRect(statusText.rectTransform,
                     new Vector2(0.022f, tacticalTop - tacticalH - 0.002f),
                     new Vector2(cx - lowerTotalW * 0.5f - 0.010f, tacticalTop));
+        }
+
+        // Landscape: puzzle board trái (tỉ lệ 2:1 dọc), bàn chiến thuật vuông giữa-phải,
+        // cột phụ (TIẾP/Xoay hoặc bàn đối thủ 1v1) sát mép phải.
+        void ApplyLandscapeGameplayRegionLayout(float aspect)
+        {
+            const float top = 0.982f;
+            const float bottom = 0.018f;
+
+            // Header — dải trên cùng.
+            float headerH = 0.085f;
+            ApplySceneRect(sceneHeaderRect,
+                new Vector2(0.06f, top - headerH),
+                new Vector2(0.94f, top));
+            LayoutHeaderChildren();
+
+            float contentTop = top - headerH - 0.014f;
+            float contentH = contentTop - bottom;
+
+            // Puzzle board trái: khung trong cần tỉ lệ 2:1 (cao:rộng) cho lưới 10×20;
+            // 0.501 bù viền khung. Đổi sang bề ngang chuẩn hóa phải chia aspect.
+            float puzzleW = Mathf.Clamp(contentH * 0.501f / Mathf.Max(1f, aspect), 0.16f, 0.34f);
+            float puzzleLeft = 0.055f;
+            ApplySceneRect(scenePuzzleBoardAnchorRect,
+                new Vector2(puzzleLeft, bottom),
+                new Vector2(puzzleLeft + puzzleW, contentTop));
+
+            // Cột phụ phải.
+            float sideW = 0.135f;
+            float sideRight = 0.955f;
+            float sideLeft = sideRight - sideW;
+
+            // Bàn chiến thuật: vuông theo pixel (W_norm = H_norm / aspect), nằm giữa hai cột.
+            float gapL = 0.022f;
+            float gapR = 0.020f;
+            float tacticalLeft = puzzleLeft + puzzleW + gapL;
+            float tacticalRight = sideLeft - gapR;
+            float tacticalH = contentH;
+            float tacticalW = tacticalH / Mathf.Max(1f, aspect);
+            float tacticalMaxW = tacticalRight - tacticalLeft;
+            if (tacticalW > tacticalMaxW)
+            {
+                tacticalW = tacticalMaxW;
+                tacticalH = tacticalW * aspect;
+            }
+            float tacticalCx = (tacticalLeft + tacticalRight) * 0.5f;
+            float tacticalCy = (bottom + contentTop) * 0.5f;
+            ApplySceneRect(sceneTacticalBoardRect,
+                new Vector2(tacticalCx - tacticalW * 0.5f, tacticalCy - tacticalH * 0.5f),
+                new Vector2(tacticalCx + tacticalW * 0.5f, tacticalCy + tacticalH * 0.5f));
+
+            float rotW = Mathf.Clamp(sideW * 0.62f, 0.062f, 0.095f);
+            float rotH = rotW * aspect;
+            float rotCx = (sideLeft + sideRight) * 0.5f;
+
+            // Trận 1v1: ẩn ô TIẾP, cột phải dành cho bàn đối thủ + nút.
+            bool opponentColumn = MultiplayerMatch.Active && opponentMiniPanelRect != null;
+            if (sceneNextPanelRect != null)
+                sceneNextPanelRect.gameObject.SetActive(!opponentColumn);
+
+            if (opponentColumn)
+            {
+                float rotBottom = bottom + 0.008f;
+                if (rotateButtonRect != null)
+                    ApplySceneRect(rotateButtonRect,
+                        new Vector2(rotCx - rotW * 0.5f, rotBottom),
+                        new Vector2(rotCx + rotW * 0.5f, rotBottom + rotH));
+
+                float attackBottom = rotBottom + rotH + 0.012f;
+                const float attackH = 0.052f;
+                if (attackButtonRect != null)
+                    ApplySceneRect(attackButtonRect,
+                        new Vector2(sideLeft + 0.008f, attackBottom),
+                        new Vector2(sideRight - 0.008f, attackBottom + attackH));
+
+                LayoutOpponentMiniBoard(sideLeft, sideRight, contentTop, attackBottom + attackH + 0.016f, aspect);
+            }
+            else
+            {
+                float nextH = Mathf.Clamp(sideW * aspect * 0.92f, 0.150f, 0.240f);
+                ApplySceneRect(sceneNextPanelRect,
+                    new Vector2(sideLeft, contentTop - nextH),
+                    new Vector2(sideRight, contentTop));
+                LayoutNextPreviewInPanel();
+
+                if (rotateButtonRect != null)
+                {
+                    float rotTop = contentTop - nextH - 0.035f;
+                    ApplySceneRect(rotateButtonRect,
+                        new Vector2(rotCx - rotW * 0.5f, rotTop - rotH),
+                        new Vector2(rotCx + rotW * 0.5f, rotTop));
+                }
+            }
+
+            if (statusText != null)
+                ApplySceneRect(statusText.rectTransform,
+                    new Vector2(sideLeft, bottom),
+                    new Vector2(sideRight, bottom + 0.16f));
         }
 
         void LayoutHeaderChildren()
@@ -6658,6 +7024,7 @@ namespace BrickStacker
         static Sprite solidSprite;
         static Font displayFont;
         static Font uiFont;
+        static Font menuButtonFont;
         static AudioSource oneShotSource;
         static AudioClip uiSwitchClip;
         static AudioClip gameOverClip;
@@ -6729,6 +7096,19 @@ namespace BrickStacker
                 return displayFont;
 
             return displayFont;
+        }
+
+        // Font riêng cho 4 nút chính màn menu (Paytone One). Fallback về UI font nếu thiếu.
+        public static Font LoadMenuButtonFont()
+        {
+            if (menuButtonFont != null)
+                return menuButtonFont;
+
+            menuButtonFont = Resources.Load<Font>("BrickStacker/BTDanta-Bold");
+            if (menuButtonFont != null)
+                return menuButtonFont;
+
+            return LoadUiFont();
         }
 
         public static Font LoadUiFont()
@@ -6920,6 +7300,52 @@ namespace BrickStacker
             return Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
         }
 
+        // Load sprite từ thư mục Assets-v3.0.
+        // Editor: đọc trực tiếp từ đĩa qua Application.dataPath.
+        // Build runtime: cần copy file vào Assets/Resources/Assets-v3.0/ trước khi build.
+        public static Sprite LoadV3Sprite(string relativePath)
+        {
+            string resourceKey = "Assets-v3.0/" + relativePath.Replace(".png", "");
+            var tex = Resources.Load<Texture2D>(resourceKey);
+            if (tex != null)
+                return CreateFullRectSpriteSafe(tex);
+
+#if UNITY_EDITOR
+            string fullPath = Application.dataPath + "/Assets-v3.0/" + relativePath;
+            if (System.IO.File.Exists(fullPath))
+            {
+                var bytes = System.IO.File.ReadAllBytes(fullPath);
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (texture.LoadImage(bytes))
+                {
+                    texture.filterMode = FilterMode.Bilinear;
+                    texture.wrapMode = TextureWrapMode.Clamp;
+                    return CreateFullRectSpriteSafe(texture);
+                }
+            }
+#endif
+            return null;
+        }
+
+        // Cắt một vùng (theo tọa độ chuẩn hóa 0..1, gốc dưới-trái) từ ảnh v3.0 thành sprite riêng.
+        // Dùng cho landscape: tách logo từ bg-menu.png dọc thay vì cần ảnh ngang mới.
+        public static Sprite LoadV3SubSprite(string relativePath, Rect normalizedRect)
+        {
+            var full = LoadV3Sprite(relativePath);
+            if (full == null)
+                return null;
+
+            var tex = full.texture;
+            var pixelRect = new Rect(
+                Mathf.Clamp(normalizedRect.x * tex.width, 0, tex.width - 1),
+                Mathf.Clamp(normalizedRect.y * tex.height, 0, tex.height - 1),
+                Mathf.Clamp(normalizedRect.width * tex.width, 1, tex.width),
+                Mathf.Clamp(normalizedRect.height * tex.height, 1, tex.height));
+            if (pixelRect.xMax > tex.width) pixelRect.width = tex.width - pixelRect.x;
+            if (pixelRect.yMax > tex.height) pixelRect.height = tex.height - pixelRect.y;
+            return Sprite.Create(tex, pixelRect, new Vector2(0.5f, 0.5f), 100f);
+        }
+
         public static Sprite CreatePauseButtonSprite()
         {
             if (pauseButtonSprite != null)
@@ -7083,6 +7509,60 @@ namespace BrickStacker
 
             woodButtonSprite = CreateWoodUiSprite(192, 72, 12, 10, false);
             return woodButtonSprite;
+        }
+
+        // Nút vuông bóng (glossy) màu tùy chọn — dùng cho hàng nút menu để đồng bộ với btn-bxh.
+        public static Sprite CreateGlossySquareSprite(Color baseColor)
+        {
+            const int size = 220;
+            const int radius = 48;
+            const int border = 7;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+
+            Color topCol = Color.Lerp(baseColor, Color.white, 0.30f);
+            Color botCol = Color.Lerp(baseColor, Color.black, 0.34f);
+            Color glossCol = Color.Lerp(baseColor, Color.white, 0.60f);
+            Color borderLight = Color.Lerp(baseColor, Color.white, 0.80f);
+            Color borderDark = Color.Lerp(baseColor, Color.black, 0.58f);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    if (OutsideRoundedRect(x, y, size, size, radius))
+                    {
+                        texture.SetPixel(x, y, Color.clear);
+                        continue;
+                    }
+
+                    float t = y / (float)(size - 1); // 0 dưới → 1 trên
+                    Color color = Color.Lerp(botCol, topCol, t);
+
+                    // Dải sáng bóng ở nửa trên
+                    if (t > 0.60f)
+                    {
+                        float g = Mathf.InverseLerp(0.60f, 1f, t);
+                        color = Color.Lerp(color, glossCol, g * 0.35f);
+                    }
+
+                    int edge = Mathf.Min(Mathf.Min(x, size - 1 - x), Mathf.Min(y, size - 1 - y));
+                    if (edge < border)
+                    {
+                        float e = 1f - edge / (float)Mathf.Max(1, border);
+                        Color b = y > size / 2 ? borderLight : borderDark;
+                        color = Color.Lerp(color, b, e * 0.9f);
+                    }
+
+                    color.a = 1f;
+                    texture.SetPixel(x, y, color);
+                }
+            }
+
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f,
+                0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
         }
 
         static Sprite CreateWoodUiSprite(int width, int height, int radius, int border, bool deepPanel)
@@ -7472,7 +7952,7 @@ namespace BrickStacker
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvasObject.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             var scaler = canvasObject.GetComponent<CanvasScaler>();
-            scaler.referenceResolution = new Vector2(720, 1280);
+            scaler.referenceResolution = new Vector2(1280, 720);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             float screenAspect = Screen.height > 0 ? Screen.width / (float)Screen.height : scaler.referenceResolution.x / scaler.referenceResolution.y;
             float referenceAspect = scaler.referenceResolution.x / scaler.referenceResolution.y;
@@ -7620,7 +8100,7 @@ namespace BrickStacker
 
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             if (scaler.referenceResolution.x <= 0f || scaler.referenceResolution.y <= 0f)
-                scaler.referenceResolution = new Vector2(1080f, 1920f);
+                scaler.referenceResolution = new Vector2(1920f, 1080f);
 
             float screenAspect = Screen.height > 0 ? Screen.width / (float)Screen.height : scaler.referenceResolution.x / scaler.referenceResolution.y;
             float referenceAspect = scaler.referenceResolution.x / scaler.referenceResolution.y;

@@ -3,9 +3,9 @@ using UnityEngine.UI;
 
 namespace BrickStacker
 {
-    // PlayerSettings đã khóa Portrait cho build native, nhưng WebGL trên trình duyệt
-    // điện thoại vẫn xoay ngang được — chặn bằng overlay che toàn màn hình yêu cầu
-    // xoay dọc. Chỉ kích hoạt trên thiết bị mobile (desktop cửa sổ ngang vẫn chơi bình thường).
+    // PlayerSettings đã khóa Landscape cho build native, nhưng WebGL trên trình duyệt
+    // điện thoại vẫn xoay dọc được — chặn bằng overlay che toàn màn hình yêu cầu
+    // xoay ngang. Chỉ kích hoạt trên thiết bị mobile (desktop cửa sổ hẹp vẫn chơi bình thường).
     public class PortraitLockOverlay : MonoBehaviour
     {
         static PortraitLockOverlay instance;
@@ -19,23 +19,23 @@ namespace BrickStacker
             if (instance != null)
                 return;
 
-            var host = new GameObject("Portrait Lock Overlay");
+            var host = new GameObject("Landscape Lock Overlay");
             DontDestroyOnLoad(host);
             instance = host.AddComponent<PortraitLockOverlay>();
         }
 
         void Update()
         {
-            bool landscape = Application.isMobilePlatform && Screen.width > Screen.height;
-            if (landscape && overlay == null)
+            bool portrait = Application.isMobilePlatform && Screen.height > Screen.width;
+            if (portrait && overlay == null)
                 BuildOverlay();
-            if (overlay != null && overlay.activeSelf != landscape)
-                overlay.SetActive(landscape);
+            if (overlay != null && overlay.activeSelf != portrait)
+                overlay.SetActive(portrait);
         }
 
         void BuildOverlay()
         {
-            var canvasGo = new GameObject("Portrait Lock Canvas", typeof(RectTransform));
+            var canvasGo = new GameObject("Landscape Lock Canvas", typeof(RectTransform));
             canvasGo.transform.SetParent(transform, false);
 
             var canvas = canvasGo.AddComponent<Canvas>();
@@ -44,7 +44,7 @@ namespace BrickStacker
 
             var scaler = canvasGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.referenceResolution = new Vector2(1080f, 1920f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
 
@@ -56,11 +56,11 @@ namespace BrickStacker
 
             // Không dùng icon ⟳ — font VietnameseArial thiếu glyph này (vẽ ra ô trống).
             var font = RuntimeArt.LoadUiFont();
-            messageText = Ui.Text(overlay.transform, "Vui lòng xoay dọc màn hình\nđể tiếp tục chơi", font, 44, new Color(1f, 0.86f, 0.60f), TextAnchor.MiddleCenter);
+            messageText = Ui.Text(overlay.transform, "Vui lòng xoay ngang màn hình\nđể tiếp tục chơi", font, 44, new Color(1f, 0.86f, 0.60f), TextAnchor.MiddleCenter);
             var textRect = messageText.rectTransform;
             textRect.anchorMin = new Vector2(0.5f, 0.5f);
             textRect.anchorMax = new Vector2(0.5f, 0.5f);
-            textRect.sizeDelta = new Vector2(1200f, 160f);
+            textRect.sizeDelta = new Vector2(900f, 200f);
         }
     }
 }

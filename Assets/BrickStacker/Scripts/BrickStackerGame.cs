@@ -305,19 +305,14 @@ namespace BrickStacker
         {
             var canvas = Ui.CreateCanvas("Menu Canvas");
 
-            // Lấp màu trời khớp mép ảnh nền để viền hai bên (màn rộng hơn 16:9) không bị đen.
-            var fill = Ui.Panel(canvas.transform, "Sky Fill", new Color(0.11f, 0.41f, 0.96f, 1f));
-            Ui.Stretch(fill);
-            fill.transform.SetAsFirstSibling();
-
-            // Nền landscape 16:9 (logo + phụ đề + 2 nhân vật + sân đấu đã vẽ sẵn).
-            // FitInParent: hiện TRỌN ảnh (không cắt logo), để lộ viền thì đã có Sky Fill phía sau.
+            // Nền menu phủ KÍN màn hình (cover) — ảnh mới có nhiều khoảng trời quanh logo
+            // nên phần bị cắt hai đầu trên màn rộng/hẹp không đụng tới logo/nhân vật.
             var bgSpr = RuntimeArt.LoadV3Sprite("screen-menu/bg-menu.png");
             if (bgSpr != null)
             {
                 var bg = Ui.Panel(canvas.transform, "BG", Color.white);
                 Ui.Stretch(bg);
-                bg.transform.SetSiblingIndex(1); // ngay trên Sky Fill
+                bg.transform.SetAsFirstSibling();
                 var bgImg = bg.GetComponent<Image>();
                 bgImg.sprite = bgSpr; bgImg.type = Image.Type.Simple; bgImg.preserveAspect = false;
                 var bgRt = bg.GetComponent<RectTransform>();
@@ -325,7 +320,7 @@ namespace BrickStacker
                 bgRt.pivot = new Vector2(0.5f, 0.5f);
                 bgRt.anchoredPosition = Vector2.zero;
                 var arf = bg.AddComponent<AspectRatioFitter>();
-                arf.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+                arf.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
                 arf.aspectRatio = (float)bgSpr.texture.width / bgSpr.texture.height;
             }
 

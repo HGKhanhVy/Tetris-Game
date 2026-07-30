@@ -10,24 +10,56 @@ namespace BrickStacker
         Garbage = 3  // §7.3 cost 5, +1 hàng rác
     }
 
-    // Thông số cân bằng Online (design §11). Sau này chuyển sang config JSON §13.
+    // DTO nạp thông số Online từ JSON (design §13). Field nào có trong file sẽ ghi đè mặc định.
+    [System.Serializable]
+    public class OnlineConfigData
+    {
+        public int maxHealth = 10;
+        public int maxEnergy = 10;
+        public int attackCost = 3;
+        public int attackDamage = 2;
+        public float attackWarning = 0.75f;
+        public int shieldCost = 2;
+        public int shieldBlocks = 1;
+        public int garbageCost = 5;
+        public int garbageLines = 1;
+        public float garbageWarning = 2.0f;
+        public int maxComboBonusEnergy = 3;
+        public float maxMatchSeconds = 180f;
+    }
+
+    // Thông số cân bằng Online (design §11). Không ghi cứng — nạp override từ
+    // Resources/BrickStacker/online_config.json nếu có (design §13), else dùng mặc định.
     public static class OnlineConfig
     {
-        public const int MaxHealth = 10;
-        public const int MaxEnergy = 10;
+        static OnlineConfigData data = new OnlineConfigData();
+        static bool loaded;
 
-        public const int AttackCost = 3;
-        public const int AttackDamage = 2;
-        public const float AttackWarning = 0.75f;
+        public static void EnsureLoaded()
+        {
+            if (loaded)
+                return;
+            loaded = true;
+            var asset = Resources.Load<TextAsset>("BrickStacker/online_config");
+            if (asset != null)
+            {
+                try { data = JsonUtility.FromJson<OnlineConfigData>(asset.text) ?? new OnlineConfigData(); }
+                catch { data = new OnlineConfigData(); }
+            }
+        }
 
-        public const int ShieldCost = 2;
-        public const int ShieldBlocks = 1;
-
-        public const int GarbageCost = 5;
-        public const int GarbageLines = 1;
-        public const float GarbageWarning = 2.0f;
-
-        public const int MaxComboBonusEnergy = 3; // §6.4
+        public static int MaxHealth { get { EnsureLoaded(); return data.maxHealth; } }
+        public static int MaxEnergy { get { EnsureLoaded(); return data.maxEnergy; } }
+        public static int AttackCost { get { EnsureLoaded(); return data.attackCost; } }
+        public static int AttackDamage { get { EnsureLoaded(); return data.attackDamage; } }
+        public static float AttackWarning { get { EnsureLoaded(); return data.attackWarning; } }
+        public static int ShieldCost { get { EnsureLoaded(); return data.shieldCost; } }
+        public static int ShieldBlocks { get { EnsureLoaded(); return data.shieldBlocks; } }
+        public static int GarbageCost { get { EnsureLoaded(); return data.garbageCost; } }
+        public static int GarbageLines { get { EnsureLoaded(); return data.garbageLines; } }
+        public static float GarbageWarning { get { EnsureLoaded(); return data.garbageWarning; } }
+        public static int MaxComboBonusEnergy { get { EnsureLoaded(); return data.maxComboBonusEnergy; } }
+        public static float MaxMatchSeconds { get { EnsureLoaded(); return data.maxMatchSeconds; } }
 
         // §6.4: xóa 1/2/3/4 hàng → 1/3/5/8 năng lượng.
         public static int EnergyForLines(int lines)

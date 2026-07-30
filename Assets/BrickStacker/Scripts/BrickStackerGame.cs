@@ -1608,6 +1608,7 @@ namespace BrickStacker
                 {
                     CheckOpponentMatchEvents();
                     ProcessIncomingAttacks();
+                    CheckMatchTimeLimit();
                 }
                 ApplyPendingGarbage();
                 SendBoardSnapshotIfNeeded();
@@ -6542,23 +6543,61 @@ namespace BrickStacker
             }
             shake = 0.2f;
 
-            // Design §9: máu về 0 → thua trận.
+            // Design §9: máu về 0 → thua. Nếu đối thủ cũng vừa hết máu → luật hòa §15.
             if (healthSystem.IsDead)
-                MultiplayerEndMatch(false, "Bạn đã hết máu!");
+            {
+                if (MultiplayerMatch.OpponentHealth <= 0)
+                    MultiplayerEndMatch(ResolveByLines(), "Cả hai cùng hết máu!");
+                else
+                    MultiplayerEndMatch(-1, "Bạn đã hết máu!");
+            }
+        }
+
+        // Design §15: trận vượt quá thời gian tối đa → phân định theo máu rồi số hàng.
+        void CheckMatchTimeLimit()
+        {
+            if (gameOver || gameplayTime < OnlineConfig.MaxMatchSeconds)
+                return;
+            int outcome;
+            if (healthSystem.Health != MultiplayerMatch.OpponentHealth)
+                outcome = healthSystem.Health > MultiplayerMatch.OpponentHealth ? 1 : -1;
+            else
+                outcome = ResolveByLines();
+            MultiplayerEndMatch(outcome, "Hết giờ trận đấu!");
         }
 
         // Đối thủ báo kết thúc hoặc rời trận — xử ở đầu Update mỗi frame.
         void CheckOpponentMatchEvents()
         {
             if (MultiplayerMatch.OpponentLost)
-                MultiplayerEndMatch(true, "Đối thủ đã hết máu!");
+            {
+                // Đối thủ hết máu — nếu mình cũng vừa chết thì phân định bằng số hàng (§15).
+                if (healthSystem.IsDead)
+                    MultiplayerEndMatch(ResolveByLines(), "Cả hai cùng hết máu!");
+                else
+                    MultiplayerEndMatch(1, "Đối thủ đã hết máu!");
+            }
             else if (MultiplayerMatch.OpponentFinished)
-                MultiplayerEndMatch(false, "Đối thủ đã hoàn thành bàn cờ trước!");
+                MultiplayerEndMatch(-1, "Đối thủ đã hoàn thành bàn cờ trước!");
             else if (MultiplayerMatch.OpponentLeft)
-                MultiplayerEndMatch(true, "Đối thủ đã rời trận.");
+                MultiplayerEndMatch(1, "Đối thủ đã rời trận.");
+        }
+
+        // Design §15: khi hai bên cùng thua (máu 0 / bảng đầy) trong cùng nhịp,
+        // người xóa nhiều hàng hơn thắng; bằng nhau → hòa. outcome: 1 thắng, 0 hòa, -1 thua.
+        int ResolveByLines()
+        {
+            if (lines > MultiplayerMatch.OpponentLines) return 1;
+            if (lines < MultiplayerMatch.OpponentLines) return -1;
+            return 0;
         }
 
         void MultiplayerEndMatch(bool won, string reason)
+        {
+            MultiplayerEndMatch(won ? 1 : -1, reason);
+        }
+
+        void MultiplayerEndMatch(int outcome, string reason)
         {
             if (gameOver)
                 return;
@@ -6571,16 +6610,19 @@ namespace BrickStacker
 
             var manager = MultiplayerManager.Instance;
             if (manager != null)
-                manager.SendState(score, lines, won ? MultiplayerManager.FlagFinished : MultiplayerManager.FlagLost);
+                manager.SendState(score, lines, outcome > 0 ? MultiplayerManager.FlagFinished : MultiplayerManager.FlagLost,
+                    healthSystem.Health, energySystem.Energy);
 
-            gameOverTitleText.text = won ? "THẮNG TRẬN!" : "THUA TRẬN";
-            gameOverTitleText.color = won ? new Color(1f, 0.86f, 0.56f) : new Color(1f, 0.62f, 0.36f);
+            if (outcome > 0) { gameOverTitleText.text = "THẮNG TRẬN!"; gameOverTitleText.color = new Color(1f, 0.86f, 0.56f); }
+            else if (outcome < 0) { gameOverTitleText.text = "THUA TRẬN"; gameOverTitleText.color = new Color(1f, 0.62f, 0.36f); }
+            else { gameOverTitleText.text = "HÒA"; gameOverTitleText.color = new Color(0.92f, 0.88f, 0.66f); }
+
             string opponentLabel = string.IsNullOrEmpty(MultiplayerMatch.OpponentName) ? "Đối thủ" : MultiplayerMatch.OpponentName;
             gameOverScoreText.text = reason + "\nBạn  " + score + " điểm · " + lines + " hàng"
                 + "\n" + opponentLabel + "  " + MultiplayerMatch.OpponentScore + " điểm · " + MultiplayerMatch.OpponentLines + " hàng";
             gameOverOverlay.SetActive(true);
-            shake = won ? 0.35f : 0.2f;
-            if (won)
+            shake = outcome > 0 ? 0.35f : 0.2f;
+            if (outcome > 0)
                 Beep(1180f, 0.22f, 0.35f);
             else
                 RuntimeArt.PlayGameOverSound();

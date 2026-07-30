@@ -1,0 +1,14 @@
+{
+  "maxHealth": 10,
+  "maxEnergy": 10,
+  "attackCost": 3,
+  "attackDamage": 2,
+  "attackWarning": 0.75,
+  "shieldCost": 2,
+  "shieldBlocks": 1,
+  "garbageCost": 5,
+  "garbageLines": 1,
+  "garbageWarning": 2.0,
+  "maxComboBonusEnergy": 3,
+  "maxMatchSeconds": 180
+}

@@ -25,6 +25,12 @@ namespace BrickStacker
         public static string OpponentName;   // tên đối thủ (rỗng = chưa biết)
         public static int PendingGarbage;    // số hàng rác đối thủ gửi, chờ game áp vào bàn
 
+        // === Chế độ năng lượng/kỹ năng (design §6-11) ===
+        public static int OpponentHealth = OnlineConfig.MaxHealth; // máu đối thủ (HUD)
+        public static int OpponentEnergy;                          // năng lượng đối thủ (HUD)
+        public static int PendingIncomingAttacks;                  // đòn tấn công chờ áp vào máu mình
+        public static bool AttackWarningActive;                    // đang cảnh báo đòn tới (§7.1)
+
         // Ảnh chụp bàn xếp gạch của đối thủ (0 = trống, 1..N = loại khối + 1),
         // index = x + y * cols, y = 0 là đáy. Dirty = có bản mới chưa vẽ.
         public static byte[] OpponentBoard;
@@ -56,6 +62,10 @@ namespace BrickStacker
             OpponentTacticalEnemy = new Vector2Int(-1, -1);
             OpponentTacticalMonster = new Vector2Int(-1, -1);
             PendingGarbage = 0;
+            OpponentHealth = OnlineConfig.MaxHealth;
+            OpponentEnergy = 0;
+            PendingIncomingAttacks = 0;
+            AttackWarningActive = false;
             // OpponentName giữ nguyên — có thể đã nhận từ bắt tay trước khi Begin chạy.
         }
 
@@ -80,6 +90,7 @@ namespace BrickStacker
         const string StateMsg = "BLOCKFALL_MP_STATE";
         const string BoardMsg = "BLOCKFALL_MP_BOARD";
         const string GarbageMsg = "BLOCKFALL_MP_GARBAGE";
+        const string SkillMsg = "BLOCKFALL_MP_SKILL";
 
         // Người chơi chủ yếu ở Việt Nam — ghim Relay về Singapore thay vì để QoS
         // tự chọn (QoS hay fail trên WebGL → rơi về region mặc định xa lắc, lag nặng).
@@ -457,6 +468,7 @@ namespace BrickStacker
             messaging.RegisterNamedMessageHandler(StateMsg, OnStateMessage);
             messaging.RegisterNamedMessageHandler(BoardMsg, OnBoardMessage);
             messaging.RegisterNamedMessageHandler(GarbageMsg, OnGarbageMessage);
+            messaging.RegisterNamedMessageHandler(SkillMsg, OnSkillMessage);
         }
 
         // READY có 2 nghĩa theo byte đầu: 1 = client sẵn sàng nhận START,
@@ -585,14 +597,17 @@ namespace BrickStacker
         }
 
         // Gameplay gọi mỗi khi điểm/hàng/cờ thay đổi; chỉ gửi khi khác lần trước.
-        public void SendState(int score, int lines, byte flags)
+        // Kèm máu + năng lượng để HUD đối thủ hiển thị (design §6.1).
+        int lastSentHealth = -1, lastSentEnergy = -1;
+        public void SendState(int score, int lines, byte flags, int health = -1, int energy = -1)
         {
             if (!matchStarted)
                 return;
             // Đã gửi cờ kết thúc thì trận coi như xong — không gửi thêm gì nữa.
             if ((lastSentFlags & (FlagFinished | FlagLost)) != 0)
                 return;
-            if (score == lastSentScore && lines == lastSentLines && flags == lastSentFlags)
+            if (score == lastSentScore && lines == lastSentLines && flags == lastSentFlags
+                && health == lastSentHealth && energy == lastSentEnergy)
                 return;
 
             var networkManager = NetworkManager.Singleton;
@@ -606,11 +621,15 @@ namespace BrickStacker
             lastSentScore = score;
             lastSentLines = lines;
             lastSentFlags = flags;
+            lastSentHealth = health;
+            lastSentEnergy = energy;
 
-            using var writer = new FastBufferWriter(sizeof(int) * 2 + 1, Allocator.Temp);
+            using var writer = new FastBufferWriter(sizeof(int) * 4 + 1, Allocator.Temp);
             writer.WriteValueSafe(score);
             writer.WriteValueSafe(lines);
             writer.WriteValueSafe(flags);
+            writer.WriteValueSafe(health);
+            writer.WriteValueSafe(energy);
             networkManager.CustomMessagingManager.SendNamedMessage(
                 StateMsg, target, writer, NetworkDelivery.ReliableSequenced);
         }
@@ -702,15 +721,74 @@ namespace BrickStacker
             MultiplayerMatch.PendingGarbage += Mathf.Clamp(rows, 1, 4);
         }
 
+        // Gửi 1 sự kiện dùng kỹ năng lên đối thủ (design §6.3). Attack/Garbage tác động
+        // sang bàn đối thủ; Shield là cục bộ nên KHÔNG gửi. seq để chống double-apply (§15).
+        int skillSendSeq;
+        public void SendSkill(OnlineSkill skill, byte amount)
+        {
+            if (!matchStarted)
+                return;
+            if ((lastSentFlags & (FlagFinished | FlagLost)) != 0)
+                return;
+
+            var networkManager = NetworkManager.Singleton;
+            if (networkManager == null || !networkManager.IsListening)
+                return;
+
+            ulong target = networkManager.IsHost ? opponentClientId : NetworkManager.ServerClientId;
+            if (networkManager.IsHost && opponentClientId == ulong.MaxValue)
+                return;
+
+            skillSendSeq++;
+            using var writer = new FastBufferWriter(sizeof(int) + 2, Allocator.Temp);
+            writer.WriteValueSafe(skillSendSeq);
+            writer.WriteValueSafe((byte)skill);
+            writer.WriteValueSafe(amount);
+            networkManager.CustomMessagingManager.SendNamedMessage(
+                SkillMsg, target, writer, NetworkDelivery.ReliableSequenced);
+        }
+
+        int lastSkillSeqApplied = -1;
+        void OnSkillMessage(ulong senderId, FastBufferReader reader)
+        {
+            reader.ReadValueSafe(out int seq);
+            reader.ReadValueSafe(out byte skillId);
+            reader.ReadValueSafe(out byte amount);
+
+            // Chống áp trùng khi mạng retry gửi lại (design §15).
+            if (seq <= lastSkillSeqApplied)
+                return;
+            lastSkillSeqApplied = seq;
+
+            switch ((OnlineSkill)skillId)
+            {
+                case OnlineSkill.Attack:
+                    MultiplayerMatch.PendingIncomingAttacks += Mathf.Max(1, amount);
+                    MultiplayerMatch.AttackWarningActive = true;
+                    break;
+                case OnlineSkill.Garbage:
+                    MultiplayerMatch.PendingGarbage += Mathf.Clamp(amount, 1, 4);
+                    break;
+            }
+        }
+
         void OnStateMessage(ulong senderId, FastBufferReader reader)
         {
             startAcked = true; // STATE tới nghĩa là đối thủ chắc chắn đã vào trận
             reader.ReadValueSafe(out int score);
             reader.ReadValueSafe(out int lines);
             reader.ReadValueSafe(out byte flags);
+            int health = -1, energy = -1;
+            if (reader.Length - reader.Position >= sizeof(int) * 2)
+            {
+                reader.ReadValueSafe(out health);
+                reader.ReadValueSafe(out energy);
+            }
 
             MultiplayerMatch.OpponentScore = score;
             MultiplayerMatch.OpponentLines = lines;
+            if (health >= 0) MultiplayerMatch.OpponentHealth = health;
+            if (energy >= 0) MultiplayerMatch.OpponentEnergy = energy;
             if ((flags & FlagFinished) != 0) MultiplayerMatch.OpponentFinished = true;
             if ((flags & FlagLost) != 0) MultiplayerMatch.OpponentLost = true;
         }

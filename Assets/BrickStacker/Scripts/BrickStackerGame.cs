@@ -1428,13 +1428,13 @@ namespace BrickStacker
         int lastBoardHash;
         float garbageWarnUntil;     // > 0 = đang nhấp nháy cảnh báo rác sắp vào
         Text garbageWarningText;
-        int attackCharges;          // đạn rác đã nạp (clear 3+ hàng), tối đa 3
-        float nextAttackTime;       // chống spam: giãn cách giữa hai phát
-        Button attackButton;
+        float nextAttackTime;       // chống spam: giãn cách giữa hai lần dùng kỹ năng
+        Button attackButton;        // = skillGarbageButton (giữ tên cũ cho layout/legacy)
         RectTransform attackButtonRect;
-        Image attackButtonImage;
-        Text attackLabel;
-        Image[] attackPips;
+
+        // Hệ năng lượng/máu 1v1 (design §6-11).
+        readonly EnergySystem energySystem = new EnergySystem();
+        readonly HealthSystem healthSystem = new HealthSystem();
         Text statusText;
         Text nextText;
         Text tacticalMovesText;
@@ -1605,7 +1605,10 @@ namespace BrickStacker
             if (MultiplayerMatch.Active)
             {
                 if (!gameOver)
+                {
                     CheckOpponentMatchEvents();
+                    ProcessIncomingAttacks();
+                }
                 ApplyPendingGarbage();
                 SendBoardSnapshotIfNeeded();
                 if (MultiplayerMatch.OpponentBoardDirty)
@@ -5264,16 +5267,15 @@ namespace BrickStacker
             shake = 0.1f + clearCount * 0.05f;
             Beep(880f + clearCount * 120f, 0.12f, 0.24f);
 
-            // Trận 1v1: clear 3 hàng nạp 1 đạn rác, 4+ hàng nạp 2 (kho tối đa 3).
-            // Không gửi tự động — người chơi CHỦ ĐỘNG bấm nút RÁC để tấn công đúng lúc.
-            if (MultiplayerMatch.Active && clearCount >= 3)
+            // Trận 1v1 (design §6.4): xóa hàng nạp NĂNG LƯỢNG (1/3/5/8 + combo).
+            // Người chơi chủ động tiêu năng lượng cho Đánh / Khiên / Rác.
+            if (MultiplayerMatch.Active)
             {
-                int gained = clearCount >= 4 ? 2 : 1;
-                attackCharges = Mathf.Min(3, attackCharges + gained);
-                RefreshAttackButton();
-                if (tacticalBoard != null)
+                int gained = energySystem.GainFromLines(clearCount, combo);
+                RefreshSkillBar();
+                if (gained > 0 && tacticalBoard != null)
                 {
-                    tacticalBoard.LastMessage = "+" + gained + " đạn rác! Bấm nút RÁC để tấn công.";
+                    tacticalBoard.LastMessage = "+" + gained + " năng lượng (" + energySystem.Energy + "/" + energySystem.Max + ")";
                     RefreshTacticalBoardUi();
                 }
             }
@@ -5765,10 +5767,11 @@ namespace BrickStacker
                 if (opponentText != null)
                 {
                     string oppName = string.IsNullOrEmpty(MultiplayerMatch.OpponentName) ? "Đối thủ" : MultiplayerMatch.OpponentName;
-                    opponentText.text = oppName + " · " + MultiplayerMatch.OpponentScore + "đ";
+                    opponentText.text = oppName + " · Máu " + MultiplayerMatch.OpponentHealth + "/" + OnlineConfig.MaxHealth
+                        + " · NL " + MultiplayerMatch.OpponentEnergy;
                 }
                 if (MultiplayerManager.Instance != null)
-                    MultiplayerManager.Instance.SendState(score, lines, 0);
+                    MultiplayerManager.Instance.SendState(score, lines, 0, healthSystem.Health, energySystem.Energy);
             }
             RefreshTacticalBoardUi();
             RefreshSceneHud();
@@ -5865,6 +5868,15 @@ namespace BrickStacker
             fallTimer = 0f;
             piecesLocked = 0;
             RefreshTacticalBoardUi();
+
+            // 1v1: khởi tạo máu + năng lượng cho trận mới (design §6-8).
+            if (MultiplayerMatch.Active)
+            {
+                energySystem.Reset();
+                healthSystem.Reset();
+                nextAttackTime = 0f;
+                RefreshSkillBar();
+            }
 
             ApplyLevelStartEffects();
             UpdateUi();
@@ -6167,36 +6179,39 @@ namespace BrickStacker
                 }
             }
 
-            // Nút tấn công — bấm để thả đạn rác đã nạp (clear 3+ hàng để nạp).
-            // Chữ "RÁC" + 3 chấm đạn bên dưới; nút ánh cam khi có đạn, xám khi rỗng.
-            attackButton = Ui.Button(parent, "", font, 26, () =>
-            {
-                TryLaunchGarbageAttack();
-            });
-            attackButton.gameObject.name = "Runtime Attack Button";
-            StyleWoodRectButton(attackButton, 28);
-            attackButtonRect = attackButton.GetComponent<RectTransform>();
-            Ui.Rect(attackButton.gameObject, new Vector2(0.815f, 0.47f), new Vector2(0.960f, 0.51f), Vector2.zero);
-            attackButton.interactable = false;
-            attackButtonImage = attackButton.GetComponent<Image>();
+            // Thanh 3 kỹ năng 1v1 (design §7): Đánh / Khiên / Rác. Container giữ tên
+            // cũ (attackButtonRect) để code layout đặt vị trí không phải đổi.
+            var skillBar = Ui.Panel(parent, "Runtime Skill Bar", new Color(0, 0, 0, 0));
+            attackButtonRect = skillBar.GetComponent<RectTransform>();
+            Ui.Rect(skillBar, new Vector2(0.805f, 0.44f), new Vector2(0.965f, 0.54f), Vector2.zero);
 
-            attackLabel = Ui.Text(attackButton.transform, "RÁC", font, 26, new Color(1f, 0.88f, 0.62f), TextAnchor.MiddleCenter);
-            attackLabel.fontStyle = FontStyle.Bold;
-            attackLabel.raycastTarget = false;
-            Ui.Rect(attackLabel, new Vector2(0.06f, 0.34f), new Vector2(0.94f, 0.96f), Vector2.zero);
-            AddDarkWoodTextEdge(attackLabel, 0.8f, 0.82f);
+            // Chữ năng lượng/máu gọn phía trên thanh kỹ năng.
+            skillInfoText = Ui.Text(skillBar.transform, "", font, 18, new Color(1f, 0.9f, 0.66f), TextAnchor.LowerCenter);
+            skillInfoText.raycastTarget = false;
+            Ui.Rect(skillInfoText, new Vector2(0f, 1.02f), new Vector2(1f, 1.42f), Vector2.zero);
+            AddDarkWoodTextEdge(skillInfoText, 0.5f, 0.7f);
 
-            attackPips = new Image[3];
-            for (int p = 0; p < 3; p++)
-            {
-                float cx = 0.5f + (p - 1) * 0.20f;
-                var pip = Ui.Panel(attackButton.transform, "Pip" + p, Color.white).GetComponent<Image>();
-                pip.sprite = RuntimeArt.CreateWoodPanelSprite();
-                pip.type = Image.Type.Sliced;
-                pip.raycastTarget = false;
-                Ui.Rect(pip, new Vector2(cx, 0.17f), new Vector2(cx, 0.17f), new Vector2(20, 20));
-                attackPips[p] = pip;
-            }
+            skillAttackButton = BuildSkillButton(skillBar.transform, "ĐÁNH", 0f, 0.32f, OnlineSkill.Attack);
+            skillShieldButton = BuildSkillButton(skillBar.transform, "KHIÊN", 0.34f, 0.66f, OnlineSkill.Shield);
+            skillGarbageButton = BuildSkillButton(skillBar.transform, "RÁC", 0.68f, 1f, OnlineSkill.Garbage);
+            attackButton = skillGarbageButton; // giữ tham chiếu cũ cho code layout legacy
+        }
+
+        Button skillAttackButton, skillShieldButton, skillGarbageButton;
+        Text skillInfoText;
+
+        Button BuildSkillButton(Transform parent, string label, float xMin, float xMax, OnlineSkill skill)
+        {
+            var btn = Ui.Button(parent, "", font, 20, () => TryUseSkill(skill));
+            btn.gameObject.name = "Skill " + skill;
+            StyleWoodRectButton(btn, 20);
+            Ui.Rect(btn.gameObject, new Vector2(xMin + 0.01f, 0f), new Vector2(xMax - 0.01f, 1f), Vector2.zero);
+            var txt = Ui.Text(btn.transform, label, font, 20, new Color(1f, 0.92f, 0.72f), TextAnchor.MiddleCenter);
+            txt.fontStyle = FontStyle.Bold;
+            txt.raycastTarget = false;
+            Ui.Rect(txt, new Vector2(0.02f, 0.02f), new Vector2(0.98f, 0.98f), Vector2.zero);
+            AddDarkWoodTextEdge(txt, 0.6f, 0.8f);
+            return btn;
         }
 
         // Cột phải: bàn cờ mini (vuông) chồng trên bàn gạch mini (1:2), cell giữ tỉ lệ vuông.
@@ -6398,50 +6413,77 @@ namespace BrickStacker
             }
         }
 
-        // Người chơi bấm nút RÁC — tiêu 1 đạn, gửi 1 hàng rác. Giãn 1,5s giữa hai phát.
-        void TryLaunchGarbageAttack()
+        // Người chơi bấm 1 kỹ năng (design §7). Tiêu năng lượng, gửi hiệu ứng sang đối thủ.
+        // Giãn 0,4s chống bấm dồn.
+        void TryUseSkill(OnlineSkill skill)
         {
-            if (!MultiplayerMatch.Active || gameOver || attackCharges <= 0)
+            if (!MultiplayerMatch.Active || gameOver)
                 return;
             if (Time.unscaledTime < nextAttackTime)
                 return;
+            if (!energySystem.CanAfford(skill))
+            {
+                if (tacticalBoard != null)
+                {
+                    tacticalBoard.LastMessage = "Chưa đủ năng lượng cho " + SkillName(skill) + ".";
+                    RefreshTacticalBoardUi();
+                }
+                return;
+            }
 
-            attackCharges--;
-            nextAttackTime = Time.unscaledTime + 1.5f;
-            if (MultiplayerManager.Instance != null)
-                MultiplayerManager.Instance.SendGarbage(1);
-
+            energySystem.TrySpend(skill);
+            nextAttackTime = Time.unscaledTime + 0.4f;
             RuntimeArt.PlayUiSwitchSound();
-            shake = 0.15f;
-            RefreshAttackButton();
+            string msg;
+            switch (skill)
+            {
+                case OnlineSkill.Attack:
+                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.Attack, (byte)OnlineConfig.AttackDamage);
+                    shake = 0.18f;
+                    msg = "Tung đòn tấn công!";
+                    break;
+                case OnlineSkill.Shield:
+                    healthSystem.AddShield();
+                    msg = "Dựng khiên (chặn 1 đòn).";
+                    break;
+                case OnlineSkill.Garbage:
+                default:
+                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.Garbage, (byte)OnlineConfig.GarbageLines);
+                    shake = 0.15f;
+                    msg = "Thả " + OnlineConfig.GarbageLines + " hàng rác sang đối thủ!";
+                    break;
+            }
+            RefreshSkillBar();
+            SendMultiplayerState();
             if (tacticalBoard != null)
             {
-                tacticalBoard.LastMessage = "Đã thả 1 hàng rác sang đối thủ!";
+                tacticalBoard.LastMessage = msg;
                 RefreshTacticalBoardUi();
             }
         }
 
-        void RefreshAttackButton()
+        static string SkillName(OnlineSkill s) => s == OnlineSkill.Attack ? "Đánh" : s == OnlineSkill.Shield ? "Khiên" : "Rác";
+
+        void RefreshSkillBar()
         {
-            if (attackButton == null)
+            if (skillAttackButton != null)
+                skillAttackButton.interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Attack);
+            if (skillShieldButton != null)
+                skillShieldButton.interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Shield);
+            if (skillGarbageButton != null)
+                skillGarbageButton.interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Garbage);
+            if (skillInfoText != null)
+                skillInfoText.text = "NL " + energySystem.Energy + "/" + energySystem.Max
+                    + "   Máu " + healthSystem.Health + "/" + healthSystem.Max
+                    + (healthSystem.ShieldCharges > 0 ? " [Khiên]" : "");
+        }
+
+        // Gửi trạng thái điểm/hàng kèm máu+năng lượng cho đối thủ (HUD).
+        void SendMultiplayerState()
+        {
+            if (!MultiplayerMatch.Active || MultiplayerManager.Instance == null)
                 return;
-
-            bool armed = attackCharges > 0;
-            attackButton.interactable = armed;
-
-            if (attackButtonImage != null)
-                attackButtonImage.color = armed
-                    ? new Color(0.94f, 0.46f, 0.16f, 1f)   // cam nóng — sẵn sàng bắn
-                    : new Color(0.42f, 0.26f, 0.13f, 0.92f); // gỗ tối — chưa có đạn
-            if (attackLabel != null)
-                attackLabel.color = armed ? new Color(1f, 0.95f, 0.80f) : new Color(1f, 0.88f, 0.62f, 0.55f);
-
-            if (attackPips != null)
-                for (int p = 0; p < attackPips.Length; p++)
-                    if (attackPips[p] != null)
-                        attackPips[p].color = p < attackCharges
-                            ? new Color(1f, 0.84f, 0.25f, 1f)
-                            : new Color(0f, 0f, 0f, 0.35f);
+            MultiplayerManager.Instance.SendState(score, lines, 0, healthSystem.Health, energySystem.Energy);
         }
 
         void ShowGarbageWarning()
@@ -6473,13 +6515,45 @@ namespace BrickStacker
                 garbageWarningText.gameObject.SetActive(false);
         }
 
+        // Áp các đòn tấn công đối thủ gửi tới vào máu mình (design §7.1). Khiên chặn 1 đòn.
+        // Peer tự quản máu của chính mình (thay server authority §14 vì kiến trúc P2P).
+        void ProcessIncomingAttacks()
+        {
+            int pending = MultiplayerMatch.PendingIncomingAttacks;
+            if (pending <= 0)
+                return;
+            MultiplayerMatch.PendingIncomingAttacks = 0;
+            MultiplayerMatch.AttackWarningActive = false;
+
+            bool anyBlocked = false, anyHit = false;
+            for (int i = 0; i < pending; i++)
+            {
+                bool blocked = healthSystem.TakeAttack(OnlineConfig.AttackDamage);
+                anyBlocked |= blocked;
+                anyHit |= !blocked;
+            }
+            RefreshSkillBar();
+            SendMultiplayerState();
+            if (tacticalBoard != null)
+            {
+                tacticalBoard.LastMessage = anyBlocked && !anyHit ? "Khiên đã chặn đòn tấn công!"
+                    : "Trúng đòn! Máu còn " + healthSystem.Health + "/" + healthSystem.Max;
+                RefreshTacticalBoardUi();
+            }
+            shake = 0.2f;
+
+            // Design §9: máu về 0 → thua trận.
+            if (healthSystem.IsDead)
+                MultiplayerEndMatch(false, "Bạn đã hết máu!");
+        }
+
         // Đối thủ báo kết thúc hoặc rời trận — xử ở đầu Update mỗi frame.
         void CheckOpponentMatchEvents()
         {
-            if (MultiplayerMatch.OpponentFinished)
+            if (MultiplayerMatch.OpponentLost)
+                MultiplayerEndMatch(true, "Đối thủ đã hết máu!");
+            else if (MultiplayerMatch.OpponentFinished)
                 MultiplayerEndMatch(false, "Đối thủ đã hoàn thành bàn cờ trước!");
-            else if (MultiplayerMatch.OpponentLost)
-                MultiplayerEndMatch(true, "Đối thủ đã bị quái bắt!");
             else if (MultiplayerMatch.OpponentLeft)
                 MultiplayerEndMatch(true, "Đối thủ đã rời trận.");
         }

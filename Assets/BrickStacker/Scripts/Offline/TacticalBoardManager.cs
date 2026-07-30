@@ -77,6 +77,19 @@ namespace BrickStacker
         // Tuyến tuần tra cho Enemy loại Patrol (danh sách waypoint theo thứ tự).
         public List<Vector2Int> EnemyPatrol = new List<Vector2Int>();
 
+        // === Địa hình / chướng ngại (design §3) ===
+        public List<Vector2Int> BoxPositions = new List<Vector2Int>();   // §3.2 thùng gỗ
+        public List<Vector2Int> TrapPositions = new List<Vector2Int>();  // §3.3 bẫy
+        public List<Vector2Int> IcePositions = new List<Vector2Int>();   // §3.4 ô băng
+        public List<PortalPair> Portals = new List<PortalPair>();        // §3.5 cổng
+        public List<SwitchDoor> SwitchDoors = new List<SwitchDoor>();    // §3.6 công tắc/cửa
+        public int WoodenBoxHealth = 1;
+        public int TrapStunTurns = 1;
+
+        // === Sao theo thời gian (design §5) ===
+        public float ThreeStarTime = 100f;
+        public float TwoStarTime = 150f;
+
         public static TacticalLevelData Create(int level)
         {
             const int width = 8;
@@ -173,10 +186,17 @@ namespace BrickStacker
             if (data.EnemyType == TacticalEnemyType.Patrol)
                 data.BuildDefaultPatrolRoute();
 
+            // Design §5: mốc thời gian cho sao (khó hơn thì siết chặt hơn một chút).
+            data.ThreeStarTime = Mathf.Max(45f, 105f - level * 1.5f);
+            data.TwoStarTime = Mathf.Max(80f, 160f - level * 1.5f);
+
             // Drop pattern walls that collide with start positions first — a wall on a
             // start cell makes the connectivity check in AddProgressiveWalls always fail.
             data.RemoveInvalidWalls();
             data.AddProgressiveWalls(level);
+
+            // Design §3: đặt địa hình sau khi đã cố định tường + vị trí xuất phát.
+            ObstacleSystem.Populate(data, level);
             return data;
         }
 
@@ -321,6 +341,25 @@ namespace BrickStacker
         public int PatrolDirection { get; private set; } = 1;
 
         readonly HashSet<Vector2Int> walls = new HashSet<Vector2Int>();
+
+        // === Trạng thái địa hình runtime (design §3) ===
+        readonly Dictionary<Vector2Int, int> boxHp = new Dictionary<Vector2Int, int>();
+        readonly HashSet<Vector2Int> traps = new HashSet<Vector2Int>();
+        readonly HashSet<Vector2Int> ice = new HashSet<Vector2Int>();
+        readonly Dictionary<Vector2Int, Vector2Int> portals = new Dictionary<Vector2Int, Vector2Int>();
+        readonly Dictionary<Vector2Int, Vector2Int> switchToDoor = new Dictionary<Vector2Int, Vector2Int>();
+        readonly HashSet<Vector2Int> closedDoors = new HashSet<Vector2Int>();
+        int monsterStunTurns;
+
+        // HUD đọc để vẽ ô đặc biệt.
+        public bool IsBox(Vector2Int c) => boxHp.ContainsKey(c);
+        public bool IsTrap(Vector2Int c) => traps.Contains(c);
+        public bool IsIce(Vector2Int c) => ice.Contains(c);
+        public bool IsPortal(Vector2Int c) => portals.ContainsKey(c);
+        public bool IsSwitch(Vector2Int c) => switchToDoor.ContainsKey(c);
+        public bool IsClosedDoor(Vector2Int c) => closedDoors.Contains(c);
+        public bool IsMonsterStunned => monsterStunTurns > 0;
+
         internal static readonly Vector2Int[] Directions =
         {
             Vector2Int.up,
@@ -354,6 +393,29 @@ namespace BrickStacker
             walls.Clear();
             for (int i = 0; i < Data.WallPositions.Count; i++)
                 walls.Add(Data.WallPositions[i]);
+
+            // Nạp địa hình runtime từ dữ liệu màn (design §3).
+            boxHp.Clear();
+            foreach (var b in Data.BoxPositions)
+                boxHp[b] = Mathf.Max(1, Data.WoodenBoxHealth);
+            traps.Clear();
+            foreach (var t in Data.TrapPositions) traps.Add(t);
+            ice.Clear();
+            foreach (var i in Data.IcePositions) ice.Add(i);
+            portals.Clear();
+            foreach (var p in Data.Portals)
+            {
+                portals[p.A] = p.B;
+                portals[p.B] = p.A;
+            }
+            switchToDoor.Clear();
+            closedDoors.Clear();
+            foreach (var s in Data.SwitchDoors)
+            {
+                switchToDoor[s.Switch] = s.Door;
+                closedDoors.Add(s.Door); // cửa khởi đầu đóng
+            }
+            monsterStunTurns = 0;
 
             EnemyType = Data.EnemyType;
             LastPlayerMove = Vector2Int.zero;
@@ -415,6 +477,8 @@ namespace BrickStacker
 
             PlayerPosition = target;
             LastPlayerMove = direction;
+            // Địa hình: trượt băng, dịch chuyển cổng, đạp công tắc (design §3.4-3.6).
+            PlayerPosition = ResolvePlayerLanding(PlayerPosition, direction);
             MoveBank--;
             MovesUsed++;
             if (Evaluate() != TacticalBoardStatus.Running)
@@ -502,7 +566,8 @@ namespace BrickStacker
 
         bool IsWalkable(Vector2Int cell)
         {
-            return IsInside(cell) && !walls.Contains(cell);
+            // Thùng gỗ và cửa đang đóng chặn đường như tường; bẫy/băng/cổng/công tắc thì đi được.
+            return IsInside(cell) && !walls.Contains(cell) && !boxHp.ContainsKey(cell) && !closedDoors.Contains(cell);
         }
 
         bool IsWalkableForPlayer(Vector2Int cell)
@@ -515,28 +580,163 @@ namespace BrickStacker
             return IsWalkable(cell) && cell != PlayerPosition && cell != MonsterPosition;
         }
 
-        // Enemy đi 1 ô mỗi lượt player theo hành vi của loại (design §2.8).
-        // Logic từng loại nằm ở Offline/EnemyBehaviors.cs.
+        // Enemy đi 1 ô mỗi lượt player theo hành vi của loại (design §2.8),
+        // rồi chịu hiệu ứng địa hình (trượt băng, dịch chuyển cổng).
         void MoveEnemy()
         {
-            EnemyPosition = EnemyBehaviors.ChooseMove(this);
+            var chosen = EnemyBehaviors.ChooseMove(this);
+            var dir = chosen - EnemyPosition;
+            EnemyPosition = chosen;
+            if (dir != Vector2Int.zero)
+                EnemyPosition = ResolveEntityLanding(EnemyPosition, dir, forEnemy: true);
         }
 
         // Dùng chung cho hành vi "nhút nhát"/"thông minh": né xa quái theo đường đi.
         public int ManhattanTo(Vector2Int a, Vector2Int b) => Manhattan(a, b);
 
-        // Quái đi đúng 1 bước theo mục tiêu hiện tại.
+        // Quái đi đúng 1 bước theo mục tiêu hiện tại. Xử lý bẫy (stun), phá thùng,
+        // trượt băng, cổng (design §3.2-3.5).
         void StepMonsterOnce()
         {
             if (Status != TacticalBoardStatus.Running)
                 return;
 
+            // Design §3.3: quái đang bị bẫy làm choáng thì bỏ lượt đi này.
+            if (monsterStunTurns > 0)
+            {
+                monsterStunTurns--;
+                LastMessage = "Quái đang mắc bẫy!";
+                return;
+            }
+
             CurrentTarget = SelectMonsterTarget();
             Vector2Int targetPos = CurrentTarget == TacticalTarget.Enemy ? EnemyPosition : PlayerPosition;
             bool huntingPlayer = CurrentTarget == TacticalTarget.Player;
             Vector2Int next = NextStepMonster(MonsterPosition, targetPos, huntingPlayer);
-            if (next != MonsterPosition)
-                MonsterPosition = next;
+
+            if (next == MonsterPosition)
+            {
+                // Bị chặn — thử phá thùng gần hướng mục tiêu (design §3.2).
+                if (TryMonsterBreakBox(targetPos))
+                    return;
+                return;
+            }
+
+            var dir = next - MonsterPosition;
+            MonsterPosition = next;
+
+            // Design §3.3: đạp bẫy → choáng lượt sau, bẫy biến mất.
+            if (traps.Remove(MonsterPosition))
+            {
+                monsterStunTurns = Data != null ? Mathf.Max(1, Data.TrapStunTurns) : 1;
+                LastMessage = "Quái dính bẫy!";
+            }
+
+            // Design §3.4/§3.5: quái cũng trượt băng và đi qua cổng.
+            MonsterPosition = ResolveEntityLanding(MonsterPosition, dir, forEnemy: false);
+        }
+
+        // Quái phá 1 thùng kề nó theo hướng ngắn nhất tới mục tiêu (design §3.2).
+        bool TryMonsterBreakBox(Vector2Int targetPos)
+        {
+            Vector2Int bestBox = MonsterPosition;
+            int bestDist = int.MaxValue;
+            foreach (var dir in Directions)
+            {
+                var cell = MonsterPosition + dir;
+                if (!boxHp.ContainsKey(cell))
+                    continue;
+                int dist = Manhattan(cell, targetPos);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestBox = cell;
+                }
+            }
+            if (bestBox == MonsterPosition)
+                return false;
+
+            int hp = boxHp[bestBox] - 1;
+            if (hp <= 0)
+            {
+                boxHp.Remove(bestBox); // vỡ → thành đường đi
+                LastMessage = "Quái đập vỡ thùng gỗ!";
+            }
+            else
+            {
+                boxHp[bestBox] = hp;
+                LastMessage = "Quái đang phá thùng gỗ...";
+            }
+            return true;
+        }
+
+        // Trượt băng + dịch chuyển cổng cho player, kèm đạp công tắc.
+        Vector2Int ResolvePlayerLanding(Vector2Int pos, Vector2Int dir)
+        {
+            pos = SlideOnIce(pos, dir, forEnemy: false, forPlayer: true);
+            pos = ApplyPortal(pos);
+            ToggleSwitchAt(pos);
+            return pos;
+        }
+
+        Vector2Int ResolveEntityLanding(Vector2Int pos, Vector2Int dir, bool forEnemy)
+        {
+            pos = SlideOnIce(pos, dir, forEnemy: forEnemy, forPlayer: false);
+            pos = ApplyPortal(pos);
+            return pos;
+        }
+
+        // Design §3.4: trượt theo hướng hiện tại tới khi rời vùng băng hoặc gặp vật cản.
+        Vector2Int SlideOnIce(Vector2Int pos, Vector2Int dir, bool forEnemy, bool forPlayer)
+        {
+            if (dir == Vector2Int.zero)
+                return pos;
+            int guard = 0;
+            while (ice.Contains(pos) && guard++ < 32)
+            {
+                var next = pos + dir;
+                bool canEnter = forPlayer ? IsWalkableForPlayer(next)
+                              : forEnemy ? IsWalkableForEnemy(next)
+                              : IsWalkable(next) && next != PlayerPosition && next != EnemyPosition;
+                if (!canEnter)
+                    break;
+                pos = next;
+            }
+            return pos;
+        }
+
+        // Design §3.5: bước vào cổng thì hiện ra ở cổng liên kết (nếu ô đó trống).
+        Vector2Int ApplyPortal(Vector2Int pos)
+        {
+            if (portals.TryGetValue(pos, out var dest))
+            {
+                bool free = dest != PlayerPosition && dest != EnemyPosition && dest != MonsterPosition;
+                if (free && IsWalkable(dest))
+                    return dest;
+            }
+            return pos;
+        }
+
+        // Design §3.6: đạp công tắc → đảo trạng thái cửa liên kết.
+        void ToggleSwitchAt(Vector2Int pos)
+        {
+            if (!switchToDoor.TryGetValue(pos, out var door))
+                return;
+            if (closedDoors.Contains(door))
+            {
+                closedDoors.Remove(door);
+                LastMessage = "Công tắc: cửa đã MỞ.";
+            }
+            else
+            {
+                // Không đóng cửa nếu đang có nhân vật đứng trên đó.
+                if (door != PlayerPosition && door != EnemyPosition && door != MonsterPosition)
+                {
+                    closedDoors.Add(door);
+                    LastMessage = "Công tắc: cửa đã ĐÓNG.";
+                }
+            }
+            RecomputeMonsterIntent();
         }
 
         // Design §2.6: ưu tiên bắt ngay khi cạnh; đổi mục tiêu theo ngưỡng; hòa giữ mục tiêu cũ.

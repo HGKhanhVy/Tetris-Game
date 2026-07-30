@@ -2917,6 +2917,44 @@ namespace BrickStacker
                         label.text = "●";
                         label.color = new Color(1f, 0.54f, 0.44f);
                     }
+                    // Địa hình (design §3) — render tạm bằng màu + nhãn; polish sprite ở đợt giao diện.
+                    else if (tacticalBoard.IsClosedDoor(cell))
+                    {
+                        image.color = new Color(0.55f, 0.28f, 0.42f, 0.98f);
+                        label.text = "D";
+                        label.color = new Color(1f, 0.86f, 0.72f);
+                    }
+                    else if (tacticalBoard.IsBox(cell))
+                    {
+                        image.sprite = RuntimeArt.CreateTacticalWallSprite();
+                        image.color = new Color(0.68f, 0.50f, 0.24f, 0.98f);
+                        label.text = "T";
+                        label.color = new Color(0.35f, 0.22f, 0.08f);
+                    }
+                    else if (tacticalBoard.IsTrap(cell))
+                    {
+                        image.color = new Color(0.42f, 0.20f, 0.20f, 0.98f);
+                        label.text = "!";
+                        label.color = new Color(1f, 0.62f, 0.34f);
+                    }
+                    else if (tacticalBoard.IsIce(cell))
+                    {
+                        image.color = new Color(0.42f, 0.66f, 0.82f, 0.95f);
+                        label.text = "~";
+                        label.color = new Color(0.92f, 0.98f, 1f);
+                    }
+                    else if (tacticalBoard.IsPortal(cell))
+                    {
+                        image.color = new Color(0.30f, 0.52f, 0.72f, 0.98f);
+                        label.text = "O";
+                        label.color = new Color(0.80f, 0.94f, 1f);
+                    }
+                    else if (tacticalBoard.IsSwitch(cell))
+                    {
+                        image.color = new Color(0.30f, 0.55f, 0.34f, 0.98f);
+                        label.text = "S";
+                        label.color = new Color(0.85f, 1f, 0.80f);
+                    }
 
                     // Vẽ đường quái sắp đi lên ô trống (không đè ô nhân vật/tường).
                     bool plainCell = !tacticalBoard.IsWall(cell)
@@ -2954,7 +2992,9 @@ namespace BrickStacker
                         label.text = "M";
                     else if (cell == tacticalBoard.EnemyPosition)
                         label.text = "E";
-                    label.gameObject.SetActive((cell == tacticalBoard.PlayerPosition || cell == tacticalBoard.EnemyPosition || cell == tacticalBoard.MonsterPosition || tacticalBoard.IsWall(cell)) && (icon == null || icon.sprite == null));
+                    bool obstacleCell = tacticalBoard.IsBox(cell) || tacticalBoard.IsTrap(cell) || tacticalBoard.IsIce(cell)
+                        || tacticalBoard.IsPortal(cell) || tacticalBoard.IsSwitch(cell) || tacticalBoard.IsClosedDoor(cell);
+                    label.gameObject.SetActive((cell == tacticalBoard.PlayerPosition || cell == tacticalBoard.EnemyPosition || cell == tacticalBoard.MonsterPosition || tacticalBoard.IsWall(cell) || obstacleCell) && (icon == null || icon.sprite == null));
 
                     button.interactable = tacticalBoard.Status == TacticalBoardStatus.Running;
                 }
@@ -5991,14 +6031,22 @@ namespace BrickStacker
 
         int CalculateStars()
         {
+            // Design §5: sao theo thời gian; 3 sao còn cần dùng ít lượt (ít kỹ năng hỗ trợ).
             if (tacticalBoard != null && rules.TacticalData != null)
             {
-                if (tacticalBoard.MovesUsed <= rules.TacticalData.ThreeStarMoveLimit)
+                var d = rules.TacticalData;
+                if (gameplayTime <= d.ThreeStarTime && tacticalBoard.MovesUsed <= d.ThreeStarMoveLimit)
                     return 3;
-                if (tacticalBoard.MovesUsed <= rules.TacticalData.TwoStarMoveLimit)
+                if (gameplayTime <= d.TwoStarTime)
                     return 2;
             }
             return 1;
+        }
+
+        static string FormatSeconds(float seconds)
+        {
+            int total = Mathf.Max(0, Mathf.RoundToInt(seconds));
+            return (total / 60) + ":" + (total % 60).ToString("00");
         }
 
         string StarText(int stars)
@@ -6014,8 +6062,9 @@ namespace BrickStacker
             missionStar1CondText.text = "Hoàn thành";
             if (rules != null && rules.TacticalData != null)
             {
-                missionStar2CondText.text = "≤ " + rules.TacticalData.TwoStarMoveLimit + " lượt";
-                missionStar3CondText.text = "≤ " + rules.TacticalData.ThreeStarMoveLimit + " lượt";
+                // Design §5: hiển thị mốc thời gian; 3 sao còn giới hạn số lượt.
+                missionStar2CondText.text = "≤ " + FormatSeconds(rules.TacticalData.TwoStarTime);
+                missionStar3CondText.text = "≤ " + FormatSeconds(rules.TacticalData.ThreeStarTime) + " · ≤ " + rules.TacticalData.ThreeStarMoveLimit + " lượt";
                 return;
             }
             missionStar2CondText.text = "—";

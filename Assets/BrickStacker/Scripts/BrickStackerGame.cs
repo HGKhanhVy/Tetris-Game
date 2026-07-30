@@ -305,13 +305,19 @@ namespace BrickStacker
         {
             var canvas = Ui.CreateCanvas("Menu Canvas");
 
-            // Nền landscape 16:9 (logo + phụ đề + 2 nhân vật + sân đấu đã vẽ sẵn) — phủ kín màn hình.
+            // Lấp màu trời khớp mép ảnh nền để viền hai bên (màn rộng hơn 16:9) không bị đen.
+            var fill = Ui.Panel(canvas.transform, "Sky Fill", new Color(0.11f, 0.41f, 0.96f, 1f));
+            Ui.Stretch(fill);
+            fill.transform.SetAsFirstSibling();
+
+            // Nền landscape 16:9 (logo + phụ đề + 2 nhân vật + sân đấu đã vẽ sẵn).
+            // FitInParent: hiện TRỌN ảnh (không cắt logo), để lộ viền thì đã có Sky Fill phía sau.
             var bgSpr = RuntimeArt.LoadV3Sprite("screen-menu/bg-menu.png");
             if (bgSpr != null)
             {
                 var bg = Ui.Panel(canvas.transform, "BG", Color.white);
                 Ui.Stretch(bg);
-                bg.transform.SetAsFirstSibling();
+                bg.transform.SetSiblingIndex(1); // ngay trên Sky Fill
                 var bgImg = bg.GetComponent<Image>();
                 bgImg.sprite = bgSpr; bgImg.type = Image.Type.Simple; bgImg.preserveAspect = false;
                 var bgRt = bg.GetComponent<RectTransform>();
@@ -319,7 +325,7 @@ namespace BrickStacker
                 bgRt.pivot = new Vector2(0.5f, 0.5f);
                 bgRt.anchoredPosition = Vector2.zero;
                 var arf = bg.AddComponent<AspectRatioFitter>();
-                arf.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+                arf.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
                 arf.aspectRatio = (float)bgSpr.texture.width / bgSpr.texture.height;
             }
 
@@ -339,13 +345,13 @@ namespace BrickStacker
                 new Rect(0.110f, 0.335f, 0.840f, 0.340f), "ĐẤU 1 VS 1", new Vector2(0.717f, 0.125f), 450f, 3.71f, 32, 0.30f,
                 () => { RuntimeArt.PlayUiSwitchSound(); MultiplayerManager.PrewarmQuickQuery(); ShowMultiplayerOverlay(panel.transform); });
 
-            // Hai icon tròn góc trên-trái: hướng dẫn (trên) · bảng xếp hạng (dưới).
+            // Hai icon tròn góc trên-trái: hướng dẫn (trên) · bảng xếp hạng (dưới) — giãn nhẹ.
             BuildMenuIconButton(panel.transform, "screen-menu/btn-guide.png",
-                new Rect(0.100f, 0.232f, 0.800f, 0.570f), new Vector2(0.052f, 0.865f), 118f,
+                new Rect(0.100f, 0.232f, 0.800f, 0.570f), new Vector2(0.052f, 0.880f), 118f,
                 () => { RuntimeArt.PlayUiSwitchSound(); ShowTutorialOverlay(panel.transform); });
 
             BuildMenuIconButton(panel.transform, "screen-menu/btn-bxh.png",
-                new Rect(0.237f, 0.093f, 0.513f, 0.790f), new Vector2(0.052f, 0.715f), 118f,
+                new Rect(0.237f, 0.093f, 0.513f, 0.790f), new Vector2(0.052f, 0.690f), 118f,
                 () => { RuntimeArt.PlayUiSwitchSound(); ShowLeaderboardOverlay(panel.transform); });
         }
 

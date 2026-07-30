@@ -12,478 +12,6 @@ using UnityEngine.InputSystem;
 
 namespace BrickStacker
 {
-    public enum TacticalBoardStatus
-    {
-        Running,
-        Won,
-        Failed
-    }
-
-    public abstract class TacticalPiece
-    {
-        public Vector2Int Position;
-
-        protected TacticalPiece(Vector2Int position)
-        {
-            Position = position;
-        }
-    }
-
-    public class PlayerPiece : TacticalPiece
-    {
-        public PlayerPiece(Vector2Int position) : base(position) { }
-    }
-
-    public class EnemyPiece : TacticalPiece
-    {
-        public EnemyPiece(Vector2Int position) : base(position) { }
-    }
-
-    public class MonsterPiece : TacticalPiece
-    {
-        public MonsterPiece(Vector2Int position) : base(position) { }
-    }
-
-    [Serializable]
-    public class TacticalLevelData
-    {
-        public int LevelId;
-        public int BoardWidth;
-        public int BoardHeight;
-        public Vector2Int PlayerStartPosition;
-        public Vector2Int EnemyStartPosition;
-        public Vector2Int MonsterStartPosition;
-        public List<Vector2Int> WallPositions = new List<Vector2Int>();
-        public int ThreeStarMoveLimit;
-        public int TwoStarMoveLimit;
-        public float InitialFallSpeed;
-        public int LineToMoveRate = 1;
-        public int CoinReward;
-        public bool UnlockNextLevel = true;
-        public int MonsterStepsPerTurn = 2;
-
-        public static TacticalLevelData Create(int level)
-        {
-            const int width = 8;
-            const int height = 8;
-            var data = new TacticalLevelData
-            {
-                LevelId = Mathf.Max(1, level),
-                BoardWidth = width,
-                BoardHeight = height,
-                // Cân bằng nguy hiểm: quái mở màn săn ENEMY (gần hơn player 1-2 ô),
-                // nhưng player đứng sát đường đuổi — đi ẩu là thành mục tiêu gần hơn
-                // và bị quay xe săn ngay (quái 2 bước thì không chạy thoát được).
-                PlayerStartPosition = new Vector2Int(6, 1),
-                EnemyStartPosition = new Vector2Int(1, 5),
-                MonsterStartPosition = new Vector2Int(4, 4),
-                ThreeStarMoveLimit = Mathf.Max(8, 10 + level / 3),
-                TwoStarMoveLimit = Mathf.Max(14, 16 + level / 2),
-                InitialFallSpeed = Mathf.Max(0.34f, 0.82f - Mathf.Min(level, 30) * 0.010f),
-                LineToMoveRate = 1,
-                CoinReward = 45 + level * 5,
-                UnlockNextLevel = true
-            };
-
-            // Mỗi pattern: dist(quái→enemy) 4 ≤ dist(quái→player) ≤ dist(quái→enemy)+2.
-            // Quái mở màn săn enemy; player đứng gần đường đuổi nên vẫn phải dè chừng.
-            int pattern = (level - 1) % 6;
-            if (pattern == 1)
-            {
-                data.PlayerStartPosition = new Vector2Int(4, 2);
-                data.EnemyStartPosition = new Vector2Int(5, 6);
-                data.MonsterStartPosition = new Vector2Int(2, 5);
-                data.WallPositions.Add(new Vector2Int(3, 4));
-                data.WallPositions.Add(new Vector2Int(1, 2));
-                data.WallPositions.Add(new Vector2Int(5, 3));
-            }
-            else if (pattern == 2)
-            {
-                data.PlayerStartPosition = new Vector2Int(6, 6);
-                data.EnemyStartPosition = new Vector2Int(2, 1);
-                data.MonsterStartPosition = new Vector2Int(5, 2);
-                data.WallPositions.Add(new Vector2Int(4, 4));
-                data.WallPositions.Add(new Vector2Int(3, 0));
-                data.WallPositions.Add(new Vector2Int(6, 3));
-            }
-            else if (pattern == 3)
-            {
-                data.PlayerStartPosition = new Vector2Int(3, 1);
-                data.EnemyStartPosition = new Vector2Int(3, 5);
-                data.MonsterStartPosition = new Vector2Int(1, 3);
-                data.WallPositions.Add(new Vector2Int(2, 5));
-                data.WallPositions.Add(new Vector2Int(0, 6));
-                data.WallPositions.Add(new Vector2Int(4, 3));
-                data.WallPositions.Add(new Vector2Int(5, 5));
-            }
-            else if (pattern == 4)
-            {
-                data.PlayerStartPosition = new Vector2Int(4, 4);
-                data.EnemyStartPosition = new Vector2Int(3, 5);
-                data.MonsterStartPosition = new Vector2Int(6, 6);
-                data.WallPositions.Add(new Vector2Int(5, 4));
-                data.WallPositions.Add(new Vector2Int(2, 6));
-                data.WallPositions.Add(new Vector2Int(6, 2));
-            }
-            else if (pattern == 5)
-            {
-                data.PlayerStartPosition = new Vector2Int(6, 2);
-                data.EnemyStartPosition = new Vector2Int(1, 2);
-                data.MonsterStartPosition = new Vector2Int(3, 0);
-                data.WallPositions.Add(new Vector2Int(2, 2));
-                data.WallPositions.Add(new Vector2Int(4, 3));
-                data.WallPositions.Add(new Vector2Int(1, 1));
-            }
-            else
-            {
-                data.WallPositions.Add(new Vector2Int(3, 3));
-                data.WallPositions.Add(new Vector2Int(5, 5));
-                data.WallPositions.Add(new Vector2Int(2, 2));
-                data.WallPositions.Add(new Vector2Int(6, 4));
-            }
-
-            // Quái luôn đi 2 bước — độ khó nằm ở cách bố trí tường và vị trí xuất phát,
-            // không nằm ở tốc độ quái.
-            data.MonsterStepsPerTurn = 2;
-
-            // Drop pattern walls that collide with start positions first — a wall on a
-            // start cell makes the connectivity check in AddProgressiveWalls always fail.
-            data.RemoveInvalidWalls();
-            data.AddProgressiveWalls(level);
-            return data;
-        }
-
-        // Adds extra obstacles as levels progress. Placement is deterministic per
-        // level (seeded) and never allowed to cut the board apart: every tentative
-        // wall is reverted if the three pieces can no longer reach each other.
-        void AddProgressiveWalls(int level)
-        {
-            int extra = Mathf.Min(1 + (level - 1) / 3, 8);
-            if (extra <= 0)
-                return;
-
-            var rng = new System.Random(level * 7919 + 17);
-            int placed = 0;
-            int attempts = 0;
-            while (placed < extra && attempts < 200)
-            {
-                attempts++;
-                var cell = new Vector2Int(rng.Next(0, BoardWidth), rng.Next(0, BoardHeight));
-                if (WallPositions.Contains(cell))
-                    continue;
-                // Keep a breathing ring around the start positions so nobody spawns trapped.
-                if (NearStart(cell, PlayerStartPosition) || NearStart(cell, EnemyStartPosition) || NearStart(cell, MonsterStartPosition))
-                    continue;
-
-                WallPositions.Add(cell);
-                if (BoardIsConnected())
-                    placed++;
-                else
-                    WallPositions.RemoveAt(WallPositions.Count - 1);
-            }
-        }
-
-        bool NearStart(Vector2Int cell, Vector2Int start)
-        {
-            return Mathf.Abs(cell.x - start.x) + Mathf.Abs(cell.y - start.y) <= 1;
-        }
-
-        // BFS from the player start: player, enemy and monster must share one open region.
-        bool BoardIsConnected()
-        {
-            var wallSet = new HashSet<Vector2Int>(WallPositions);
-            var visited = new HashSet<Vector2Int>();
-            var queue = new Queue<Vector2Int>();
-            queue.Enqueue(PlayerStartPosition);
-            visited.Add(PlayerStartPosition);
-            Vector2Int[] dirs = { Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left };
-            while (queue.Count > 0)
-            {
-                var current = queue.Dequeue();
-                foreach (var dir in dirs)
-                {
-                    var next = current + dir;
-                    if (next.x < 0 || next.x >= BoardWidth || next.y < 0 || next.y >= BoardHeight)
-                        continue;
-                    if (wallSet.Contains(next) || !visited.Add(next))
-                        continue;
-                    queue.Enqueue(next);
-                }
-            }
-            return visited.Contains(EnemyStartPosition) && visited.Contains(MonsterStartPosition);
-        }
-
-        void RemoveInvalidWalls()
-        {
-            for (int i = WallPositions.Count - 1; i >= 0; i--)
-            {
-                var wall = WallPositions[i];
-                bool invalid = wall.x < 0 || wall.x >= BoardWidth || wall.y < 0 || wall.y >= BoardHeight;
-                invalid |= wall == PlayerStartPosition || wall == EnemyStartPosition || wall == MonsterStartPosition;
-                if (invalid)
-                    WallPositions.RemoveAt(i);
-            }
-        }
-    }
-
-    public class TacticalBoardManager
-    {
-        public TacticalLevelData Data { get; private set; }
-        public Vector2Int PlayerPosition { get; private set; }
-        public Vector2Int EnemyPosition { get; private set; }
-        public Vector2Int MonsterPosition { get; private set; }
-        public int MoveBank { get; private set; }
-        public int MovesUsed { get; private set; }
-        public TacticalBoardStatus Status { get; private set; }
-        public string LastMessage { get; set; }
-
-        readonly HashSet<Vector2Int> walls = new HashSet<Vector2Int>();
-        static readonly Vector2Int[] Directions =
-        {
-            Vector2Int.up,
-            Vector2Int.right,
-            Vector2Int.down,
-            Vector2Int.left
-        };
-
-        public TacticalBoardManager(TacticalLevelData data)
-        {
-            Reset(data);
-        }
-
-        public void Reset(TacticalLevelData data)
-        {
-            Data = data ?? TacticalLevelData.Create(1);
-            PlayerPosition = Data.PlayerStartPosition;
-            EnemyPosition = Data.EnemyStartPosition;
-            MonsterPosition = Data.MonsterStartPosition;
-            MoveBank = 0;
-            MovesUsed = 0;
-            Status = TacticalBoardStatus.Running;
-            LastMessage = "Xóa dòng để nhận lượt di chuyển.";
-            walls.Clear();
-            for (int i = 0; i < Data.WallPositions.Count; i++)
-                walls.Add(Data.WallPositions[i]);
-        }
-
-        public int AddMovesForClearedLines(int clearedLines, bool comboBonus)
-        {
-            int gained = 0;
-            if (clearedLines == 1)
-                gained = 1;
-            else if (clearedLines == 2)
-                gained = 2;
-            else if (clearedLines >= 3)
-                gained = 4 + Mathf.Max(0, clearedLines - 3);
-
-            gained *= Mathf.Max(1, Data.LineToMoveRate);
-            if (comboBonus && gained > 0)
-                gained += 1;
-
-            MoveBank += gained;
-            if (gained > 0)
-                LastMessage = "+ " + gained + " lượt chiến thuật.";
-            return gained;
-        }
-
-        public TacticalBoardStatus MovePlayer(Vector2Int direction)
-        {
-            if (Status != TacticalBoardStatus.Running)
-                return Status;
-
-            if (MoveBank <= 0)
-            {
-                LastMessage = "Chưa có lượt. Hãy xóa dòng để kiếm lượt.";
-                return Status;
-            }
-
-            var target = PlayerPosition + direction;
-            if (!IsWalkableForPlayer(target))
-            {
-                LastMessage = "Không thể đi vào ô đó.";
-                return Status;
-            }
-
-            PlayerPosition = target;
-            MoveBank--;
-            MovesUsed++;
-            if (Evaluate() != TacticalBoardStatus.Running)
-                return Status;
-
-            // Nhịp mỗi lượt: player 1 ô → enemy 1 ô (chạy trốn quái) → quái 2 ô.
-            // Quái bước trúng ô enemy là thắng NGAY (Evaluate sau từng bước quái).
-            MoveEnemy();
-            MoveMonster();
-            Evaluate();
-            return Status;
-        }
-
-        public bool IsWall(Vector2Int cell)
-        {
-            return walls.Contains(cell);
-        }
-
-        public bool IsPlayerMoveTarget(Vector2Int cell)
-        {
-            return Status == TacticalBoardStatus.Running && IsWalkableForPlayer(cell) && Manhattan(cell, PlayerPosition) == 1;
-        }
-
-        public bool IsInside(Vector2Int cell)
-        {
-            return cell.x >= 0 && cell.x < Data.BoardWidth && cell.y >= 0 && cell.y < Data.BoardHeight;
-        }
-
-        bool IsWalkable(Vector2Int cell)
-        {
-            return IsInside(cell) && !walls.Contains(cell);
-        }
-
-        bool IsWalkableForPlayer(Vector2Int cell)
-        {
-            return IsWalkable(cell) && cell != EnemyPosition && cell != MonsterPosition;
-        }
-
-        bool IsWalkableForEnemy(Vector2Int cell)
-        {
-            return IsWalkable(cell) && cell != PlayerPosition && cell != MonsterPosition;
-        }
-
-        // Enemy đi đúng 1 ô mỗi lượt, chọn ô làm tăng khoảng cách đường đi tới quái
-        // (hòa thì né xa player). Đứng yên nếu không có ô nào tốt hơn.
-        void MoveEnemy()
-        {
-            Vector2Int best = EnemyPosition;
-            int bestDistance = PathDistance(EnemyPosition, MonsterPosition);
-            for (int i = 0; i < Directions.Length; i++)
-            {
-                var candidate = EnemyPosition + Directions[i];
-                if (!IsWalkableForEnemy(candidate))
-                    continue;
-
-                int distance = PathDistance(candidate, MonsterPosition);
-                if (distance > bestDistance || (distance == bestDistance && best != EnemyPosition && Manhattan(candidate, PlayerPosition) > Manhattan(best, PlayerPosition)))
-                {
-                    best = candidate;
-                    bestDistance = distance;
-                }
-            }
-
-            EnemyPosition = best;
-        }
-
-        void MoveMonster()
-        {
-            int steps = Data != null ? Mathf.Max(1, Data.MonsterStepsPerTurn) : 2;
-            for (int step = 0; step < steps; step++)
-            {
-                if (Evaluate() != TacticalBoardStatus.Running)
-                    return;
-
-                Vector2Int target  = MonsterTarget();
-                bool huntingPlayer = target == PlayerPosition;
-                Vector2Int next    = NextStepMonster(MonsterPosition, target, huntingPlayer);
-                if (next == MonsterPosition)
-                    return;
-                MonsterPosition = next;
-            }
-        }
-
-        Vector2Int MonsterTarget()
-        {
-            int enemyDistance  = PathDistance(MonsterPosition, EnemyPosition,  blockPlayer: false);
-            int playerDistance = PathDistance(MonsterPosition, PlayerPosition, blockPlayer: false);
-            // Prefer enemy; chase player only if enemy is farther or unreachable.
-            return enemyDistance <= playerDistance ? EnemyPosition : PlayerPosition;
-        }
-
-        // BFS từ start đến target, trả về bước đầu tiên trên đường ngắn nhất.
-        // Khi đuổi enemy, không đi qua player (tránh thua oan).
-        Vector2Int NextStepMonster(Vector2Int start, Vector2Int target, bool huntingPlayer)
-        {
-            if (start == target) return start;
-
-            var queue   = new Queue<Vector2Int>();
-            var prev    = new Dictionary<Vector2Int, Vector2Int>();
-            queue.Enqueue(start);
-            prev[start] = start;
-
-            while (queue.Count > 0)
-            {
-                var cell = queue.Dequeue();
-                foreach (var dir in Directions)
-                {
-                    var next = cell + dir;
-                    if (!IsWalkable(next) || prev.ContainsKey(next))
-                        continue;
-                    if (!huntingPlayer && next == PlayerPosition && next != target)
-                        continue;
-                    prev[next] = cell;
-                    if (next == target)
-                    {
-                        // Trace back to find first step.
-                        var step = next;
-                        while (prev[step] != start)
-                            step = prev[step];
-                        return step;
-                    }
-                    queue.Enqueue(next);
-                }
-            }
-            return start; // không tìm được đường
-        }
-
-        TacticalBoardStatus Evaluate()
-        {
-            if (MonsterPosition == EnemyPosition)
-            {
-                Status = TacticalBoardStatus.Won;
-                LastMessage = "Quái đã bắt được đối thủ!";
-            }
-            else if (MonsterPosition == PlayerPosition)
-            {
-                Status = TacticalBoardStatus.Failed;
-                LastMessage = "Quái đã bắt được bạn.";
-            }
-            return Status;
-        }
-
-        int PathDistance(Vector2Int from, Vector2Int to, bool blockPlayer = false)
-        {
-            if (from == to)
-                return 0;
-
-            var queue = new Queue<Vector2Int>();
-            var distance = new Dictionary<Vector2Int, int>();
-            queue.Enqueue(from);
-            distance[from] = 0;
-
-            while (queue.Count > 0)
-            {
-                var cell = queue.Dequeue();
-                int nextDistance = distance[cell] + 1;
-                for (int i = 0; i < Directions.Length; i++)
-                {
-                    var next = cell + Directions[i];
-                    if (!IsWalkable(next) || distance.ContainsKey(next))
-                        continue;
-                    if (blockPlayer && next == PlayerPosition && next != to)
-                        continue;
-                    if (next == to)
-                        return nextDistance;
-                    distance[next] = nextDistance;
-                    queue.Enqueue(next);
-                }
-            }
-
-            return 1000 + Manhattan(from, to);
-        }
-
-        int Manhattan(Vector2Int a, Vector2Int b)
-        {
-            return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
-        }
-    }
-
     public static class GameSession
     {
         public static int SelectedLevel = 1;
@@ -2097,6 +1625,20 @@ namespace BrickStacker
             if (paused || resolving)
                 return;
 
+            // Offline (design §2.5): quái tự đi theo timer thực, tạo áp lực thời gian
+            // ngay cả khi người chơi đang xếp gạch. 1v1 không dùng bàn chiến thuật kiểu này.
+            if (!MultiplayerMatch.Active && tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Running)
+            {
+                if (tacticalBoard.TickMonsterTimer(Time.deltaTime))
+                    RefreshTacticalBoardUi();
+                if (tacticalBoard.Status != TacticalBoardStatus.Running)
+                {
+                    OnTacticalStatusResolved();
+                    return;
+                }
+                UpdateMonsterTimerHud();
+            }
+
             if (!puzzlePausedForTacticalTurn)
             {
                 movedHorizontallyThisFrame = false;
@@ -3269,6 +2811,7 @@ namespace BrickStacker
         }
 
         readonly List<Image> tacticalCellImageCache = new List<Image>();
+        int monsterNextCellIndex = -1;
 
         void RefreshTacticalBoardUi()
         {
@@ -3286,6 +2829,14 @@ namespace BrickStacker
             int width = tacticalBoard.Data.BoardWidth;
             int height = tacticalBoard.Data.BoardHeight;
             bool canMove = tacticalBoard.Status == TacticalBoardStatus.Running && tacticalBoard.MoveBank > 0;
+
+            // Đường đi dự kiến của quái (design §2.7) — vẽ chấm cảnh báo lên ô trống.
+            var monsterPath = tacticalBoard.Status == TacticalBoardStatus.Running
+                ? tacticalBoard.GetMonsterPathPreview(3)
+                : null;
+            Vector2Int monsterNext = tacticalBoard.NextMonsterStep;
+            monsterNextCellIndex = -1;
+
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
@@ -3367,6 +2918,25 @@ namespace BrickStacker
                         label.color = new Color(1f, 0.54f, 0.44f);
                     }
 
+                    // Vẽ đường quái sắp đi lên ô trống (không đè ô nhân vật/tường).
+                    bool plainCell = !tacticalBoard.IsWall(cell)
+                        && cell != tacticalBoard.PlayerPosition
+                        && cell != tacticalBoard.EnemyPosition
+                        && cell != tacticalBoard.MonsterPosition;
+                    if (plainCell && monsterPath != null && monsterPath.Contains(cell))
+                    {
+                        if (cell == monsterNext)
+                        {
+                            monsterNextCellIndex = index;
+                            image.color = MonsterNextCellColor();
+                        }
+                        else
+                        {
+                            // Các ô xa hơn trên đường: tô nhạt dần.
+                            image.color = new Color(0.66f, 0.34f, 0.42f, 0.98f);
+                        }
+                    }
+
                     if (legalTarget && !tacticalBoard.IsWall(cell) && cell != tacticalBoard.PlayerPosition && cell != tacticalBoard.EnemyPosition && cell != tacticalBoard.MonsterPosition)
                     {
                         image.sprite = RuntimeArt.CreateTacticalHighlightSprite();
@@ -3422,14 +2992,62 @@ namespace BrickStacker
             }
 
             int moveBank = tacticalBoard != null ? tacticalBoard.MoveBank : 0;
-            if (sceneMoveText != null && moveBank != hudCachedMoveBank)
+            // Offline: kèm đồng hồ đếm ngược trước lượt tự đi của quái (design §2.7).
+            int monsterSecond = -1;
+            if (!MultiplayerMatch.Active && tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Running)
+                monsterSecond = Mathf.CeilToInt(Mathf.Max(0f, tacticalBoard.MonsterTimer));
+
+            if (sceneMoveText != null && (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond))
             {
                 hudCachedMoveBank = moveBank;
-                sceneMoveText.text = "Lượt đi: " + moveBank;
+                hudCachedMonsterSecond = monsterSecond;
+                sceneMoveText.text = monsterSecond >= 0
+                    ? "Lượt đi: " + moveBank + "   Quái đi sau: " + monsterSecond + "s"
+                    : "Lượt đi: " + moveBank;
             }
 
             if (sceneNextText != null && sceneNextText.text != "TIẾP")
                 sceneNextText.text = "TIẾP";
+        }
+
+        int hudCachedMonsterSecond = int.MinValue;
+
+        // Màu ô quái sắp bước tới — nhấp nháy nhanh dần khi timer gần 0 (design §2.7).
+        Color MonsterNextCellColor()
+        {
+            if (tacticalBoard == null)
+                return new Color(0.85f, 0.30f, 0.30f, 0.98f);
+
+            float t = tacticalBoard.MonsterTimer;
+            // <1s: nhấp nháy nhanh (nguy hiểm). 1-3s: cảnh báo. >3s: cam nhạt.
+            float pulseSpeed = t < 1f ? 10f : (t < 3f ? 5f : 2.5f);
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * pulseSpeed);
+            Color calm = t < 3f ? new Color(0.90f, 0.42f, 0.20f, 0.98f) : new Color(0.78f, 0.46f, 0.26f, 0.98f);
+            Color hot = new Color(0.95f, 0.18f, 0.16f, 1f);
+            return Color.Lerp(calm, hot, t < 3f ? pulse : pulse * 0.4f);
+        }
+
+        // Mỗi frame: chỉ nhấp nháy ô quái-sắp-đi, không refresh toàn bàn (rẻ).
+        void UpdateMonsterTimerHud()
+        {
+            if (monsterNextCellIndex < 0 || monsterNextCellIndex >= tacticalCellImageCache.Count)
+                return;
+            var image = tacticalCellImageCache[monsterNextCellIndex];
+            if (image != null)
+                image.color = MonsterNextCellColor();
+        }
+
+        // Quái tự đi (timer) khiến màn thắng/thua — đi cùng nhánh xử lý với khi player đi.
+        void OnTacticalStatusResolved()
+        {
+            if (tacticalBoard == null)
+                return;
+            RefreshTacticalBoardUi();
+            UpdateUi();
+            if (tacticalBoard.Status == TacticalBoardStatus.Won)
+                LevelComplete();
+            else if (tacticalBoard.Status == TacticalBoardStatus.Failed)
+                EndGame(false);
         }
 
         void EnsureSceneRuntimeGameplayUi()

@@ -2856,12 +2856,13 @@ namespace BrickStacker
                     var label = tacticalCellLabels[index];
                     var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
 
-                    // Sprite trắng (null) để màu xanh nhạt hiện đúng (sprite gỗ cũ tô nâu).
+                    // Ô trống TRONG SUỐT — khung frame-banco đã có lưới ô sẵn, không vẽ đè.
+                    // Giữ raycast để vẫn bấm được ô.
                     image.sprite = null;
                     image.type = Image.Type.Simple;
                     image.preserveAspect = false;
-                    // Ô lưới xanh nhạt như thiết kế (bàn cờ khung xanh frame-banco).
-                    image.color = (x + y) % 2 == 0 ? new Color(0.80f, 0.88f, 0.97f, 0.98f) : new Color(0.72f, 0.82f, 0.94f, 0.98f);
+                    image.color = new Color(0f, 0f, 0f, 0f);
+                    image.raycastTarget = true;
                     label.text = "";
                     label.color = new Color(1f, 0.95f, 0.78f);
                     if (icon != null)
@@ -4348,21 +4349,20 @@ namespace BrickStacker
             const float bottom = 0.02f;
 
             // Header — dải trên cùng (tạm dừng trái · MÀN X giữa · điểm phải).
-            float headerH = 0.10f;
+            float headerH = 0.105f;
             ApplySceneRect(sceneHeaderRect,
                 new Vector2(0.03f, top - headerH),
                 new Vector2(0.97f, top));
             LayoutHeaderChildren();
 
-            // Chừa 1 dải trên bàn cờ cho thanh "LƯỢT CỦA BẠN vs AI" (giai đoạn sau).
-            float turnBarH = 0.055f;
-            float contentTop = top - headerH - 0.02f;
-            float boardTop = contentTop - turnBarH - 0.008f;
+            // Board dùng toàn bộ chiều cao dưới header (không chừa dải trống) để đỡ thưa.
+            float contentTop = top - headerH - 0.012f;
+            float boardTop = contentTop;
             float contentH = boardTop - bottom;
 
-            // Bàn chiến thuật BÊN TRÁI (vuông theo pixel: W_norm = H_norm / aspect).
-            float tacLeft = 0.045f;
-            float tacMaxW = 0.40f;
+            // Bàn chiến thuật BÊN TRÁI (vuông theo pixel: W_norm = H_norm / aspect) — to hơn.
+            float tacLeft = 0.04f;
+            float tacMaxW = 0.46f;
             float tacH = contentH;
             float tacW = tacH / Mathf.Max(1f, aspect);
             if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * aspect; }
@@ -4372,8 +4372,8 @@ namespace BrickStacker
                 new Vector2(tacLeft + tacW, tacCy + tacH * 0.5f));
 
             // Cột phụ BÊN PHẢI (NEXT + XOAY hoặc bàn đối thủ 1v1).
-            float sideRight = 0.955f;
-            float sideW = 0.145f;
+            float sideRight = 0.965f;
+            float sideW = 0.155f;
             float sideLeft = sideRight - sideW;
 
             // Bàn xếp gạch GIỮA-PHẢI (dọc 2:1; 0.501 bù viền), căn giữa khoảng còn lại.

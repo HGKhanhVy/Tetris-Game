@@ -20,7 +20,7 @@ namespace BrickStacker
 
     public static class LevelProgress
     {
-        public const int MaxLevels = 10;
+        public const int MaxLevels = 20;
         // Giá trị chuỗi key giữ nguyên tên "TOWER" cũ để không mất save hiện có.
         public const string UnlockedLevelKey = "BLOCKFALL_TOWER_UNLOCKED_FLOOR";
         public const string CoinsKey = "BLOCKFALL_COINS";

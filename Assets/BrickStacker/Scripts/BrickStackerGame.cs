@@ -2415,14 +2415,14 @@ namespace BrickStacker
             var gridRoot = new GameObject("Runtime Tactical Grid", typeof(RectTransform));
             gridRoot.transform.SetParent(sceneTacticalBoardRect, false);
             var gridRect = gridRoot.GetComponent<RectTransform>();
-            // Inset đúng vùng lưới TRONG của khung frame-banco (~5.5% viền) để ô game
-            // phủ kín lưới in sẵn của khung → chỉ còn 1 lưới, quân khớp tuyệt đối.
-            Ui.Rect(gridRoot, new Vector2(0.055f, 0.055f), new Vector2(0.945f, 0.945f), Vector2.zero);
+            // Phủ kín vùng lưới TRONG của khung frame-banco để chỉ còn 1 lưới game 8×8
+            // sạch (lưới in trên khung là 9×9/không vuông → phải che).
+            Ui.Rect(gridRoot, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.96f), Vector2.zero);
             gridRect.SetAsLastSibling();
 
-            // Nền lưới (màu đường kẻ) — khe hở giữa các ô sẽ lộ màu này thành lưới sạch,
-            // che lưới 9×9 in trên khung (game là 8×8).
-            var gridBg = Ui.Panel(gridRoot.transform, "Tactical Grid BG", new Color(0.55f, 0.68f, 0.88f, 1f));
+            // Nền = màu ĐƯỜNG KẺ của khung (navy đậm), khe hở giữa ô lộ ra thành lưới —
+            // trùng màu lưới khung nên liền mạch.
+            var gridBg = Ui.Panel(gridRoot.transform, "Tactical Grid BG", new Color(0.0f, 0.055f, 0.33f, 1f));
             Ui.Stretch(gridBg);
             gridBg.GetComponent<Image>().raycastTarget = false;
             // Canvas con: 64 nút bàn cờ chỉ rebuild khi có nước đi, không bị kéo theo
@@ -2864,12 +2864,12 @@ namespace BrickStacker
                     var label = tacticalCellLabels[index];
                     var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
 
-                    // Ô game 8×8 xanh nhạt (khớp màu khung), khe hở lộ nền lưới → lưới sạch
-                    // phủ kín lưới 9×9 in trên khung. Quân khớp tuyệt đối với ô game.
+                    // Ô game 8×8 màu XANH khớp ô của khung (135,181,246); khe hở lộ nền navy
+                    // = đường lưới → nhìn y hệt lưới khung, quân khớp tuyệt đối với ô game.
                     image.sprite = null;
                     image.type = Image.Type.Simple;
                     image.preserveAspect = false;
-                    image.color = new Color(0.82f, 0.89f, 0.98f, 1f);
+                    image.color = new Color(0.53f, 0.71f, 0.965f, 1f);
                     image.raycastTarget = true;
                     label.text = "";
                     label.color = new Color(1f, 0.95f, 0.78f);

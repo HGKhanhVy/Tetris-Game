@@ -210,9 +210,10 @@ namespace BrickStacker
                 isLocked ? new Color(0.93f, 0.95f, 0.98f) : Color.white, TextAnchor.MiddleCenter);
             num.fontStyle = FontStyle.Bold;
             num.raycastTarget = false;
+            // Ô có sao: hạ số xuống cho ngang tầm ô khóa (trước đây bị đẩy cao vì chừa chỗ sao).
             var nr = num.rectTransform;
-            nr.anchorMin = new Vector2(0.08f, isLocked ? 0.44f : 0.50f);
-            nr.anchorMax = new Vector2(0.92f, isLocked ? 0.94f : 0.98f);
+            nr.anchorMin = new Vector2(0.08f, isLocked ? 0.44f : 0.46f);
+            nr.anchorMax = new Vector2(0.92f, isLocked ? 0.94f : 0.92f);
             nr.offsetMin = nr.offsetMax = Vector2.zero;
             AddTextEdge(num, isLocked ? new Color(0.3f, 0.32f, 0.34f) : new Color(0.05f, 0.25f, 0.5f));
 

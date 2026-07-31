@@ -4383,7 +4383,7 @@ namespace BrickStacker
             if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * aspect; }
             float puzzleH = contentH;
             float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
-            float sideW = 0.128f;          // NEXT + XOAY hẹp lại
+            float sideW = 0.10f;           // NEXT + XOAY hẹp lại (cột dọc)
             float gap1 = 0.022f, gap2 = 0.026f;
             float totalW = tacW + gap1 + puzzleW + gap2 + sideW;
             float startX = (1f - totalW) * 0.5f;
@@ -4434,18 +4434,26 @@ namespace BrickStacker
             }
             else
             {
-                float nextH = Mathf.Clamp(sideW * aspect * 0.95f, 0.16f, 0.26f);
+                // NEXT: dọc đúng tỉ lệ khung frame-next (~0.554 rộng/cao) → không bị bè.
+                // Hạ xuống 1 chút để cách panel coin.
+                float nextTop = boardTop - 0.035f;
+                float nextW = sideW;
+                float nextH = nextW * aspect / 0.554f;
+                float nextCx = (sideLeft + sideRight) * 0.5f;
                 ApplySceneRect(sceneNextPanelRect,
-                    new Vector2(sideLeft, boardTop - nextH),
-                    new Vector2(sideRight, boardTop));
+                    new Vector2(nextCx - nextW * 0.5f, nextTop - nextH),
+                    new Vector2(nextCx + nextW * 0.5f, nextTop));
                 LayoutNextPreviewInPanel();
 
+                // XOAY: nút hẹp (vuông), dưới NEXT.
+                float rw = Mathf.Clamp(sideW * 0.72f, 0.052f, 0.078f);
+                float rh = rw * aspect;
                 if (rotateButtonRect != null)
                 {
-                    float rotTop = boardTop - nextH - 0.05f;
+                    float rotTop = nextTop - nextH - 0.045f;
                     ApplySceneRect(rotateButtonRect,
-                        new Vector2(rotCx - rotW * 0.5f, rotTop - rotH),
-                        new Vector2(rotCx + rotW * 0.5f, rotTop));
+                        new Vector2(nextCx - rw * 0.5f, rotTop - rh),
+                        new Vector2(nextCx + rw * 0.5f, rotTop));
                 }
             }
 
@@ -4490,7 +4498,7 @@ namespace BrickStacker
                 return;
 
             if (sceneNextPanelRect != null && sceneNextPreviewRect != sceneNextPanelRect && sceneNextPreviewRect.transform.IsChildOf(sceneNextPanelRect.transform))
-                ApplySceneRect(sceneNextPreviewRect, new Vector2(0.10f, 0.05f), new Vector2(0.90f, 0.72f));
+                ApplySceneRect(sceneNextPreviewRect, new Vector2(0.12f, 0.06f), new Vector2(0.88f, 0.76f));
 
             if (sceneNextText != null)
                 sceneNextText.alignment = TextAlignmentOptions.Top;
@@ -4663,7 +4671,8 @@ namespace BrickStacker
 
             float width = previewRect.rect.width > 1f ? previewRect.rect.width : 120f;
             float height = previewRect.rect.height > 1f ? previewRect.rect.height : width;
-            return Mathf.Max(0.5f, Mathf.Min(width, height) / 5.5f);
+            // Khối preview to hơn (chia nhỏ hơn → cell lớn hơn; khối 4 ô ~87% vùng).
+            return Mathf.Max(0.5f, Mathf.Min(width, height) / 4.6f);
         }
 
         float PreviewCellStep(float cellSize)

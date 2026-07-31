@@ -2806,6 +2806,17 @@ namespace BrickStacker
 
         readonly List<Image> tacticalCellImageCache = new List<Image>();
         int monsterNextCellIndex = -1;
+        Sprite obstacleBlueSprite, obstacleBushSprite;
+
+        // Sprite chướng ngại vật (chuongngaivat) — xen kẽ khối xanh / bụi xanh lá như thiết kế.
+        Sprite GetObstacleSprite(Vector2Int cell)
+        {
+            if (obstacleBlueSprite == null)
+                obstacleBlueSprite = RuntimeArt.LoadV3SubSprite("screen-gameplay/chuongngaivat-2.png", new Rect(0.354f, 0.316f, 0.292f, 0.445f));
+            if (obstacleBushSprite == null)
+                obstacleBushSprite = RuntimeArt.LoadV3SubSprite("screen-gameplay/chuongngaivat-1.png", new Rect(0.297f, 0.219f, 0.445f, 0.613f));
+            return (cell.x + cell.y) % 2 == 0 ? obstacleBlueSprite : obstacleBushSprite;
+        }
 
         void RefreshTacticalBoardUi()
         {
@@ -2845,10 +2856,12 @@ namespace BrickStacker
                     var label = tacticalCellLabels[index];
                     var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
 
-                    image.sprite = RuntimeArt.CreateTacticalCellSprite();
+                    // Sprite trắng (null) để màu xanh nhạt hiện đúng (sprite gỗ cũ tô nâu).
+                    image.sprite = null;
                     image.type = Image.Type.Simple;
                     image.preserveAspect = false;
-                    image.color = (x + y) % 2 == 0 ? new Color(0.61f, 0.42f, 0.23f, 0.98f) : new Color(0.54f, 0.34f, 0.17f, 0.98f);
+                    // Ô lưới xanh nhạt như thiết kế (bàn cờ khung xanh frame-banco).
+                    image.color = (x + y) % 2 == 0 ? new Color(0.80f, 0.88f, 0.97f, 0.98f) : new Color(0.72f, 0.82f, 0.94f, 0.98f);
                     label.text = "";
                     label.color = new Color(1f, 0.95f, 0.78f);
                     if (icon != null)
@@ -2871,10 +2884,12 @@ namespace BrickStacker
 
                     if (tacticalBoard.IsWall(cell))
                     {
-                        image.sprite = RuntimeArt.CreateTacticalWallSprite();
-                        image.color = new Color(0.43f, 0.35f, 0.27f, 0.98f);
-                        label.text = "X";
-                        label.color = new Color(0.85f, 0.36f, 0.25f);
+                        // Chướng ngại vật: khối xanh / bụi xanh lá (chuongngaivat) trên ô xanh.
+                        if (icon != null)
+                        {
+                            icon.sprite = GetObstacleSprite(cell);
+                            icon.color = Color.white;
+                        }
                     }
                     else if (cell == tacticalBoard.PlayerPosition)
                     {
@@ -3042,6 +3057,20 @@ namespace BrickStacker
 
             if (sceneNextText != null && sceneNextText.text != "TIẾP")
                 sceneNextText.text = "TIẾP";
+
+            // HUD mới: banner MÀN X + panel điểm|lượt.
+            if (hudTitleText != null)
+            {
+                string want = MultiplayerMatch.Active ? "1 VS 1" : "MÀN " + journeyLevel;
+                if (hudTitleText.text != want) hudTitleText.text = want;
+            }
+            if (hudScoreText != null && hudScoreText.text != score.ToString())
+                hudScoreText.text = score.ToString();
+            if (hudTurnText != null)
+            {
+                string turn = monsterSecond >= 0 ? moveBank + " · " + monsterSecond + "s" : moveBank.ToString();
+                if (hudTurnText.text != turn) hudTurnText.text = turn;
+            }
         }
 
         int hudCachedMonsterSecond = int.MinValue;
@@ -4166,6 +4195,98 @@ namespace BrickStacker
         }
 
         bool gameplayFramesApplied;
+        bool gameplayHudApplied;
+        RectTransform hudTitleRect, hudCoinRect;
+        Text hudTitleText, hudScoreText, hudTurnText;
+
+        Image MakeSpriteImage(Transform parent, string name, string asset, Rect crop, bool raycast)
+        {
+            var spr = RuntimeArt.LoadV3SubSprite(asset, crop);
+            var go = Ui.Panel(parent, name, Color.white);
+            var img = go.GetComponent<Image>();
+            img.sprite = spr;
+            img.type = Image.Type.Simple;
+            img.preserveAspect = true;
+            img.raycastTarget = raycast;
+            return img;
+        }
+
+        // HUD mới: ẩn dải header gỗ; banner MÀN X (frame-title), panel ĐIỂM|LƯỢT (frame-coin),
+        // nút tạm dừng (btn-tamdung) + xoay (btn-xoay); bỏ hộp gỗ nhỏ trong NEXT.
+        void EnsureGameplayHud()
+        {
+            if (gameplayHudApplied || safeAreaRoot == null)
+                return;
+
+            var titleSpr = RuntimeArt.LoadV3SubSprite("screen-gameplay/frame-title.png", new Rect(0.130f, 0.398f, 0.740f, 0.270f));
+            if (titleSpr == null)
+                return;
+            gameplayHudApplied = true;
+
+            // Ẩn dải header gỗ dựng sẵn.
+            if (sceneHeaderRect != null)
+            {
+                var raw = sceneHeaderRect.GetComponent<RawImage>(); if (raw != null) raw.enabled = false;
+                var im = sceneHeaderRect.GetComponent<Image>(); if (im != null) im.enabled = false;
+            }
+            if (sceneLevelText != null) sceneLevelText.gameObject.SetActive(false);
+            if (sceneMoveText != null) sceneMoveText.gameObject.SetActive(false);
+
+            // Banner MÀN X.
+            var title = MakeSpriteImage(safeAreaRoot.transform, "HUD Title", "screen-gameplay/frame-title.png", new Rect(0.130f, 0.398f, 0.740f, 0.270f), false);
+            hudTitleRect = title.rectTransform;
+            hudTitleText = Ui.Text(title.transform, "MÀN " + journeyLevel, RuntimeArt.LoadMenuButtonFont(), 34, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
+            hudTitleText.fontStyle = FontStyle.Bold;
+            hudTitleText.raycastTarget = false;
+            var ttr = hudTitleText.rectTransform; ttr.anchorMin = new Vector2(0.16f, 0.12f); ttr.anchorMax = new Vector2(0.9f, 0.9f); ttr.offsetMin = ttr.offsetMax = Vector2.zero;
+            AddDarkWoodTextEdge(hudTitleText, 0.8f, 0.85f);
+
+            // Panel điểm | lượt.
+            var coin = MakeSpriteImage(safeAreaRoot.transform, "HUD Coin", "screen-gameplay/frame-coin.png", new Rect(0.151f, 0.422f, 0.695f, 0.234f), false);
+            hudCoinRect = coin.rectTransform;
+            hudScoreText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 26, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
+            hudScoreText.fontStyle = FontStyle.Bold; hudScoreText.raycastTarget = false;
+            var sr = hudScoreText.rectTransform; sr.anchorMin = new Vector2(0.12f, 0.06f); sr.anchorMax = new Vector2(0.52f, 0.62f); sr.offsetMin = sr.offsetMax = Vector2.zero;
+            hudTurnText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 26, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
+            hudTurnText.fontStyle = FontStyle.Bold; hudTurnText.raycastTarget = false;
+            var tr = hudTurnText.rectTransform; tr.anchorMin = new Vector2(0.54f, 0.06f); tr.anchorMax = new Vector2(0.92f, 0.62f); tr.offsetMin = tr.offsetMax = Vector2.zero;
+
+            // Nút tạm dừng: reparent về safeAreaRoot để ApplySceneRect đặt theo cả màn
+            // (trước đây parent là dải header mỏng nên nút bị dẹp).
+            if (pauseButtonRect != null)
+                pauseButtonRect.SetParent(safeAreaRoot.transform, false);
+            ReskinButton(pauseButtonRect, "screen-gameplay/btn-tamdung.png", new Rect(0.365f, 0.309f, 0.268f, 0.430f));
+            ReskinButton(rotateButtonRect, "screen-gameplay/btn-xoay.png", new Rect(0.372f, 0.344f, 0.255f, 0.406f));
+
+            // Bỏ hộp gỗ nhỏ trong ô NEXT (giữ preview khối), + ẩn chữ "TIẾP" cũ.
+            if (sceneNextPreviewRect != null)
+            {
+                var raw = sceneNextPreviewRect.GetComponent<RawImage>(); if (raw != null) raw.enabled = false;
+                var im = sceneNextPreviewRect.GetComponent<Image>(); if (im != null) im.enabled = false;
+            }
+            if (sceneNextText != null) sceneNextText.gameObject.SetActive(false);
+        }
+
+        // Thay nền nút bằng sprite mới (ẩn graphic gỗ cũ + icon con, đặt frame con fill).
+        void ReskinButton(RectTransform rect, string asset, Rect crop)
+        {
+            if (rect == null)
+                return;
+            var im = rect.GetComponent<Image>(); if (im != null) im.enabled = false;
+            var raw = rect.GetComponent<RawImage>(); if (raw != null) raw.enabled = false;
+            // Ẩn icon/label con cũ (sprite mới đã có icon baked-in).
+            foreach (Transform child in rect)
+                if (child.name != "Runtime BtnSkin") child.gameObject.SetActive(false);
+
+            var existing = FindChildLoose(rect, "Runtime BtnSkin");
+            Image skin = existing != null ? existing.GetComponent<Image>() : MakeSpriteImage(rect, "Runtime BtnSkin", asset, crop, true);
+            if (existing != null) skin.sprite = RuntimeArt.LoadV3SubSprite(asset, crop);
+            Ui.Stretch(skin.gameObject);
+            skin.transform.SetAsFirstSibling();
+            // Nút vẫn bấm được: dùng skin làm targetGraphic.
+            var btn = rect.GetComponent<Button>();
+            if (btn != null) { btn.targetGraphic = skin; skin.raycastTarget = true; }
+        }
 
         // Thay khung gỗ cũ của bàn cờ / xếp gạch / NEXT bằng khung mới (screen-gameplay).
         void EnsureGameplayFrames()
@@ -4221,6 +4342,7 @@ namespace BrickStacker
         {
             EnsureGameplayBackground();
             EnsureGameplayFrames();
+            EnsureGameplayHud();
 
             const float top = 0.975f;
             const float bottom = 0.02f;
@@ -4317,6 +4439,16 @@ namespace BrickStacker
 
         void LayoutHeaderChildren()
         {
+            // HUD mới: tạm dừng trái · MÀN X giữa · panel điểm|lượt phải.
+            if (hudTitleRect != null)
+            {
+                ApplySceneRect(pauseButtonRect, new Vector2(0.028f, 0.895f), new Vector2(0.088f, 0.988f));
+                ApplySceneRect(hudTitleRect, new Vector2(0.415f, 0.895f), new Vector2(0.585f, 0.99f));
+                ApplySceneRect(hudCoinRect, new Vector2(0.775f, 0.90f), new Vector2(0.975f, 0.99f));
+                return;
+            }
+
+            // Fallback (chưa dựng HUD mới): giữ header cũ.
             if (sceneLevelText != null)
             {
                 sceneLevelText.alignment = TextAlignmentOptions.MidlineLeft;

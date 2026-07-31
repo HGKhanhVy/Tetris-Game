@@ -2476,6 +2476,12 @@ namespace BrickStacker
             FitScenePuzzleGridToAnchor();
             gridRect.SetAsLastSibling();
 
+            // Nền lưới game 10×20 phủ kín lưới in trên khung (khung ~8 cột ≠ game 10 → lệch).
+            // Màu = đường kẻ (navy nhạt hơn board); khe hở giữa ô lộ ra thành lưới sạch.
+            var pGridBg = Ui.Panel(gridRoot.transform, "Puzzle Grid BG", new Color(0.10f, 0.20f, 0.38f, 1f));
+            Ui.Stretch(pGridBg);
+            pGridBg.GetComponent<Image>().raycastTarget = false;
+
             for (int y = 0; y < Height; y++)
             {
                 for (int x = 0; x < Width; x++)
@@ -5784,9 +5790,21 @@ namespace BrickStacker
             if (cell == null)
                 return;
 
-            cell.sprite = GetPieceBlockSprite(type);
-            cell.color = color.a > 0.01f && type < 0 ? PuzzleBlockColor(color) : color;
-            cell.enabled = color.a > 0.01f;
+            bool filled = color.a > 0.01f;
+            if (filled)
+            {
+                cell.sprite = GetPieceBlockSprite(type);
+                cell.preserveAspect = true;
+                cell.color = type < 0 ? PuzzleBlockColor(color) : color;
+            }
+            else
+            {
+                // Ô trống = màu board của khung (khe hở lộ nền navy nhạt = đường lưới).
+                cell.sprite = null;
+                cell.preserveAspect = false;
+                cell.color = new Color(0.063f, 0.153f, 0.30f, 1f);
+            }
+            cell.enabled = true;
         }
 
         Sprite GetPieceBlockSprite(int type)

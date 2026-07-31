@@ -222,8 +222,8 @@ namespace BrickStacker
 
         void BuildStars(Transform tile, int stars)
         {
-            // Sao to, sát nhau, sao giữa nhô cao — như thiết kế.
-            const float starSize = 46f, starStep = 38f;
+            // Sao gọn trong ô, cân giữa, sao giữa nhô cao — cụm sao hẹp hơn bề ngang tile.
+            const float starSize = 40f, starStep = 28f;
             var row = new GameObject("Stars", typeof(RectTransform));
             row.transform.SetParent(tile, false);
             var rrt = row.GetComponent<RectTransform>();
@@ -247,7 +247,7 @@ namespace BrickStacker
                 srt.pivot = new Vector2(0.5f, 0.5f);
                 srt.sizeDelta = new Vector2(starSize, starSize);
                 // Sao giữa nhô cao hơn + vẽ đè lên 2 sao bên (SetAsLastSibling).
-                srt.anchoredPosition = new Vector2((i - 1) * starStep, i == 1 ? 6f : 0f);
+                srt.anchoredPosition = new Vector2((i - 1) * starStep, i == 1 ? 5f : 0f);
                 if (i == 1) star.transform.SetAsLastSibling();
             }
         }

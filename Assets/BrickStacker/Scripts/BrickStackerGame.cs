@@ -3551,38 +3551,69 @@ namespace BrickStacker
 
         void BuildMissionPopup(Transform parent)
         {
-            var shadow = Ui.Panel(parent, "Mission Popup Shadow", new Color(0.04f, 0.018f, 0.008f, 0.80f));
-            Ui.Rect(shadow, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(806, 706));
-            shadow.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -12);
-            StyleWoodPopupShadow(shadow);
-
+            // Panel popup xanh (asset popup-start) — cao hơn tỉ lệ gốc chút cho chữ thoáng.
+            float boxW = 900f, boxH = boxW / 2.1f;
             var box = Ui.Panel(parent, "Mission Popup", Color.white);
-            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(778, 678));
-            StyleWoodPopupFrame(box);
+            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(boxW, boxH));
+            var boxImg = box.GetComponent<Image>();
+            var panelSpr = RuntimeArt.LoadV3SubSprite("popup-start/panel-popup.png", new Rect(0.083f, 0.293f, 0.833f, 0.453f));
+            boxImg.sprite = panelSpr; boxImg.type = Image.Type.Simple; boxImg.preserveAspect = false; boxImg.color = Color.white;
 
-            missionTitleText = CreatePopupTitle(box.transform, "NHIỆM VỤ", 68, new Color(1f, 0.84f, 0.50f));
-            Ui.Rect(missionTitleText, new Vector2(0.5f, 0.810f), new Vector2(0.5f, 0.810f), new Vector2(624, 116));
+            // Banner MÀN X — đè lên mép trên, chính giữa.
+            var banner = MakeSpriteImage(box.transform, "Mission Banner", "popup-start/frame-title-man.png", new Rect(0.130f, 0.398f, 0.740f, 0.270f), false);
+            var bRt = banner.rectTransform;
+            bRt.anchorMin = bRt.anchorMax = new Vector2(0.5f, 1f);
+            bRt.pivot = new Vector2(0.5f, 0.5f);
+            bRt.sizeDelta = new Vector2(380f, 380f / 4.12f);
+            bRt.anchoredPosition = new Vector2(0f, 6f);
+            missionTitleText = CreatePopupTitle(banner.transform, "MÀN 1", 40, new Color(1f, 0.98f, 0.9f));
+            Ui.Rect(missionTitleText, new Vector2(0.5f, 0.52f), new Vector2(0.5f, 0.52f), new Vector2(280, 70));
 
-            missionDescText = Ui.Text(box.transform, "", font, 32, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
-            Ui.Rect(missionDescText, new Vector2(0.10f, 0.683f), new Vector2(0.90f, 0.683f), new Vector2(0, 64));
-            AddDarkWoodTextEdge(missionDescText, 0.8f, 0.78f);
+            // Icon nhân vật hai góc trên.
+            BuildMissionIcon(box.transform, "popup-start/icon-player.png", new Rect(0.357f, 0.316f, 0.286f, 0.422f), new Vector2(0.045f, 0.80f));
+            BuildMissionIcon(box.transform, "popup-start/icon-enemy.png", new Rect(0.367f, 0.340f, 0.266f, 0.383f), new Vector2(0.955f, 0.80f));
 
-            var sep1 = Ui.Panel(box.transform, "MissionSep1", new Color(0.75f, 0.50f, 0.22f, 0.5f));
-            Ui.Rect(sep1, new Vector2(0.08f, 0.622f), new Vector2(0.92f, 0.622f), new Vector2(0, 3));
+            // BẮT ĐẦU (chữ lớn trắng).
+            var startBig = Ui.Text(box.transform, "BẮT ĐẦU", titleFont != null ? titleFont : font, 66, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+            startBig.fontStyle = FontStyle.Bold; startBig.raycastTarget = false;
+            Ui.Rect(startBig, new Vector2(0.5f, 0.60f), new Vector2(0.5f, 0.60f), new Vector2(600, 100));
+            AddDarkWoodTextEdge(startBig, 1.1f, 0.5f);
 
-            missionStar3CondText = AddMissionStarRow(box.transform, "★★★", 0.569f);
-            missionStar2CondText = AddMissionStarRow(box.transform, "★★", 0.468f);
-            missionStar1CondText = AddMissionStarRow(box.transform, "★", 0.368f);
+            // Phụ đề "Sẵn sàng chưa?".
+            missionDescText = Ui.Text(box.transform, "Sẵn sàng chưa?", font, 30, new Color(0.86f, 0.93f, 1f), TextAnchor.MiddleCenter);
+            missionDescText.raycastTarget = false;
+            Ui.Rect(missionDescText, new Vector2(0.5f, 0.42f), new Vector2(0.5f, 0.42f), new Vector2(560, 50));
 
-            var sep2 = Ui.Panel(box.transform, "MissionSep2", new Color(0.75f, 0.50f, 0.22f, 0.5f));
-            Ui.Rect(sep2, new Vector2(0.08f, 0.310f), new Vector2(0.92f, 0.310f), new Vector2(0, 3));
-
-            AddPauseButton(box.transform, "Bắt đầu", new Vector2(0.5f, 0.195f), () =>
+            // Nút CHƠI (cam).
+            var playBtn = Ui.Button(box.transform, "", font, 36, () =>
             {
+                RuntimeArt.PlayUiSwitchSound();
                 missionOverlay.SetActive(false);
                 paused = false;
                 Time.timeScale = 1f;
             });
+            var pbRt = playBtn.GetComponent<RectTransform>();
+            pbRt.anchorMin = pbRt.anchorMax = new Vector2(0.5f, 0.185f);
+            pbRt.pivot = new Vector2(0.5f, 0.5f);
+            pbRt.sizeDelta = new Vector2(380f, 380f / 3.536f);
+            var pbImg = playBtn.GetComponent<Image>();
+            var playSpr = RuntimeArt.LoadV3SubSprite("popup-start/btn-batdau.png", new Rect(0.242f, 0.414f, 0.516f, 0.219f));
+            if (playSpr != null) { pbImg.sprite = playSpr; pbImg.type = Image.Type.Simple; pbImg.preserveAspect = false; pbImg.color = Color.white; }
+            var playLabel = Ui.Text(playBtn.transform, "CHƠI", RuntimeArt.LoadMenuButtonFont(), 40, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+            playLabel.fontStyle = FontStyle.Bold; playLabel.raycastTarget = false;
+            var plRt = playLabel.rectTransform; plRt.anchorMin = new Vector2(0.1f, 0.12f); plRt.anchorMax = new Vector2(0.9f, 0.78f); plRt.offsetMin = plRt.offsetMax = Vector2.zero;
+            AddDarkWoodTextEdge(playLabel, 0.9f, 0.7f);
+            var pf = playBtn.gameObject.GetComponent<PressScaleFeedback>() ?? playBtn.gameObject.AddComponent<PressScaleFeedback>();
+            pf.PressedScale = 0.94f;
+        }
+
+        void BuildMissionIcon(Transform parent, string asset, Rect crop, Vector2 anchor)
+        {
+            var img = MakeSpriteImage(parent, "Mission Icon", asset, crop, false);
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = anchor;
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(150f, 150f);
         }
 
         Text AddMissionStarRow(Transform parent, string stars, float anchorY)
@@ -6148,7 +6179,7 @@ namespace BrickStacker
                 paused = true;
                 Time.timeScale = 0f;
                 missionTitleText.text = "MÀN " + journeyLevel;
-                if (missionDescText != null) missionDescText.text = MissionDescription();
+                if (missionDescText != null) missionDescText.text = "Sẵn sàng chưa?";
                 UpdateMissionStarRows();
                 missionOverlay.SetActive(true);
             }

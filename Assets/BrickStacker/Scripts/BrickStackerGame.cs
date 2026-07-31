@@ -4122,54 +4122,98 @@ namespace BrickStacker
 
         // Landscape: puzzle board trái (tỉ lệ 2:1 dọc), bàn chiến thuật vuông giữa-phải,
         // cột phụ (TIẾP/Xoay hoặc bàn đối thủ 1v1) sát mép phải.
+        Image gameplayBgImage;
+
+        // Nền gameplay landscape mới (bg-gameplay) phủ kín màn hình. Tạo Image riêng ở
+        // đáy canvas (không phụ thuộc element dựng sẵn) + ẩn backdrop gỗ world-space cũ.
+        void EnsureGameplayBackground()
+        {
+            if (sceneGameplayCanvas == null)
+                return;
+
+            // Ẩn mọi backdrop gỗ world-space cũ.
+            foreach (var woodGo in GameObject.FindObjectsOfType<GameObject>())
+                if (woodGo.name.StartsWith("Warm Wood Backdrop") && woodGo.activeSelf)
+                    woodGo.SetActive(false);
+
+            // Ẩn nền gỗ dựng sẵn (RawImage "Background") để lộ nền mới.
+            if (sceneBackgroundRect != null)
+            {
+                var rawBg = sceneBackgroundRect.GetComponent<RawImage>();
+                if (rawBg != null) rawBg.enabled = false;
+                var imgBg = sceneBackgroundRect.GetComponent<Image>();
+                if (imgBg != null) imgBg.enabled = false;
+            }
+
+            if (gameplayBgImage != null)
+                return;
+
+            var bgSpr = RuntimeArt.LoadV3Sprite("screen-gameplay/bg-gameplay.png");
+            if (bgSpr == null)
+                return;
+
+            var go = Ui.Panel(sceneGameplayCanvas.transform, "Gameplay BG", Color.white);
+            Ui.Stretch(go);
+            go.transform.SetAsFirstSibling();
+            gameplayBgImage = go.GetComponent<Image>();
+            gameplayBgImage.sprite = bgSpr;
+            gameplayBgImage.type = Image.Type.Simple;
+            gameplayBgImage.preserveAspect = false;
+            gameplayBgImage.raycastTarget = false;
+            var arf = go.AddComponent<AspectRatioFitter>();
+            arf.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+            arf.aspectRatio = (float)bgSpr.texture.width / bgSpr.texture.height;
+        }
+
         void ApplyLandscapeGameplayRegionLayout(float aspect)
         {
-            const float top = 0.982f;
-            const float bottom = 0.018f;
+            EnsureGameplayBackground();
 
-            // Header — dải trên cùng.
-            float headerH = 0.085f;
+            const float top = 0.975f;
+            const float bottom = 0.02f;
+
+            // Header — dải trên cùng (tạm dừng trái · MÀN X giữa · điểm phải).
+            float headerH = 0.10f;
             ApplySceneRect(sceneHeaderRect,
-                new Vector2(0.06f, top - headerH),
-                new Vector2(0.94f, top));
+                new Vector2(0.03f, top - headerH),
+                new Vector2(0.97f, top));
             LayoutHeaderChildren();
 
-            float contentTop = top - headerH - 0.014f;
-            float contentH = contentTop - bottom;
+            // Chừa 1 dải trên bàn cờ cho thanh "LƯỢT CỦA BẠN vs AI" (giai đoạn sau).
+            float turnBarH = 0.055f;
+            float contentTop = top - headerH - 0.02f;
+            float boardTop = contentTop - turnBarH - 0.008f;
+            float contentH = boardTop - bottom;
 
-            // Puzzle board trái: khung trong cần tỉ lệ 2:1 (cao:rộng) cho lưới 10×20;
-            // 0.501 bù viền khung. Đổi sang bề ngang chuẩn hóa phải chia aspect.
-            float puzzleW = Mathf.Clamp(contentH * 0.501f / Mathf.Max(1f, aspect), 0.16f, 0.34f);
-            float puzzleLeft = 0.055f;
-            ApplySceneRect(scenePuzzleBoardAnchorRect,
-                new Vector2(puzzleLeft, bottom),
-                new Vector2(puzzleLeft + puzzleW, contentTop));
+            // Bàn chiến thuật BÊN TRÁI (vuông theo pixel: W_norm = H_norm / aspect).
+            float tacLeft = 0.045f;
+            float tacMaxW = 0.40f;
+            float tacH = contentH;
+            float tacW = tacH / Mathf.Max(1f, aspect);
+            if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * aspect; }
+            float tacCy = (bottom + boardTop) * 0.5f;
+            ApplySceneRect(sceneTacticalBoardRect,
+                new Vector2(tacLeft, tacCy - tacH * 0.5f),
+                new Vector2(tacLeft + tacW, tacCy + tacH * 0.5f));
 
-            // Cột phụ phải.
-            float sideW = 0.135f;
+            // Cột phụ BÊN PHẢI (NEXT + XOAY hoặc bàn đối thủ 1v1).
             float sideRight = 0.955f;
+            float sideW = 0.145f;
             float sideLeft = sideRight - sideW;
 
-            // Bàn chiến thuật: vuông theo pixel (W_norm = H_norm / aspect), nằm giữa hai cột.
-            float gapL = 0.022f;
-            float gapR = 0.020f;
-            float tacticalLeft = puzzleLeft + puzzleW + gapL;
-            float tacticalRight = sideLeft - gapR;
-            float tacticalH = contentH;
-            float tacticalW = tacticalH / Mathf.Max(1f, aspect);
-            float tacticalMaxW = tacticalRight - tacticalLeft;
-            if (tacticalW > tacticalMaxW)
-            {
-                tacticalW = tacticalMaxW;
-                tacticalH = tacticalW * aspect;
-            }
-            float tacticalCx = (tacticalLeft + tacticalRight) * 0.5f;
-            float tacticalCy = (bottom + contentTop) * 0.5f;
-            ApplySceneRect(sceneTacticalBoardRect,
-                new Vector2(tacticalCx - tacticalW * 0.5f, tacticalCy - tacticalH * 0.5f),
-                new Vector2(tacticalCx + tacticalW * 0.5f, tacticalCy + tacticalH * 0.5f));
+            // Bàn xếp gạch GIỮA-PHẢI (dọc 2:1; 0.501 bù viền), căn giữa khoảng còn lại.
+            float gap = 0.03f;
+            float puzzleH = contentH;
+            float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
+            float midLeft = tacLeft + tacW + gap;
+            float midRight = sideLeft - gap;
+            float puzzleLeft = (midLeft + midRight) * 0.5f - puzzleW * 0.5f;
+            if (puzzleLeft < midLeft) puzzleLeft = midLeft;
+            ApplySceneRect(scenePuzzleBoardAnchorRect,
+                new Vector2(puzzleLeft, bottom),
+                new Vector2(puzzleLeft + puzzleW, boardTop));
 
-            float rotW = Mathf.Clamp(sideW * 0.62f, 0.062f, 0.095f);
+            float rotW = Mathf.Clamp(sideW * 0.60f, 0.062f, 0.098f);
             float rotH = rotW * aspect;
             float rotCx = (sideLeft + sideRight) * 0.5f;
 
@@ -4193,19 +4237,19 @@ namespace BrickStacker
                         new Vector2(sideLeft + 0.008f, attackBottom),
                         new Vector2(sideRight - 0.008f, attackBottom + attackH));
 
-                LayoutOpponentMiniBoard(sideLeft, sideRight, contentTop, attackBottom + attackH + 0.016f, aspect);
+                LayoutOpponentMiniBoard(sideLeft, sideRight, boardTop, attackBottom + attackH + 0.016f, aspect);
             }
             else
             {
-                float nextH = Mathf.Clamp(sideW * aspect * 0.92f, 0.150f, 0.240f);
+                float nextH = Mathf.Clamp(sideW * aspect * 0.95f, 0.16f, 0.26f);
                 ApplySceneRect(sceneNextPanelRect,
-                    new Vector2(sideLeft, contentTop - nextH),
-                    new Vector2(sideRight, contentTop));
+                    new Vector2(sideLeft, boardTop - nextH),
+                    new Vector2(sideRight, boardTop));
                 LayoutNextPreviewInPanel();
 
                 if (rotateButtonRect != null)
                 {
-                    float rotTop = contentTop - nextH - 0.035f;
+                    float rotTop = boardTop - nextH - 0.05f;
                     ApplySceneRect(rotateButtonRect,
                         new Vector2(rotCx - rotW * 0.5f, rotTop - rotH),
                         new Vector2(rotCx + rotW * 0.5f, rotTop));
@@ -4215,7 +4259,7 @@ namespace BrickStacker
             if (statusText != null)
                 ApplySceneRect(statusText.rectTransform,
                     new Vector2(sideLeft, bottom),
-                    new Vector2(sideRight, bottom + 0.16f));
+                    new Vector2(sideRight, bottom + 0.14f));
         }
 
         void LayoutHeaderChildren()

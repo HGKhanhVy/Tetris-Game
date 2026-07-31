@@ -4250,21 +4250,23 @@ namespace BrickStacker
             // Banner MÀN X.
             var title = MakeSpriteImage(safeAreaRoot.transform, "HUD Title", "screen-gameplay/frame-title.png", new Rect(0.130f, 0.398f, 0.740f, 0.270f), false);
             hudTitleRect = title.rectTransform;
-            hudTitleText = Ui.Text(title.transform, "MÀN " + journeyLevel, RuntimeArt.LoadMenuButtonFont(), 34, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
+            hudTitleText = Ui.Text(title.transform, "MÀN " + journeyLevel, RuntimeArt.LoadMenuButtonFont(), 42, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
             hudTitleText.fontStyle = FontStyle.Bold;
             hudTitleText.raycastTarget = false;
-            var ttr = hudTitleText.rectTransform; ttr.anchorMin = new Vector2(0.16f, 0.12f); ttr.anchorMax = new Vector2(0.9f, 0.9f); ttr.offsetMin = ttr.offsetMax = Vector2.zero;
-            AddDarkWoodTextEdge(hudTitleText, 0.8f, 0.85f);
+            hudTitleText.resizeTextForBestFit = false;
+            var ttr = hudTitleText.rectTransform; ttr.anchorMin = new Vector2(0.14f, 0.14f); ttr.anchorMax = new Vector2(0.9f, 0.92f); ttr.offsetMin = ttr.offsetMax = Vector2.zero;
+            AddDarkWoodTextEdge(hudTitleText, 0.9f, 0.9f);
 
             // Panel điểm | lượt.
             var coin = MakeSpriteImage(safeAreaRoot.transform, "HUD Coin", "screen-gameplay/frame-coin.png", new Rect(0.151f, 0.422f, 0.695f, 0.234f), false);
             hudCoinRect = coin.rectTransform;
-            hudScoreText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 26, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
+            // Số điểm căn GIỮA khung con ĐIỂM (nửa trái), số lượt giữa khung con LƯỢT (nửa phải).
+            hudScoreText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 28, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
             hudScoreText.fontStyle = FontStyle.Bold; hudScoreText.raycastTarget = false;
-            var sr = hudScoreText.rectTransform; sr.anchorMin = new Vector2(0.12f, 0.06f); sr.anchorMax = new Vector2(0.52f, 0.62f); sr.offsetMin = sr.offsetMax = Vector2.zero;
-            hudTurnText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 26, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
+            var sr = hudScoreText.rectTransform; sr.anchorMin = new Vector2(0.135f, 0.06f); sr.anchorMax = new Vector2(0.475f, 0.55f); sr.offsetMin = sr.offsetMax = Vector2.zero;
+            hudTurnText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 28, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
             hudTurnText.fontStyle = FontStyle.Bold; hudTurnText.raycastTarget = false;
-            var tr = hudTurnText.rectTransform; tr.anchorMin = new Vector2(0.54f, 0.06f); tr.anchorMax = new Vector2(0.92f, 0.62f); tr.offsetMin = tr.offsetMax = Vector2.zero;
+            var tr = hudTurnText.rectTransform; tr.anchorMin = new Vector2(0.50f, 0.06f); tr.anchorMax = new Vector2(0.84f, 0.55f); tr.offsetMin = tr.offsetMax = Vector2.zero;
 
             // Nút tạm dừng: reparent về safeAreaRoot để ApplySceneRect đặt theo cả màn
             // (trước đây parent là dải header mỏng nên nút bị dẹp).
@@ -4374,30 +4376,34 @@ namespace BrickStacker
             float boardTop = contentTop;
             float contentH = boardTop - bottom;
 
-            // Bàn chiến thuật BÊN TRÁI (vuông theo pixel: W_norm = H_norm / aspect) — to hơn.
-            float tacLeft = 0.04f;
-            float tacMaxW = 0.46f;
+            // Tính bề rộng từng khối rồi CĂN GIỮA cả cụm theo chiều ngang.
+            float tacMaxW = 0.44f;
             float tacH = contentH;
             float tacW = tacH / Mathf.Max(1f, aspect);
             if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * aspect; }
+            float puzzleH = contentH;
+            float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
+            float sideW = 0.128f;          // NEXT + XOAY hẹp lại
+            float gap1 = 0.022f, gap2 = 0.026f;
+            float totalW = tacW + gap1 + puzzleW + gap2 + sideW;
+            float startX = (1f - totalW) * 0.5f;
+
+            // Bàn chiến thuật (vuông) — đầu cụm, căn giữa dọc.
+            float tacLeft = startX;
             float tacCy = (bottom + boardTop) * 0.5f;
             ApplySceneRect(sceneTacticalBoardRect,
                 new Vector2(tacLeft, tacCy - tacH * 0.5f),
                 new Vector2(tacLeft + tacW, tacCy + tacH * 0.5f));
 
-            // Bàn xếp gạch NGAY SAU bàn cờ (gap nhỏ) — các khung sát nhau, đỡ thưa.
-            float gap = 0.02f;
-            float puzzleH = contentH;
-            float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
-            float puzzleLeft = tacLeft + tacW + gap;
+            // Bàn xếp gạch ngay sau bàn cờ.
+            float puzzleLeft = tacLeft + tacW + gap1;
             ApplySceneRect(scenePuzzleBoardAnchorRect,
                 new Vector2(puzzleLeft, bottom),
                 new Vector2(puzzleLeft + puzzleW, boardTop));
 
             // Cột phụ BÊN PHẢI (NEXT + XOAY hoặc bàn đối thủ) — ngay sau bàn xếp gạch.
-            float sideW = 0.155f;
-            float sideLeft = puzzleLeft + puzzleW + 0.028f;
-            float sideRight = Mathf.Min(0.965f, sideLeft + sideW);
+            float sideLeft = puzzleLeft + puzzleW + gap2;
+            float sideRight = sideLeft + sideW;
             sideLeft = sideRight - sideW;
 
             float rotW = Mathf.Clamp(sideW * 0.60f, 0.062f, 0.098f);
@@ -4454,9 +4460,12 @@ namespace BrickStacker
             // HUD mới: tạm dừng trái · MÀN X giữa · panel điểm|lượt phải.
             if (hudTitleRect != null)
             {
-                ApplySceneRect(pauseButtonRect, new Vector2(0.028f, 0.895f), new Vector2(0.088f, 0.988f));
-                ApplySceneRect(hudTitleRect, new Vector2(0.415f, 0.895f), new Vector2(0.585f, 0.99f));
-                ApplySceneRect(hudCoinRect, new Vector2(0.775f, 0.90f), new Vector2(0.975f, 0.99f));
+                // Nút tạm dừng: cách mép trái + viền trên thêm chút.
+                ApplySceneRect(pauseButtonRect, new Vector2(0.045f, 0.858f), new Vector2(0.10f, 0.952f));
+                // Banner MÀN X: to hơn.
+                ApplySceneRect(hudTitleRect, new Vector2(0.40f, 0.878f), new Vector2(0.60f, 0.995f));
+                // Panel điểm|lượt: to hơn.
+                ApplySceneRect(hudCoinRect, new Vector2(0.755f, 0.878f), new Vector2(0.982f, 0.995f));
                 return;
             }
 

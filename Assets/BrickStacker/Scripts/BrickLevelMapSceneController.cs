@@ -150,14 +150,15 @@ namespace BrickStacker
         {
             int count = LevelCount;
             int rows = Mathf.CeilToInt(count / (float)Columns);
-            const float tile = 128f, gapX = 24f, gapY = 22f;
+            const float tile = 116f, gapX = 24f, gapY = 18f;
             float gridW = Columns * tile + (Columns - 1) * gapX;
             float gridH = rows * tile + (rows - 1) * gapY;
 
             var container = new GameObject("Grid", typeof(RectTransform));
             container.transform.SetParent(parent, false);
             var crt = container.GetComponent<RectTransform>();
-            crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.44f);
+            // Hạ lưới xuống để chừa khoảng cách với banner CHỌN LEVEL phía trên.
+            crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.415f);
             crt.pivot = new Vector2(0.5f, 0.5f);
             crt.sizeDelta = new Vector2(gridW, gridH);
 

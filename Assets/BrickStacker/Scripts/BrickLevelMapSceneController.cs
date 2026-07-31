@@ -204,14 +204,14 @@ namespace BrickStacker
             else img.color = isLocked ? new Color(0.5f, 0.5f, 0.5f) : new Color(0.2f, 0.6f, 0.95f);
             AddPress(btn.gameObject, isLocked ? 0.97f : 0.92f);
 
-            // Số level — trên cùng của tile (locked: ổ khóa đã có sẵn ở giữa ảnh).
-            var num = Ui.Text(btn.transform, level.ToString(), RuntimeArt.LoadDisplayFont(), 46,
+            // Số level — nửa trên tile (locked: ổ khóa đã có sẵn ở giữa/dưới ảnh).
+            var num = Ui.Text(btn.transform, level.ToString(), RuntimeArt.LoadDisplayFont(), 50,
                 isLocked ? new Color(0.93f, 0.95f, 0.98f) : Color.white, TextAnchor.MiddleCenter);
             num.fontStyle = FontStyle.Bold;
             num.raycastTarget = false;
             var nr = num.rectTransform;
-            nr.anchorMin = new Vector2(0.1f, isLocked ? 0.42f : 0.46f);
-            nr.anchorMax = new Vector2(0.9f, isLocked ? 0.92f : 0.94f);
+            nr.anchorMin = new Vector2(0.08f, isLocked ? 0.44f : 0.50f);
+            nr.anchorMax = new Vector2(0.92f, isLocked ? 0.94f : 0.98f);
             nr.offsetMin = nr.offsetMax = Vector2.zero;
             AddTextEdge(num, isLocked ? new Color(0.3f, 0.32f, 0.34f) : new Color(0.05f, 0.25f, 0.5f));
 
@@ -221,14 +221,14 @@ namespace BrickStacker
 
         void BuildStars(Transform tile, int stars)
         {
-            const float starSize = 34f, starGap = 2f;
+            // Sao to, sát nhau, sao giữa nhô cao — như thiết kế.
+            const float starSize = 46f, starStep = 38f;
             var row = new GameObject("Stars", typeof(RectTransform));
             row.transform.SetParent(tile, false);
             var rrt = row.GetComponent<RectTransform>();
-            rrt.anchorMin = new Vector2(0.5f, 0.16f);
-            rrt.anchorMax = new Vector2(0.5f, 0.16f);
+            rrt.anchorMin = rrt.anchorMax = new Vector2(0.5f, 0.235f);
             rrt.pivot = new Vector2(0.5f, 0.5f);
-            rrt.sizeDelta = new Vector2(starSize * 3 + starGap * 2, starSize);
+            rrt.sizeDelta = new Vector2(starStep * 2 + starSize, starSize);
 
             for (int i = 0; i < 3; i++)
             {
@@ -245,9 +245,9 @@ namespace BrickStacker
                 srt.anchorMin = srt.anchorMax = new Vector2(0.5f, 0.5f);
                 srt.pivot = new Vector2(0.5f, 0.5f);
                 srt.sizeDelta = new Vector2(starSize, starSize);
-                srt.anchoredPosition = new Vector2((i - 1) * (starSize + starGap), 0f);
-                // Sao giữa nhô cao hơn nhẹ như thiết kế.
-                if (i == 1) srt.anchoredPosition += new Vector2(0f, 3f);
+                // Sao giữa nhô cao hơn + vẽ đè lên 2 sao bên (SetAsLastSibling).
+                srt.anchoredPosition = new Vector2((i - 1) * starStep, i == 1 ? 6f : 0f);
+                if (i == 1) star.transform.SetAsLastSibling();
             }
         }
 

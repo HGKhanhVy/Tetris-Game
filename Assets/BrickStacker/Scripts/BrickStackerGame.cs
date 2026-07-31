@@ -2415,8 +2415,16 @@ namespace BrickStacker
             var gridRoot = new GameObject("Runtime Tactical Grid", typeof(RectTransform));
             gridRoot.transform.SetParent(sceneTacticalBoardRect, false);
             var gridRect = gridRoot.GetComponent<RectTransform>();
-            Ui.Rect(gridRoot, new Vector2(0.075f, 0.075f), new Vector2(0.925f, 0.925f), Vector2.zero);
+            // Inset đúng vùng lưới TRONG của khung frame-banco (~5.5% viền) để ô game
+            // phủ kín lưới in sẵn của khung → chỉ còn 1 lưới, quân khớp tuyệt đối.
+            Ui.Rect(gridRoot, new Vector2(0.055f, 0.055f), new Vector2(0.945f, 0.945f), Vector2.zero);
             gridRect.SetAsLastSibling();
+
+            // Nền lưới (màu đường kẻ) — khe hở giữa các ô sẽ lộ màu này thành lưới sạch,
+            // che lưới 9×9 in trên khung (game là 8×8).
+            var gridBg = Ui.Panel(gridRoot.transform, "Tactical Grid BG", new Color(0.55f, 0.68f, 0.88f, 1f));
+            Ui.Stretch(gridBg);
+            gridBg.GetComponent<Image>().raycastTarget = false;
             // Canvas con: 64 nút bàn cờ chỉ rebuild khi có nước đi, không bị kéo theo
             // mỗi lần khối gạch nhích (và ngược lại). Cần raycaster riêng cho nút.
             MakeIsolatedCanvas(gridRoot, true);
@@ -2856,12 +2864,12 @@ namespace BrickStacker
                     var label = tacticalCellLabels[index];
                     var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
 
-                    // Ô trống TRONG SUỐT — khung frame-banco đã có lưới ô sẵn, không vẽ đè.
-                    // Giữ raycast để vẫn bấm được ô.
+                    // Ô game 8×8 xanh nhạt (khớp màu khung), khe hở lộ nền lưới → lưới sạch
+                    // phủ kín lưới 9×9 in trên khung. Quân khớp tuyệt đối với ô game.
                     image.sprite = null;
                     image.type = Image.Type.Simple;
                     image.preserveAspect = false;
-                    image.color = new Color(0f, 0f, 0f, 0f);
+                    image.color = new Color(0.82f, 0.89f, 0.98f, 1f);
                     image.raycastTarget = true;
                     label.text = "";
                     label.color = new Color(1f, 0.95f, 0.78f);
@@ -4371,22 +4379,20 @@ namespace BrickStacker
                 new Vector2(tacLeft, tacCy - tacH * 0.5f),
                 new Vector2(tacLeft + tacW, tacCy + tacH * 0.5f));
 
-            // Cột phụ BÊN PHẢI (NEXT + XOAY hoặc bàn đối thủ 1v1).
-            float sideRight = 0.965f;
-            float sideW = 0.155f;
-            float sideLeft = sideRight - sideW;
-
-            // Bàn xếp gạch GIỮA-PHẢI (dọc 2:1; 0.501 bù viền), căn giữa khoảng còn lại.
-            float gap = 0.03f;
+            // Bàn xếp gạch NGAY SAU bàn cờ (gap nhỏ) — các khung sát nhau, đỡ thưa.
+            float gap = 0.02f;
             float puzzleH = contentH;
             float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
-            float midLeft = tacLeft + tacW + gap;
-            float midRight = sideLeft - gap;
-            float puzzleLeft = (midLeft + midRight) * 0.5f - puzzleW * 0.5f;
-            if (puzzleLeft < midLeft) puzzleLeft = midLeft;
+            float puzzleLeft = tacLeft + tacW + gap;
             ApplySceneRect(scenePuzzleBoardAnchorRect,
                 new Vector2(puzzleLeft, bottom),
                 new Vector2(puzzleLeft + puzzleW, boardTop));
+
+            // Cột phụ BÊN PHẢI (NEXT + XOAY hoặc bàn đối thủ) — ngay sau bàn xếp gạch.
+            float sideW = 0.155f;
+            float sideLeft = puzzleLeft + puzzleW + 0.028f;
+            float sideRight = Mathf.Min(0.965f, sideLeft + sideW);
+            sideLeft = sideRight - sideW;
 
             float rotW = Mathf.Clamp(sideW * 0.60f, 0.062f, 0.098f);
             float rotH = rotW * aspect;

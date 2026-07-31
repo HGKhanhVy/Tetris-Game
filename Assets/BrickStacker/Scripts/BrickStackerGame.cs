@@ -4165,9 +4165,62 @@ namespace BrickStacker
             arf.aspectRatio = (float)bgSpr.texture.width / bgSpr.texture.height;
         }
 
+        bool gameplayFramesApplied;
+
+        // Thay khung gỗ cũ của bàn cờ / xếp gạch / NEXT bằng khung mới (screen-gameplay).
+        void EnsureGameplayFrames()
+        {
+            if (gameplayFramesApplied)
+                return;
+
+            bool anyReady = false;
+            anyReady |= SetGraphicFrame(sceneTacticalBoardRect, "screen-gameplay/frame-banco.png", new Rect(0.202f, 0.089f, 0.563f, 0.802f));
+            anyReady |= SetGraphicFrame(scenePuzzleBoardAnchorRect, "screen-gameplay/frame-xepgach.png", new Rect(0.238f, 0.112f, 0.520f, 0.786f));
+            anyReady |= SetGraphicFrame(sceneNextPanelRect, "screen-gameplay/frame-next.png", new Rect(0.344f, 0.063f, 0.313f, 0.848f));
+            if (anyReady)
+                gameplayFramesApplied = true;
+        }
+
+        // Thêm 1 frame con (first-sibling, fill) làm nền khung cho rect; tắt graphic gỗ cũ
+        // của rect (Image/RawImage) nhưng GIỮ text (TMP) nếu có. Tránh xung đột Graphic.
+        bool SetGraphicFrame(RectTransform rect, string asset, Rect crop)
+        {
+            if (rect == null)
+                return false;
+            var cropped = RuntimeArt.LoadV3SubSprite(asset, crop);
+            if (cropped == null)
+                return false;
+
+            var oldImg = rect.GetComponent<Image>();
+            if (oldImg != null) oldImg.enabled = false;
+            var oldRaw = rect.GetComponent<RawImage>();
+            if (oldRaw != null) oldRaw.enabled = false;
+
+            var existing = FindChildLoose(rect, "Runtime Frame");
+            Image img;
+            if (existing != null)
+            {
+                img = existing.GetComponent<Image>();
+            }
+            else
+            {
+                var go = Ui.Panel(rect, "Runtime Frame", Color.white);
+                Ui.Stretch(go);
+                img = go.GetComponent<Image>();
+            }
+            img.transform.SetAsFirstSibling();
+            img.sprite = cropped;
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
+            img.raycastTarget = false;
+            img.color = Color.white;
+            return true;
+        }
+
         void ApplyLandscapeGameplayRegionLayout(float aspect)
         {
             EnsureGameplayBackground();
+            EnsureGameplayFrames();
 
             const float top = 0.975f;
             const float bottom = 0.02f;

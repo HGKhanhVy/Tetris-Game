@@ -3573,16 +3573,12 @@ namespace BrickStacker
             BuildMissionIcon(box.transform, "popup-start/icon-player.png", new Rect(0.357f, 0.316f, 0.286f, 0.422f), new Vector2(0.045f, 0.80f));
             BuildMissionIcon(box.transform, "popup-start/icon-enemy.png", new Rect(0.367f, 0.340f, 0.266f, 0.383f), new Vector2(0.955f, 0.80f));
 
-            // BẮT ĐẦU (chữ lớn trắng).
-            var startBig = Ui.Text(box.transform, "BẮT ĐẦU", titleFont != null ? titleFont : font, 66, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
-            startBig.fontStyle = FontStyle.Bold; startBig.raycastTarget = false;
-            Ui.Rect(startBig, new Vector2(0.5f, 0.60f), new Vector2(0.5f, 0.60f), new Vector2(600, 100));
-            AddDarkWoodTextEdge(startBig, 1.1f, 0.5f);
-
-            // Phụ đề "Sẵn sàng chưa?".
-            missionDescText = Ui.Text(box.transform, "Sẵn sàng chưa?", font, 30, new Color(0.86f, 0.93f, 1f), TextAnchor.MiddleCenter);
+            // Phụ đề "Sẵn sàng chưa?" (chữ lớn, chính giữa phần thân popup).
+            missionDescText = Ui.Text(box.transform, "Sẵn sàng chưa?", titleFont != null ? titleFont : font, 56, new Color(1f, 0.99f, 0.95f), TextAnchor.MiddleCenter);
+            missionDescText.fontStyle = FontStyle.Bold;
             missionDescText.raycastTarget = false;
-            Ui.Rect(missionDescText, new Vector2(0.5f, 0.42f), new Vector2(0.5f, 0.42f), new Vector2(560, 50));
+            Ui.Rect(missionDescText, new Vector2(0.5f, 0.56f), new Vector2(0.5f, 0.56f), new Vector2(700, 110));
+            AddDarkWoodTextEdge(missionDescText, 1.0f, 0.5f);
 
             // Nút CHƠI (cam).
             var playBtn = Ui.Button(box.transform, "", font, 36, () =>
@@ -3599,9 +3595,14 @@ namespace BrickStacker
             var pbImg = playBtn.GetComponent<Image>();
             var playSpr = RuntimeArt.LoadV3SubSprite("popup-start/btn-batdau.png", new Rect(0.242f, 0.414f, 0.516f, 0.219f));
             if (playSpr != null) { pbImg.sprite = playSpr; pbImg.type = Image.Type.Simple; pbImg.preserveAspect = false; pbImg.color = Color.white; }
-            var playLabel = Ui.Text(playBtn.transform, "CHƠI", RuntimeArt.LoadMenuButtonFont(), 40, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+            var playLabel = Ui.Text(playBtn.transform, "CHƠI", RuntimeArt.LoadMenuButtonFont(), 52, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
             playLabel.fontStyle = FontStyle.Bold; playLabel.raycastTarget = false;
-            var plRt = playLabel.rectTransform; plRt.anchorMin = new Vector2(0.1f, 0.12f); plRt.anchorMax = new Vector2(0.9f, 0.78f); plRt.offsetMin = plRt.offsetMax = Vector2.zero;
+            playLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            playLabel.verticalOverflow = VerticalWrapMode.Overflow;
+            // Căn giữa hẳn trong nút (nút cam có phần nổi ~ giữa; nhích lên nhẹ cho cân thị giác).
+            var plRt = playLabel.rectTransform;
+            plRt.anchorMin = Vector2.zero; plRt.anchorMax = Vector2.one;
+            plRt.offsetMin = new Vector2(0f, 4f); plRt.offsetMax = new Vector2(0f, 4f);
             AddDarkWoodTextEdge(playLabel, 0.9f, 0.7f);
             var pf = playBtn.gameObject.GetComponent<PressScaleFeedback>() ?? playBtn.gameObject.AddComponent<PressScaleFeedback>();
             pf.PressedScale = 0.94f;

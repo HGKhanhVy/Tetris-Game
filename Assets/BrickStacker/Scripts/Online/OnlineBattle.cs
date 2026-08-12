@@ -153,10 +153,5 @@ namespace BrickStacker
             Health = Mathf.Max(0, Health - Mathf.Max(0, damage));
             return false;
         }
-
-        public void Heal(int amount)
-        {
-            Health = Mathf.Clamp(Health + Mathf.Max(0, amount), 0, Max);
-        }
     }
 }

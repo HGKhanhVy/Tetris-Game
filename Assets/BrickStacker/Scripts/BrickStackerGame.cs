@@ -1610,61 +1610,6 @@ namespace BrickStacker
 
         // Cập nhật máu/năng lượng/số lá kỹ năng cho HUD online.
 
-        Bounds CalculateScenePlayBounds(RectTransform root)
-        {
-            if (sceneBackgroundRect != null && sceneBackgroundRect.gameObject.activeInHierarchy)
-            {
-                Bounds backgroundBounds = CalculateSingleRectBounds(root, sceneBackgroundRect);
-                if (backgroundBounds.size.x > 1f && backgroundBounds.size.y > 1f)
-                    return backgroundBounds;
-            }
-
-            return CalculateSceneContentBounds(root);
-        }
-
-        Bounds CalculateSingleRectBounds(RectTransform root, RectTransform target)
-        {
-            var corners = new Vector3[4];
-            target.GetWorldCorners(corners);
-            Bounds bounds = new Bounds(root.InverseTransformPoint(corners[0]), Vector3.zero);
-            for (int i = 1; i < corners.Length; i++)
-                bounds.Encapsulate(root.InverseTransformPoint(corners[i]));
-            return bounds;
-        }
-
-        Bounds CalculateSceneContentBounds(RectTransform root)
-        {
-            var children = root.GetComponentsInChildren<RectTransform>(true);
-            var corners = new Vector3[4];
-            bool hasBounds = false;
-            Bounds bounds = new Bounds(Vector3.zero, Vector3.zero);
-            for (int i = 0; i < children.Length; i++)
-            {
-                var child = children[i];
-                if (child == null || child == root || !child.gameObject.activeInHierarchy || child == sceneBackgroundRect)
-                    continue;
-
-                child.GetWorldCorners(corners);
-                for (int c = 0; c < corners.Length; c++)
-                {
-                    Vector3 local = root.InverseTransformPoint(corners[c]);
-                    if (!hasBounds)
-                    {
-                        bounds = new Bounds(local, Vector3.zero);
-                        hasBounds = true;
-                    }
-                    else
-                    {
-                        bounds.Encapsulate(local);
-                    }
-                }
-            }
-
-            if (!hasBounds)
-                bounds = new Bounds(root.rect.center, root.rect.size);
-            return bounds;
-        }
-
         List<Image> CreatePiecePreview(Transform parent, Vector2 center, float cellSize)
         {
             var cells = new List<Image>();

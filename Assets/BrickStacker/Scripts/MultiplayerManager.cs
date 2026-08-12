@@ -14,6 +14,7 @@ namespace BrickStacker
     public static class MultiplayerMatch
     {
         public static bool Active;
+        public static bool Preview;   // solo xem thử giao diện online (không có mạng/đối thủ)
         public static int Level;
         public static int Seed;
 
@@ -47,6 +48,7 @@ namespace BrickStacker
         public static void Begin(int level, int seed)
         {
             Active = true;
+            Preview = false;
             Level = level;
             Seed = seed;
             OpponentScore = 0;
@@ -72,6 +74,7 @@ namespace BrickStacker
         public static void Reset()
         {
             Active = false;
+            Preview = false;
         }
     }
 
@@ -693,27 +696,6 @@ namespace BrickStacker
         }
 
         // Gửi hàng rác trừng phạt khi clear 3+ hàng cùng lúc (Reliable — không được mất).
-        public void SendGarbage(byte rows)
-        {
-            if (!matchStarted || rows == 0)
-                return;
-            // Trận đã kết thúc phía mình thì thôi.
-            if ((lastSentFlags & (FlagFinished | FlagLost)) != 0)
-                return;
-
-            var networkManager = NetworkManager.Singleton;
-            if (networkManager == null || !networkManager.IsListening)
-                return;
-
-            ulong target = networkManager.IsHost ? opponentClientId : NetworkManager.ServerClientId;
-            if (networkManager.IsHost && opponentClientId == ulong.MaxValue)
-                return;
-
-            using var writer = new FastBufferWriter(1, Allocator.Temp);
-            writer.WriteValueSafe(rows);
-            networkManager.CustomMessagingManager.SendNamedMessage(
-                GarbageMsg, target, writer, NetworkDelivery.ReliableSequenced);
-        }
 
         void OnGarbageMessage(ulong senderId, FastBufferReader reader)
         {

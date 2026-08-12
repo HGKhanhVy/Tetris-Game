@@ -246,25 +246,6 @@ namespace BrickStacker
             return input;
         }
 
-        async void SavePlayerName(GameObject box, InputField nameInput, Button saveBtn, Text nameStatus)
-        {
-            string name = nameInput.text != null ? nameInput.text.Trim() : "";
-            if (name.Length < 2)
-            {
-                nameStatus.text = "Tên cần ít nhất 2 ký tự.";
-                return;
-            }
-
-            saveBtn.interactable = false;
-            nameStatus.text = "Đang lưu tên...";
-            bool ok = await ServicesManager.SetPlayerNameAsync(name);
-            if (box == null) return; // popup đã đóng
-            nameStatus.text = ok
-                ? "Đã lưu tên: " + ServicesManager.PlayerName
-                : "Không lưu được tên. Kiểm tra mạng rồi thử lại.";
-            saveBtn.interactable = true;
-        }
-
         async void PopulateLeaderboard(GameObject overlay, RectTransform content, Text cupText, float rowH, Text statusLabel)
         {
             var names = new System.Collections.Generic.List<string>();

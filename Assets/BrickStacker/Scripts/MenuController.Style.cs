@@ -37,12 +37,11 @@ namespace BrickStacker
             background.sprite = null;
             background.type = Image.Type.Simple;
 
-            var icon = Ui.Panel(button.transform, "Back Arrow Icon", Color.white).GetComponent<Image>();
-            icon.sprite = RuntimeArt.CreateBackArrowSprite();
+            var icon = Ui.Panel(button.transform, "Close Icon", Color.white).GetComponent<Image>();
+            icon.sprite = RuntimeArt.LoadV3SubSprite("popup-1vs1/btn-close.png", new Rect(0.309f, 0.254f, 0.382f, 0.560f));
             icon.preserveAspect = true;
             icon.raycastTarget = false;
-            icon.color = new Color(1f, 0.84f, 0.48f, 1f);
-            Ui.Rect(icon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(34, 34));
+            Ui.Rect(icon, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(44, 44));
 
             var colors = button.colors;
             colors.normalColor = Color.white;

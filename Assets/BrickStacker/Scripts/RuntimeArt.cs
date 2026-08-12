@@ -28,7 +28,6 @@ namespace BrickStacker
         }
         static Sprite woodPanelSprite;
         static Sprite woodButtonSprite;
-        static Sprite backArrowSprite;
         static Sprite solidSprite;
         static Font displayFont;
         static Font uiFont;
@@ -229,19 +228,6 @@ namespace BrickStacker
             }
             texture.Apply();
             return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
-        }
-
-        public static Sprite CreateBackArrowSprite()
-        {
-            if (backArrowSprite != null)
-                return backArrowSprite;
-
-            var texture = Resources.Load<Texture2D>("BrickStacker/back_arrow");
-            if (texture == null)
-                return CreateWoodButtonSprite();
-
-            backArrowSprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f), 100f);
-            return backArrowSprite;
         }
 
         // Load sprite từ thư mục Assets-v3.0.

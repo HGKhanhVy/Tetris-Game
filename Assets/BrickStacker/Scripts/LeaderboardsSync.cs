@@ -8,11 +8,12 @@ using UnityEngine;
 namespace BrickStacker
 {
     // Gửi điểm và đọc bảng xếp hạng Unity Leaderboards.
-    // Leaderboard "daily" tạo trên Unity Dashboard — điểm cao nhất trong ngày của mỗi người chơi.
+    // Leaderboard "weekly" tạo trên Unity Dashboard (đặt Reset schedule = hàng tuần) —
+    // "cúp" = điểm cao nhất trong TUẦN của mỗi người chơi.
     // Gửi điểm là fire-and-forget: mất mạng chỉ log warning, không chặn gameplay.
     public static class LeaderboardsSync
     {
-        public const string DailyLeaderboardId = "daily";
+        public const string WeeklyLeaderboardId = "weekly";
 
         public static void SubmitScore(int score)
         {
@@ -27,7 +28,7 @@ namespace BrickStacker
             {
                 if (!await ServicesManager.EnsureSignedInAsync())
                     return;
-                await LeaderboardsService.Instance.AddPlayerScoreAsync(DailyLeaderboardId, score);
+                await LeaderboardsService.Instance.AddPlayerScoreAsync(WeeklyLeaderboardId, score);
                 Debug.Log($"[Leaderboards] Đã gửi điểm {score} lên bảng xếp hạng.");
             }
             catch (Exception e)
@@ -38,18 +39,18 @@ namespace BrickStacker
 
         // Trả về (top N, entry của người chơi hoặc null nếu chưa có điểm).
         // Ném exception khi lỗi mạng — UI bắt để hiện thông báo.
-        public static async Task<(List<LeaderboardEntry> Top, LeaderboardEntry Me)> LoadDailyAsync(int limit)
+        public static async Task<(List<LeaderboardEntry> Top, LeaderboardEntry Me)> LoadWeeklyAsync(int limit)
         {
             if (!await ServicesManager.EnsureSignedInAsync())
                 throw new InvalidOperationException("Chưa đăng nhập Unity Services");
 
             var page = await LeaderboardsService.Instance.GetScoresAsync(
-                DailyLeaderboardId, new GetScoresOptions { Limit = limit });
+                WeeklyLeaderboardId, new GetScoresOptions { Limit = limit });
 
             LeaderboardEntry me = null;
             try
             {
-                me = await LeaderboardsService.Instance.GetPlayerScoreAsync(DailyLeaderboardId);
+                me = await LeaderboardsService.Instance.GetPlayerScoreAsync(WeeklyLeaderboardId);
             }
             catch
             {

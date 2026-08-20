@@ -377,7 +377,9 @@ namespace BrickStacker
         // GD §12.3+§12.5: mỗi đòn tới xếp hàng đợi riêng, trễ warning trước khi trúng để kịp bật Khiên.
         readonly System.Collections.Generic.Queue<PendingAttack> pendingAttacks = new System.Collections.Generic.Queue<PendingAttack>();
         float lastAttackScheduledAt; // giãn cách MinAttackInterval giữa các đòn liên tiếp
-        Image attackFlashOverlay;   // viền đỏ nháy toàn màn
+        Image attackFlashOverlay;   // quầng đỏ vignette lan tỏa khi trúng đòn (bật/tắt theo cường độ)
+        float impactFlashUntil;     // nháy đậm đúng lúc trúng đòn (unscaled)
+        bool impactFlashStrong;     // đòn vừa trúng là đòn MẠNH → viền đậm hơn
         float nextAttackTime;       // chống spam: giãn cách giữa hai lần dùng kỹ năng
         Button attackButton;        // = skillGarbageButton (giữ tên cũ cho layout/legacy)
         RectTransform attackButtonRect;
@@ -592,6 +594,7 @@ namespace BrickStacker
                     ProcessIncomingAttacks();
                     CheckMatchTimeLimit();
                 }
+                UpdateOnlineHud(); // giữ 2 thanh máu/năng lượng luôn khớp máu mình + máu đối thủ (mạng)
                 ApplyPendingGarbage();
                 SendBoardSnapshotIfNeeded();
                 if (MultiplayerMatch.OpponentBoardDirty)
@@ -1640,6 +1643,32 @@ namespace BrickStacker
             _pillSprite = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f, 0,
                 SpriteMeshType.FullRect, new Vector4(r, r, r, r));
             return _pillSprite;
+        }
+
+        // Quầng sáng vignette: mờ hẳn ở giữa, đậm dần & feather mềm ra rìa → dùng cho hiệu ứng
+        // trúng đòn "lan tỏa" quanh mép màn (không phải viền vuông cứng).
+        static Sprite _vignetteSprite;
+        static Sprite VignetteSprite()
+        {
+            if (_vignetteSprite != null)
+                return _vignetteSprite;
+            int s = 128;
+            var tex = new Texture2D(s, s, TextureFormat.RGBA32, false)
+            { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            float c = (s - 1) * 0.5f;
+            for (int y = 0; y < s; y++)
+                for (int x = 0; x < s; x++)
+                {
+                    float nx = (x - c) / c, ny = (y - c) / c;      // -1..1
+                    float d = Mathf.Sqrt(nx * nx + ny * ny) / 1.41421356f; // 0 giữa .. 1 góc
+                    // Trong suốt tới ~0.30 rồi feather mềm lên rìa (phạm vi rộng, mép mượt).
+                    float a = Mathf.SmoothStep(0.30f, 1f, d);
+                    a = Mathf.Pow(a, 1.25f);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            _vignetteSprite = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
+            return _vignetteSprite;
         }
 
         // Rãnh máu bo tròn (xanh-đậm hòa panel) + fill xanh bo tròn, thụt vào chút.

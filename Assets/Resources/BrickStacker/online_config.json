@@ -1,14 +1,32 @@
 {
-  "maxHealth": 10,
+  "initialHealth": 100,
+  "maxHealth": 100,
   "maxEnergy": 10,
-  "attackCost": 3,
-  "attackDamage": 2,
-  "attackWarning": 0.75,
-  "shieldCost": 2,
-  "shieldBlocks": 1,
-  "garbageCost": 5,
-  "garbageLines": 1,
-  "garbageWarning": 2.0,
-  "maxComboBonusEnergy": 3,
+  "maxShieldCharge": 2,
+  "activeShieldHP": 16,
+  "activeShieldDuration": 4.0,
+
+  "basicAttackDamage": 8,
+  "strongAttackDamage": 16,
+  "basicAttackWarning": 0.75,
+  "strongAttackWarning": 1.0,
+  "minAttackInterval": 0.5,
+
+  "shieldChargeBasic": 1,
+  "shieldChargeStrong": 2,
+  "energyBasic": 3,
+  "energyStrong": 5,
+
+  "garbageDropCost": 4,
+  "garbageDropLines": 1,
+  "garbageDropWarning": 2.0,
+  "lifeDrainCost": 4,
+  "lifeDrainDamage": 16,
+  "lifeDrainWarning": 0.75,
+  "overloadCost": 7,
+  "overloadDamage": 25,
+  "overloadShieldPierce": 8,
+  "overloadWarning": 1.5,
+
   "maxMatchSeconds": 180
 }

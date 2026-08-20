@@ -640,6 +640,7 @@ namespace BrickStacker
                 nextAttackTime = 0f;
                 pendingAttacks.Clear();
                 lastAttackScheduledAt = 0f;
+                impactFlashUntil = 0f;
                 RefreshSkillBar();
             }
 

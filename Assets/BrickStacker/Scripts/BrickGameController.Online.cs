@@ -394,10 +394,19 @@ namespace BrickStacker
 
             if (!gameOver && !resolving)
             {
-                byte activeValue = (byte)(currentType >= 0 ? currentType + 1 : 8);
+                // Cụm v3: ghi ĐÚNG tài nguyên từng ô (Encode = resource+1) để bàn đối thủ hiện đúng
+                // sprite; chế độ cũ giữ shape index+1. Thứ tự ô khớp activeResources như lúc khóa.
+                bool clusters = rules != null && rules.UseResourceClusters && activeResources != null;
+                byte fallback = (byte)(currentType >= 0 ? currentType + 1 : 8);
+                int i = 0;
                 foreach (var cell in Cells(origin, rotation))
+                {
                     if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height)
-                        boardSnapshot[cell.x + cell.y * Width] = activeValue;
+                        boardSnapshot[cell.x + cell.y * Width] = clusters && i < activeResources.Length
+                            ? (byte)Puzzle.GridBridge.Encode(activeResources[i])
+                            : fallback;
+                    i++;
+                }
             }
 
             if (tacticalSnapshot == null)
@@ -780,10 +789,17 @@ namespace BrickStacker
             if (atk.Skill == OnlineSkill.LifeDrain && lost > 0)
                 MultiplayerManager.Instance?.SendSkill(OnlineSkill.DrainHeal, (byte)Mathf.Clamp(lost, 1, 255));
 
+            bool strong = atk.Skill == OnlineSkill.OverloadBlast
+                || atk.Damage >= OnlineConfig.AttackDamage(AttackTier.Strong);
             bool blocked = shieldWasActive && lost < atk.Damage;
             bool hit = lost > 0;
             if (hit)
-                VibrateOnHit();
+            {
+                VibrateOnHit(strong);
+                // Nháy viền ĐẬM đúng lúc trúng: đòn mạnh đậm & lâu hơn.
+                impactFlashUntil = Time.unscaledTime + (strong ? 0.42f : 0.26f);
+                impactFlashStrong = strong;
+            }
             RefreshSkillBar();
             SendMultiplayerState();
             if (tacticalBoard != null)
@@ -792,7 +808,7 @@ namespace BrickStacker
                     : "Trúng đòn! Máu còn " + healthSystem.Health + "/" + healthSystem.Max;
                 RefreshTacticalBoardUi();
             }
-            shake = 0.2f;
+            shake = strong ? 0.35f : 0.18f;
 
             if (healthSystem.IsDead)
             {
@@ -803,16 +819,54 @@ namespace BrickStacker
             }
         }
 
-        // Rung nhẹ khi trúng đòn (chỉ trên thiết bị di động thật, không rung trong Editor).
-        static void VibrateOnHit()
+        // Rung khi trúng đòn, phân biệt rõ nặng/nhẹ (chỉ thiết bị thật, bỏ qua Editor).
+        // Đòn mạnh: rung dài + biên độ cao + 2 nhịp; đòn nhẹ: một nhịp ngắn.
+        static void VibrateOnHit(bool strong)
         {
-#if UNITY_ANDROID || UNITY_IOS
-            if (!Application.isEditor)
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                using (var vibrator = activity.Call<AndroidJavaObject>("getSystemService", "vibrator"))
+                {
+                    if (vibrator == null || !vibrator.Call<bool>("hasVibrator"))
+                    {
+                        Handheld.Vibrate();
+                        return;
+                    }
+                    int sdk = new AndroidJavaClass("android.os.Build$VERSION").GetStatic<int>("SDK_INT");
+                    if (sdk >= 26)
+                    {
+                        using (var effectClass = new AndroidJavaClass("android.os.VibrationEffect"))
+                        {
+                            AndroidJavaObject effect = strong
+                                // đòn mạnh: rung dài & liên hồi, biên độ tối đa (dồn dập, đô rõ)
+                                ? effectClass.CallStatic<AndroidJavaObject>("createWaveform",
+                                    new long[] { 0, 380, 90, 380, 90, 260 }, new int[] { 0, 255, 0, 255, 0, 255 }, -1)
+                                : effectClass.CallStatic<AndroidJavaObject>("createOneShot", 220L, 255);
+                            vibrator.Call("vibrate", effect);
+                        }
+                    }
+                    else if (strong)
+                        vibrator.Call("vibrate", new long[] { 0, 380, 90, 380, 90, 260 }, -1);
+                    else
+                        vibrator.Call("vibrate", 220L);
+                }
+            }
+            catch
+            {
                 Handheld.Vibrate();
+            }
+#elif UNITY_IOS && !UNITY_EDITOR
+            Handheld.Vibrate();
+            if (strong)
+                Handheld.Vibrate(); // iOS chỉ có một kiểu rung — đòn mạnh rung 2 lần cho nặng hơn
 #endif
         }
 
-        // Viền đỏ nháy toàn màn khi đang có đòn chờ (GD §12.3) — mờ dần khi gần trúng.
+        // Quầng đỏ LAN TỎA từ mép màn vào (vignette mềm, không viền vuông) khi có đòn chờ và
+        // đậm hẳn lúc trúng (GD §12.3). Đòn càng mạnh quầng càng đỏ đậm + phập phồng mạnh.
         void UpdateAttackFlash()
         {
             EnsureAttackFlashOverlay();
@@ -820,19 +874,37 @@ namespace BrickStacker
                 return;
 
             float alpha = 0f;
+            bool strongState = false;
+            // Cảnh báo đòn đang chờ: quầng thở nhẹ, đòn mạnh đậm hơn, gần trúng đậm hơn.
             if (pendingAttacks.Count > 0)
             {
-                // Theo đòn sắp trúng sớm nhất: nhấp nháy nhanh, đậm hơn khi gần trúng.
                 var next = pendingAttacks.Peek();
                 float remain = Mathf.Max(0f, next.ApplyAt - Time.unscaledTime);
-                // Nhẹ, không che khuất bàn (§12.3): alpha thấp, nháy.
-                float urgency = next.Damage >= OnlineConfig.AttackDamage(AttackTier.Strong) ? 0.18f : 0.12f;
-                float pulse = 0.55f + 0.45f * Mathf.Sin(Time.unscaledTime * 18f);
-                alpha = urgency * pulse * (remain < 1.2f ? 1f : 0.8f);
+                bool strong = next.Damage >= OnlineConfig.AttackDamage(AttackTier.Strong);
+                strongState |= strong;
+                float baseA = strong ? 0.55f : 0.30f;
+                float pulse = 0.55f + 0.45f * Mathf.Sin(Time.unscaledTime * (strong ? 20f : 14f));
+                alpha = baseA * pulse * (remain < 1.2f ? 1f : 0.8f);
             }
-            var c = attackFlashOverlay.color;
-            attackFlashOverlay.color = new Color(0.92f, 0.12f, 0.10f, alpha);
-            attackFlashOverlay.enabled = alpha > 0.01f;
+            // Bùng đậm đúng lúc trúng (mờ dần), đè lên cảnh báo.
+            bool impacting = Time.unscaledTime < impactFlashUntil;
+            if (impacting)
+            {
+                strongState |= impactFlashStrong;
+                float span = impactFlashStrong ? 0.42f : 0.26f;
+                float k = Mathf.Clamp01((impactFlashUntil - Time.unscaledTime) / span);
+                alpha = Mathf.Max(alpha, (impactFlashStrong ? 1f : 0.72f) * k);
+            }
+
+            bool on = alpha > 0.01f;
+            attackFlashOverlay.enabled = on;
+            if (!on)
+                return;
+
+            attackFlashOverlay.color = new Color(strongState ? 0.82f : 0.95f, 0.10f, 0.08f, Mathf.Clamp01(alpha));
+            // "Bay bay": quầng phập phồng nhẹ về kích thước cho cảm giác lan tỏa, mạnh hơn khi đòn mạnh.
+            float breathe = 1f + (strongState ? 0.06f : 0.035f) * (0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 9f));
+            attackFlashOverlay.rectTransform.localScale = new Vector3(breathe, breathe, 1f);
         }
 
         void EnsureAttackFlashOverlay()
@@ -844,10 +916,12 @@ namespace BrickStacker
             if (parent == null)
                 return;
 
-            // Viền: dùng sprite khung rỗng-giữa nếu có; else Image full-screen alpha thấp (không che bàn).
-            var go = Ui.Panel(parent, "Runtime Attack Flash", new Color(0.92f, 0.12f, 0.10f, 0f));
-            Ui.Stretch(go);
+            // Quầng vignette full-screen, tràn ra ngoài mép một chút để mép ngoài không bị cắt cứng.
+            var go = Ui.Panel(parent, "Runtime Attack Flash", new Color(0.95f, 0.10f, 0.08f, 0f));
             var img = go.GetComponent<Image>();
+            Ui.Rect(go, new Vector2(-0.08f, -0.08f), new Vector2(1.08f, 1.08f), Vector2.zero);
+            img.sprite = VignetteSprite();
+            img.type = Image.Type.Simple;
             img.raycastTarget = false;
             img.enabled = false;
             go.transform.SetAsLastSibling();

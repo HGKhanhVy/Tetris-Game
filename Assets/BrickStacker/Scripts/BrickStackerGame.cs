@@ -94,74 +94,112 @@ namespace BrickStacker
             var panel = Ui.Panel(safe.transform, "Panel", new Color(0, 0, 0, 0));
             Ui.Stretch(panel);
 
-            // Hai nút chính dưới giữa: BẮT ĐẦU (cam) · ĐẤU 1 VS 1 (xanh) — icon trái, chữ phải.
-            var startBtn = BuildMenuActionButton(panel.transform, "screen-menu/btn-batdau.png",
-                new Rect(0.067f, 0.333f, 0.792f, 0.355f), "BẮT ĐẦU", new Vector2(0.283f, 0.125f), 430f, 3.34f, 38, 0.32f,
-                () => { RuntimeArt.PlayUiSwitchSound(); SceneManager.LoadScene("BrickLevel"); });
-            StartCoroutine(PulseButton(startBtn.transform, null));
-
-            BuildMenuActionButton(panel.transform, "screen-menu/btn-1vs1.png",
-                new Rect(0.110f, 0.335f, 0.840f, 0.340f), "ĐẤU 1 VS 1", new Vector2(0.717f, 0.125f), 450f, 3.71f, 32, 0.30f,
-                () => { RuntimeArt.PlayUiSwitchSound(); MultiplayerManager.PrewarmQuickQuery(); ShowMultiplayerOverlay(panel.transform); });
-
-            // Hai icon tròn góc trên-trái: hướng dẫn (trên) · bảng xếp hạng (dưới) — giãn nhẹ.
-            BuildMenuIconButton(panel.transform, "screen-menu/btn-guide.png",
-                new Rect(0.100f, 0.232f, 0.800f, 0.570f), new Vector2(0.052f, 0.880f), 118f,
-                () => { RuntimeArt.PlayUiSwitchSound(); ShowTutorialOverlay(panel.transform); });
-
-            BuildMenuIconButton(panel.transform, "screen-menu/btn-bxh.png",
-                new Rect(0.237f, 0.093f, 0.513f, 0.790f), new Vector2(0.052f, 0.690f), 118f,
-                () => { RuntimeArt.PlayUiSwitchSound(); ShowLeaderboardOverlay(panel.transform); });
+            // Bố cục v3.0: tiêu đề BLOCK FALL + trang trí nổi bên trái, khung nút xanh bên phải.
+            BuildMenuTitle(panel.transform);
+            BuildMenuButtonFrame(panel.transform);
         }
 
-        // Nút ngang lớn dùng sprite đã crop gọn (icon trái, chữ phải). widthPx: bề ngang trên
-        // canvas ref; aspect: tỉ lệ ngang/dọc của vùng crop; textLeftFrac: chữ bắt đầu sau icon.
-        Button BuildMenuActionButton(Transform parent, string spriteAsset, Rect crop, string label,
-            Vector2 anchor, float widthPx, float aspect, int fontSize, float textLeftFrac, UnityEngine.Events.UnityAction action)
+        // Tiêu đề game bên trái + 4 khối trang trí nổi (kiếm/sét/khiên/ủng) bồng bềnh quanh nó.
+        void BuildMenuTitle(Transform panel)
         {
-            var button = Ui.Button(parent, "", font, fontSize, action);
-            var rt = button.GetComponent<RectTransform>();
+            var title = MakeV3Image(panel, "Title", "screen-menu/title-game.png", FullCrop, false);
+            PlaceV3(title, new Vector2(0.360f, 0.55f), new Vector2(580f, 435f));
+
+            // Gán theo nội dung ảnh: kiếm đỏ trên-trái, sét vàng trên, khiên xanh dưới-trái, ủng xanh dưới-phải.
+            AddMenuDecor(panel, "screen-menu/decor-2.png", new Vector2(0.125f, 0.72f), 82f, 0.9f);
+            AddMenuDecor(panel, "screen-menu/decor-3.png", new Vector2(0.510f, 0.83f), 96f, 1.2f);
+            AddMenuDecor(panel, "screen-menu/decor-1.png", new Vector2(0.175f, 0.26f), 100f, 1.1f);
+            AddMenuDecor(panel, "screen-menu/decor-4.png", new Vector2(0.485f, 0.20f), 84f, 1.0f);
+        }
+
+        // Khung nút xanh bên phải (khung-btn) chứa 4 nút dọc đã có sẵn chữ.
+        void BuildMenuButtonFrame(Transform panel)
+        {
+            var frame = MakeV3Image(panel, "Button Frame", "screen-menu/khung-btn.png", FullCrop, false);
+            const float frameHeight = 620f;
+            const float frameAspect = 1067f / 1474f; // tỉ lệ ngang/dọc của ảnh khung mới
+            PlaceV3(frame, new Vector2(0.735f, 0.5f), new Vector2(frameHeight * frameAspect, frameHeight));
+
+            // 4 nút chia đều trong lòng khung (tâm theo chiều dọc, fraction từ đáy).
+            // Mỗi ảnh có vùng plate đục lệch nhau → cắt về đúng plate rồi đặt vào cùng
+            // một kích thước cố định để 4 nút bằng nhau tuyệt đối (crop chuẩn hóa gốc dưới-trái).
+            BuildFrameButton(frame.transform, "screen-menu/btn-batdau.png", new Rect(0.0488f, 0.1285f, 0.9015f, 0.7804f), 0.725f, true,
+                () => { RuntimeArt.PlayUiSwitchSound(); SceneManager.LoadScene("BrickLevel"); });
+            BuildFrameButton(frame.transform, "screen-menu/btn-1vs1.png", new Rect(0.0488f, 0.1050f, 0.9052f, 0.8232f), 0.575f, false,
+                () => { RuntimeArt.PlayUiSwitchSound(); MultiplayerManager.PrewarmQuickQuery(); ShowMultiplayerOverlay(panel); });
+            BuildFrameButton(frame.transform, "screen-menu/btn-huongdan.png", new Rect(0.0345f, 0.0801f, 0.9346f, 0.8066f), 0.425f, false,
+                () => { RuntimeArt.PlayUiSwitchSound(); ShowTutorialOverlay(panel); });
+            BuildFrameButton(frame.transform, "screen-menu/btn-bxh.png", new Rect(0.0580f, 0.1091f, 0.8840f, 0.7831f), 0.275f, false,
+                () => { RuntimeArt.PlayUiSwitchSound(); ShowLeaderboardOverlay(panel); });
+        }
+
+        static readonly Rect FullCrop = new Rect(0f, 0f, 1f, 1f);
+
+        // Đặt một Image theo anchor giữa (fraction màn/khung) và kích thước cố định.
+        static void PlaceV3(Image img, Vector2 anchor, Vector2 size)
+        {
+            var rt = img.rectTransform;
             rt.anchorMin = rt.anchorMax = anchor;
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(widthPx, widthPx / aspect);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = size;
+        }
+
+        // Khối trang trí nổi + bồng bềnh nhẹ (không bắt click) tạo chiều sâu cho tiêu đề.
+        void AddMenuDecor(Transform panel, string spriteAsset, Vector2 anchor, float sizePx, float bobSpeed)
+        {
+            var decor = MakeV3Image(panel, "Decor", spriteAsset, FullCrop, false);
+            PlaceV3(decor, anchor, new Vector2(sizePx, sizePx));
+            StartCoroutine(BobDecor(decor.rectTransform, bobSpeed, sizePx * 0.06f));
+        }
+
+        // Kích thước plate hiển thị dùng chung cho cả 4 nút (fraction bề ngang khung + tỉ lệ ngang/dọc).
+        const float ButtonPlateWidthFrac = 0.66f;
+        const float ButtonPlateAspect = 3.4f;
+
+        // Nút trong khung: cắt sprite về đúng vùng plate rồi ép vào một kích thước cố định
+        // (preserveAspect=false) để mọi nút bằng nhau bất kể lề trong ảnh gốc lệch nhau.
+        Button BuildFrameButton(Transform frame, string spriteAsset, Rect plateCrop, float centerYFrac, bool pulse, UnityEngine.Events.UnityAction action)
+        {
+            var button = Ui.Button(frame, "", font, 1, action);
+            var text = button.GetComponentInChildren<Text>();
+            if (text != null) Destroy(text.gameObject);
+
+            var rt = button.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, centerYFrac);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            var frameSize = ((RectTransform)frame).sizeDelta;
+            float buttonWidth = frameSize.x * ButtonPlateWidthFrac;
+            rt.sizeDelta = new Vector2(buttonWidth, buttonWidth / ButtonPlateAspect);
 
             var img = button.GetComponent<Image>();
-            var spr = RuntimeArt.LoadV3SubSprite(spriteAsset, crop);
-            if (spr != null) { img.sprite = spr; img.type = Image.Type.Simple; img.preserveAspect = true; img.color = Color.white; }
+            var spr = RuntimeArt.LoadV3SubSprite(spriteAsset, plateCrop);
+            if (spr != null) { img.sprite = spr; img.type = Image.Type.Simple; img.preserveAspect = false; img.color = Color.white; }
             else img.color = new Color(0.72f, 0.48f, 0.14f);
 
-            var txt = Ui.Text(button.transform, label, RuntimeArt.LoadMenuButtonFont(), fontSize, new Color(1f, 0.98f, 0.88f), TextAnchor.MiddleCenter);
-            txt.fontStyle = FontStyle.Bold;
-            txt.horizontalOverflow = HorizontalWrapMode.Overflow;
-            txt.raycastTarget = false;
-            var txtRt = txt.rectTransform;
-            txtRt.anchorMin = new Vector2(textLeftFrac, 0.14f);
-            txtRt.anchorMax = new Vector2(0.965f, 0.86f);
-            txtRt.offsetMin = txtRt.offsetMax = Vector2.zero;
-            AddDarkWoodTextEdge(txt, 1.1f, 0.92f);
-            var outline = txt.GetComponent<Outline>();
-            if (outline != null) { outline.effectColor = Color.black; outline.effectDistance = new Vector2(Mathf.Max(2f, fontSize * 0.07f), Mathf.Max(2f, fontSize * 0.07f)); }
+            var colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.94f, 0.80f, 1f);
+            colors.pressedColor = new Color(0.80f, 0.80f, 0.85f, 1f);
+            colors.selectedColor = Color.white;
+            button.colors = colors;
 
-            AddPressScaleFeedback(button.gameObject, 0.94f);
+            AddPressScaleFeedback(button.gameObject, 0.95f);
+            if (pulse) StartCoroutine(PulseButton(button.transform, null));
             return button;
         }
 
-        // Nút icon tròn (crop lấy đúng vòng tròn từ sprite) — dùng cho hướng dẫn / BXH.
-        Button BuildMenuIconButton(Transform parent, string spriteAsset, Rect crop, Vector2 anchor, float sizePx, UnityEngine.Events.UnityAction action)
+        // Bồng bềnh lên xuống nhẹ cho khối trang trí menu.
+        System.Collections.IEnumerator BobDecor(RectTransform rt, float speed, float amplitude)
         {
-            var button = Ui.Button(parent, "", font, 1, action);
-            var rt = button.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = anchor;
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(sizePx, sizePx);
-
-            var img = button.GetComponent<Image>();
-            var spr = RuntimeArt.LoadV3SubSprite(spriteAsset, crop);
-            if (spr != null) { img.sprite = spr; img.type = Image.Type.Simple; img.preserveAspect = true; img.color = Color.white; }
-            else img.color = new Color(0.9f, 0.7f, 0.2f);
-
-            AddPressScaleFeedback(button.gameObject, 0.90f);
-            return button;
+            Vector2 basePos = rt.anchoredPosition;
+            float phase = UnityEngine.Random.value * Mathf.PI * 2f;
+            while (rt != null)
+            {
+                float y = amplitude * Mathf.Sin(Time.time * speed * Mathf.PI + phase);
+                rt.anchoredPosition = basePos + new Vector2(0f, y);
+                yield return null;
+            }
         }
 
         // Nút bảng xếp hạng góc phải dưới, đối xứng với nút Hướng dẫn góc trái.
@@ -287,8 +325,10 @@ namespace BrickStacker
 
     public partial class BrickGameController : MonoBehaviour
     {
-        const int Width = 10;
-        const int Height = 20;
+        // Khớp lưới IN của khung frame-xepgach: 7 cột (đo chắc). Hàng = 17: Height=19 làm khối thấp
+        // hơn ô khung, Height=15 làm cao hơn → 17 khớp (ô vuông trong sprite 1165/68≈17). Khác GD.
+        const int Width = 7;
+        const int Height = 17;
         readonly Color[] palette =
         {
             new Color(0.34f, 0.86f, 0.86f), new Color(0.34f, 0.62f, 0.98f), new Color(1.00f, 0.48f, 0.20f),
@@ -334,6 +374,10 @@ namespace BrickStacker
         int lastBoardHash;
         float garbageWarnUntil;     // > 0 = đang nhấp nháy cảnh báo rác sắp vào
         Text garbageWarningText;
+        // GD §12.3+§12.5: mỗi đòn tới xếp hàng đợi riêng, trễ warning trước khi trúng để kịp bật Khiên.
+        readonly System.Collections.Generic.Queue<PendingAttack> pendingAttacks = new System.Collections.Generic.Queue<PendingAttack>();
+        float lastAttackScheduledAt; // giãn cách MinAttackInterval giữa các đòn liên tiếp
+        Image attackFlashOverlay;   // viền đỏ nháy toàn màn
         float nextAttackTime;       // chống spam: giãn cách giữa hai lần dùng kỹ năng
         Button attackButton;        // = skillGarbageButton (giữ tên cũ cho layout/legacy)
         RectTransform attackButtonRect;
@@ -452,6 +496,14 @@ namespace BrickStacker
         bool movedHorizontallyThisFrame;
 
         int[,] grid = new int[Width, Height];
+        // GD v3 – cơ chế ghép cụm tài nguyên (bật qua rules.UseResourceClusters).
+        Sprite[] resourceSprites;
+        Puzzle.PuzzleBoard puzzleBoard;
+        Puzzle.ClusterResolutionSystem clusterResolver;
+        Puzzle.ResourceBagService resourceBag;
+        Puzzle.ResourceType[] activeResources;
+        Puzzle.ResourceType[] nextResources; // tài nguyên đã sinh trước cho mô hình kế (khớp ô Next)
+        readonly System.Random puzzleRng = new System.Random();
         GameObject[,] lockedBlocks = new GameObject[Width, Height];
         List<GameObject> activeBlocks = new List<GameObject>();
         List<GameObject> ghostBlocks = new List<GameObject>();
@@ -505,6 +557,7 @@ namespace BrickStacker
             bestScore = PlayerPrefs.GetInt(BestScoreKey(), 0);
             blockSprite = RuntimeArt.CreateBlockSprite();
             pieceBlockSprites = RuntimeArt.LoadPieceBlockSprites();
+            resourceSprites = RuntimeArt.LoadResourceSprites();
             BuildWorld();
             BuildUi();
             // Trận 1v1 không có khái niệm màn/sao — vào thẳng, khỏi popup nhiệm vụ.
@@ -532,6 +585,7 @@ namespace BrickStacker
 
             if (MultiplayerMatch.Active)
             {
+                healthSystem.Tick(Time.deltaTime); // GD §13: đếm giờ Active Shield
                 if (!gameOver)
                 {
                     CheckOpponentMatchEvents();
@@ -972,7 +1026,8 @@ namespace BrickStacker
                 float previewCellSize = 24f;
                 if (nextWidgetRect != null && nextWidgetRect.rect.width > 1f)
                     previewCellSize = Mathf.Clamp(nextWidgetRect.rect.width * 0.16f, 18f, 36f);
-                nextPreviewCells = CreatePiecePreview(nextPreview, new Vector2(0.5f, 0.5f), previewCellSize);
+                nextPreviewCells = CreatePiecePreview(nextPreview, new Vector2(0.5f, 0.60f), previewCellSize);
+                AddNextPreviewBg(nextPreview);
             }
 
             BindSceneTacticalCells(contentRoot);
@@ -1241,19 +1296,26 @@ namespace BrickStacker
             scenePuzzleSlots = new RectTransform[Width, Height];
             ClearRuntimeChild(scenePuzzleBoardAnchorRect, "Runtime Puzzle Grid");
 
+            // GD v3: VẼ LƯỚI Ô CỦA RIÊNG MÌNH — che lưới in mờ của khung để mô hình rơi LUÔN khít
+            // ô hiển thị (lưới hiển thị = lưới runtime). Nền navy đậm lấp vùng trong khung; khe hở
+            // giữa các ô lộ nền = đường kẻ lưới rõ ràng.
+            ClearRuntimeChild(scenePuzzleBoardAnchorRect, "Puzzle Board Cover");
+
             var gridRoot = new GameObject("Runtime Puzzle Grid", typeof(RectTransform));
             gridRoot.transform.SetParent(scenePuzzleBoardAnchorRect, false);
             var gridRect = gridRoot.GetComponent<RectTransform>();
             scenePuzzleGridRect = gridRect;
-            FitScenePuzzleGridToAnchor();
+            FitScenePuzzleGridToAnchor(); // neo lưới lấp vùng trong khung theo tỉ lệ
             gridRect.SetAsLastSibling();
 
-            // Nền lưới game 10×20 phủ kín lưới in trên khung (khung ~8 cột ≠ game 10 → lệch).
-            // Màu = đường kẻ (navy nhạt hơn board); khe hở giữa ô lộ ra thành lưới sạch.
-            var pGridBg = Ui.Panel(gridRoot.transform, "Puzzle Grid BG", new Color(0.10f, 0.20f, 0.38f, 1f));
-            Ui.Stretch(pGridBg);
-            pGridBg.GetComponent<Image>().raycastTarget = false;
+            // Nền lưới (đường kẻ): navy đậm, phủ kín vùng lưới → che lưới in của khung.
+            var gridBg = Ui.Panel(gridRoot.transform, "Puzzle Grid BG", new Color(0.035f, 0.075f, 0.16f, 1f));
+            Ui.Stretch(gridBg);
+            gridBg.GetComponent<Image>().raycastTarget = false;
 
+            // Ô neo theo TỈ LỆ, có khe hở nhỏ → gaps lộ nền = đường lưới. Ô trống = tile navy nhạt
+            // (nhìn rõ từng ô để di chuyển mô hình); ô có tài nguyên = khối lấp đầy.
+            const float cellGap = 0.035f;
             for (int y = 0; y < Height; y++)
             {
                 for (int x = 0; x < Width; x++)
@@ -1264,16 +1326,16 @@ namespace BrickStacker
                     cell.preserveAspect = true;
                     cell.raycastTarget = false;
                     var rect = cell.rectTransform;
-                    rect.anchorMin = new Vector2(0.5f, 0.5f);
-                    rect.anchorMax = new Vector2(0.5f, 0.5f);
+                    rect.anchorMin = new Vector2((x + cellGap) / Width, (y + cellGap) / Height);
+                    rect.anchorMax = new Vector2((x + 1f - cellGap) / Width, (y + 1f - cellGap) / Height);
+                    rect.offsetMin = Vector2.zero;
+                    rect.offsetMax = Vector2.zero;
                     rect.pivot = new Vector2(0.5f, 0.5f);
                     rect.localScale = Vector3.one;
                     scenePuzzleSlots[x, y] = rect;
                     scenePuzzleCells[x, y] = cell;
                 }
             }
-
-            RefreshScenePuzzleCellSizes();
         }
 
         void ClearRuntimeChild(Transform parent, string childName)
@@ -1296,6 +1358,7 @@ namespace BrickStacker
         // Sprite chướng ngại vật (chuongngaivat) — xen kẽ khối xanh / bụi xanh lá như thiết kế.
 
         int hudCachedMoveBank = int.MinValue;
+        int hudCachedShield = int.MinValue;
         int hudCachedLevel = -1;
         bool hudCachedMultiplayer;
 
@@ -1316,18 +1379,21 @@ namespace BrickStacker
             }
 
             int moveBank = tacticalBoard != null ? tacticalBoard.MoveBank : 0;
+            int shieldLayers = tacticalBoard != null ? tacticalBoard.ShieldLayers : 0;
             // Offline: kèm đồng hồ đếm ngược trước lượt tự đi của quái (design §2.7).
             int monsterSecond = -1;
             if (!MultiplayerMatch.Active && tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Running)
                 monsterSecond = Mathf.CeilToInt(Mathf.Max(0f, tacticalBoard.MonsterTimer));
 
-            if (sceneMoveText != null && (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond))
+            if (sceneMoveText != null && (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond || shieldLayers != hudCachedShield))
             {
                 hudCachedMoveBank = moveBank;
                 hudCachedMonsterSecond = monsterSecond;
+                hudCachedShield = shieldLayers;
+                string shieldPart = shieldLayers > 0 ? "   Khiên: " + shieldLayers : "";
                 sceneMoveText.text = monsterSecond >= 0
-                    ? "Lượt đi: " + moveBank + "   Quái đi sau: " + monsterSecond + "s"
-                    : "Lượt đi: " + moveBank;
+                    ? "Lượt đi: " + moveBank + shieldPart + "   Quái đi sau: " + monsterSecond + "s"
+                    : "Lượt đi: " + moveBank + shieldPart;
             }
 
             if (sceneNextText != null && sceneNextText.text != "TIẾP")
@@ -1394,7 +1460,8 @@ namespace BrickStacker
                 {
                     nextWidgetRect = nextPreview.GetComponent<RectTransform>();
                     sceneNextPreviewRect = nextWidgetRect;
-                    nextPreviewCells = CreatePiecePreview(nextPreview, new Vector2(0.5f, 0.5f), CalculatePreviewCellSize(sceneNextPreviewRect));
+                    nextPreviewCells = CreatePiecePreview(nextPreview, new Vector2(0.5f, 0.60f), CalculatePreviewCellSize(sceneNextPreviewRect));
+                    AddNextPreviewBg(nextPreview);
                     rebuiltPreview = true;
                 }
             }
@@ -1404,7 +1471,7 @@ namespace BrickStacker
             if (rebuiltTactical)
                 RefreshTacticalBoardUi();
             if (rebuiltPreview && nextPreviewCells != null && nextPreviewCells.Count > 0 && nextBag.Count > 0)
-                RenderPiecePreview(nextPreviewCells, PeekNext(0), true);
+                RenderPiecePreview(nextPreviewCells, PeekNext(0), true, nextResources);
         }
 
         TMP_FontAsset PopupTitleFont()
@@ -1627,6 +1694,30 @@ namespace BrickStacker
                 cells.Add(cell);
             }
             return cells;
+        }
+
+        // Nền navy che lưới in mờ của khung NEXT (giống bàn chính) — đặt SAU các ô preview để nằm
+        // dưới. Idempotent: chỉ tạo 1 lần.
+        void AddNextPreviewBg(Transform nextPreview)
+        {
+            if (nextPreview == null)
+                return;
+
+            // Neo nền vào KHUNG NEXT (parent của NextPreview) để lấp đúng vùng lưới in TRONG khung
+            // (không tràn ra ngoài). Chừa đỉnh cho chữ "NEXT". Chỉnh 4 số nếu còn hở/che chữ.
+            Transform host = nextPreview.parent != null ? nextPreview.parent : nextPreview;
+            if (FindChildLoose(host, "Next Grid BG") != null)
+                return;
+
+            var bg = Ui.Panel(host, "Next Grid BG", new Color(0.035f, 0.075f, 0.16f, 1f));
+            var rt = bg.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.065f, 0.045f);
+            rt.anchorMax = new Vector2(0.935f, 0.875f); // sát dưới chữ NEXT (header ở đỉnh khung)
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+            bg.GetComponent<Image>().raycastTarget = false;
+            // Dưới các ô preview (NextPreview) nhưng trên khung: chèn ngay trước NextPreview.
+            bg.transform.SetSiblingIndex(nextPreview.GetSiblingIndex());
         }
 
         void HandleInput()
@@ -1942,7 +2033,7 @@ namespace BrickStacker
         // Người chơi bấm 1 kỹ năng (design §7). Tiêu năng lượng, gửi hiệu ứng sang đối thủ.
         // Giãn 0,4s chống bấm dồn.
 
-        static string SkillName(OnlineSkill s) => s == OnlineSkill.Attack ? "Đánh" : s == OnlineSkill.Shield ? "Khiên" : "Rác";
+        static string SkillName(OnlineSkill s) => s == OnlineSkill.LifeDrain ? "Hút máu" : s == OnlineSkill.OverloadBlast ? "Cuồng nộ" : "Thả rác";
 
         // Gửi trạng thái điểm/hàng kèm máu+năng lượng cho đối thủ (HUD).
 

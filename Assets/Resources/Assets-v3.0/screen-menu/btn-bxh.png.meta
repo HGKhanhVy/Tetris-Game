@@ -155,10 +155,10 @@ TextureImporter:
       name: btn-bxh_0
       rect:
         serializedVersion: 2
-        x: 11
-        y: 0
-        width: 1513
-        height: 1024
+        x: 125
+        y: 78
+        width: 1922
+        height: 569
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}

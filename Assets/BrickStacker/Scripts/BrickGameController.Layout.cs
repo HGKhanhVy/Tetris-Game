@@ -904,17 +904,16 @@ namespace BrickStacker
                 return;
 
             nextPreviewCellSize = CalculatePreviewCellSize(sceneNextPreviewRect);
-            float step = PreviewCellStep(nextPreviewCellSize);
             for (int i = 0; i < nextPreviewCells.Count; i++)
             {
-                if (nextPreviewCells[i] == null)
-                    continue;
-                int x = i % 4;
-                int y = i / 4;
-                var rect = nextPreviewCells[i].rectTransform;
-                rect.sizeDelta = new Vector2(nextPreviewCellSize, nextPreviewCellSize);
-                rect.anchoredPosition = new Vector2((x - 1.5f) * step, (1.5f - y) * step);
+                if (nextPreviewCells[i] != null)
+                    nextPreviewCells[i].rectTransform.sizeDelta = new Vector2(nextPreviewCellSize, nextPreviewCellSize);
             }
+
+            // Vẽ lại ô Next theo ĐÚNG hình dạng mô hình kế (không xếp lưới cứng — trước đây mọi
+            // khối 4 ô bị dồn thành hàng ngang trông như "I" và lệch với mô hình thật khi rơi).
+            if (nextBag != null && nextBag.Count > 0)
+                RenderPiecePreview(nextPreviewCells, PeekNext(0), true, nextResources);
         }
 
         float CalculatePreviewCellSize(RectTransform previewRect)
@@ -924,8 +923,8 @@ namespace BrickStacker
 
             float width = previewRect.rect.width > 1f ? previewRect.rect.width : 120f;
             float height = previewRect.rect.height > 1f ? previewRect.rect.height : width;
-            // Khối preview to hơn (chia nhỏ hơn → cell lớn hơn; khối 4 ô ~87% vùng).
-            return Mathf.Max(0.5f, Mathf.Min(width, height) / 4.6f);
+            // Khối preview to hơn (chia nhỏ hơn → cell lớn hơn).
+            return Mathf.Max(0.5f, Mathf.Min(width, height) / 3.7f);
         }
 
         float PreviewCellStep(float cellSize)
@@ -935,35 +934,9 @@ namespace BrickStacker
 
         void RefreshScenePuzzleCellSizes()
         {
-            if (scenePuzzleCells == null || scenePuzzleSlots == null)
-                return;
-
+            // GD v3: ô lưới giờ neo theo TỈ LỆ (anchorMin/Max) trong BuildScenePuzzleGrid nên tự co
+            // giãn theo khung — chỉ cần cập nhật lại anchor lưới + kích thước ô (cho VFX cũ).
             FitScenePuzzleGridToAnchor();
-            if (scenePuzzleGridRect != null && scenePuzzleGridRect.sizeDelta.x > 0.01f && scenePuzzleGridRect.sizeDelta.y > 0.01f)
-            {
-                puzzleCellSizeX = Mathf.Max(0.0001f, scenePuzzleGridRect.sizeDelta.x / Width);
-                puzzleCellSize  = Mathf.Max(0.0001f, scenePuzzleGridRect.sizeDelta.y / Height);
-            }
-
-            for (int x = 0; x < Width; x++)
-            {
-                for (int y = 0; y < Height; y++)
-                {
-                    var slot = scenePuzzleSlots[x, y];
-                    var cell = scenePuzzleCells[x, y];
-                    if (slot == null || cell == null)
-                        continue;
-
-                    var rect = cell.rectTransform;
-                    rect.anchorMin = new Vector2(0.5f, 0.5f);
-                    rect.anchorMax = new Vector2(0.5f, 0.5f);
-                    rect.pivot = new Vector2(0.5f, 0.5f);
-                    rect.anchoredPosition = ScenePuzzleGridToUiPosition(x, y);
-                    rect.sizeDelta = new Vector2(puzzleCellSizeX * 0.96f, puzzleCellSize * 0.96f);
-                    rect.localScale = Vector3.one;
-                    cell.preserveAspect = false;
-                }
-            }
         }
 
         Vector2 ScenePuzzleGridToUiPosition(int gridX, int gridY)
@@ -976,66 +949,48 @@ namespace BrickStacker
             return new Vector2(originX + gridX * puzzleCellSizeX, originY + gridY * puzzleCellSize);
         }
 
+        // GD v3: viền xanh của khung (tỉ lệ mỗi trục) — lưới runtime lùi vào bấy nhiêu để KHỚP
+        // lưới IN 8×14 (khung được stretch nên lưới in cũng nằm trong không gian tỉ lệ này).
+        // Đây là 2 nút TINH CHỈNH nếu khối còn đè viền / hở mép.
+        // Đo pixel VIỀN XANH của `frame-xepgach` trong vùng crop (không đối xứng: dưới dày hơn trên):
+        // trái 4.7% / phải 4.3% / dưới 2.4% / trên 1.1% → 4 mép anchor của LƯỚI IN. Khung được vẽ
+        // bằng crop + Simple stretch lấp full anchor, nên tỉ lệ này = tỉ lệ anchor. Đây là nút chỉnh.
+        const float PuzzleGridLeft   = 0.047f;
+        const float PuzzleGridRight  = 0.957f; // 1 - 0.043
+        const float PuzzleGridBottom = 0.024f;
+        const float PuzzleGridTop    = 0.989f; // 1 - 0.011
+
         void FitScenePuzzleGridToAnchor()
         {
-            if (scenePuzzleBoardAnchorRect == null || scenePuzzleGridRect == null)
+            if (scenePuzzleGridRect == null)
                 return;
 
-            Rect anchorRect = scenePuzzleBoardAnchorRect.rect;
-            if (anchorRect.width <= 1f || anchorRect.height <= 1f)
-                return;
-
-            // PuzzleBoardAnchor has non-uniform localScale (e.g. x=6.16, y=9.55) due to CanvasScaler.
-            // Work in screen pixels to get visually uniform results, then convert back to local units.
-            Vector3 localSc = scenePuzzleBoardAnchorRect.localScale;
-            float lsx = Mathf.Max(0.0001f, Mathf.Abs(localSc.x));
-            float lsy = Mathf.Max(0.0001f, Mathf.Abs(localSc.y));
-
-            // Border: use separate X/Y border fractions to match the frame sprite visually.
-            float anchorScreenW = anchorRect.width  * lsx;
-            float anchorScreenH = anchorRect.height * lsy;
-            float borderFrac = 0.08f; // ~8% matches the frame sprite border thickness
-            float borderPx   = Mathf.Min(anchorScreenW * borderFrac, anchorScreenH * borderFrac);
-
-            float availWpx = anchorScreenW - borderPx * 2f;
-            float availHpx = anchorScreenH - borderPx * 2f;
-
-            float cellPxByW = availWpx / Width;
-            float cellPxByH = availHpx / Height;
-
-            float localCellW, localCellH;
-            if (cellPxByH >= cellPxByW)
+            // Neo lưới TRÙNG vùng lưới in theo TỈ LỆ. Online: anchor ĐÃ là vùng lưới trong của
+            // board-player (viền ở ngoài anchor) → lấp gần đầy (~0). Offline: trừ viền frame-xepgach.
+            float left, right, bottom, top;
+            if (MultiplayerMatch.Active)
             {
-                // Anchor has room: fill width, cells square (height = width in px).
-                localCellW = Mathf.Max(0.0001f, cellPxByW / lsx);
-                localCellH = Mathf.Max(0.0001f, Mathf.Min(cellPxByW * 1.55f, cellPxByH) / lsy);
+                left = 0.006f; right = 0.994f; bottom = 0.004f; top = 0.996f;
             }
             else
             {
-                // Anchor too short to keep cells square at full width (mobile 10×20 case).
-                // Fill width, let cells be slightly wider than tall — better than side gaps.
-                localCellW = Mathf.Max(0.0001f, cellPxByW / lsx);
-                localCellH = Mathf.Max(0.0001f, cellPxByH / lsy); // clamp height so grid fits
+                left = PuzzleGridLeft; right = PuzzleGridRight; bottom = PuzzleGridBottom; top = PuzzleGridTop;
             }
-            float gridWidth  = localCellW * Width;
-            float gridHeight = localCellH * Height;
-            puzzleCellSizeX  = localCellW;
-            puzzleCellSize   = localCellH;
-
-            float borderLocalY = borderPx / lsy;
-            // Align grid bottom to inner border edge, but clamp so grid never exits the anchor.
-            float idealBottom = anchorRect.yMin + borderLocalY;
-            float idealCenter = idealBottom + gridHeight * 0.5f;
-            float maxCenter   = anchorRect.yMax - borderLocalY - gridHeight * 0.5f;
-            float gridCenterY = Mathf.Min(idealCenter, maxCenter);
-
-            scenePuzzleGridRect.anchorMin        = new Vector2(0.5f, 0.5f);
-            scenePuzzleGridRect.anchorMax        = new Vector2(0.5f, 0.5f);
+            scenePuzzleGridRect.anchorMin        = new Vector2(left, bottom);
+            scenePuzzleGridRect.anchorMax        = new Vector2(right, top);
+            scenePuzzleGridRect.offsetMin        = Vector2.zero;
+            scenePuzzleGridRect.offsetMax        = Vector2.zero;
             scenePuzzleGridRect.pivot            = new Vector2(0.5f, 0.5f);
-            scenePuzzleGridRect.sizeDelta        = new Vector2(gridWidth, gridHeight);
-            scenePuzzleGridRect.anchoredPosition = new Vector2(0f, gridCenterY);
             scenePuzzleGridRect.localScale       = Vector3.one;
             scenePuzzleGridRect.localRotation    = Quaternion.identity;
+
+            // Kích thước ô (cho hiệu ứng vỡ ở chế độ xóa-hàng cũ; chế độ cụm không dùng).
+            var r = scenePuzzleGridRect.rect;
+            if (r.width > 1f && r.height > 1f)
+            {
+                puzzleCellSizeX = r.width / Width;
+                puzzleCellSize  = r.height / Height;
+            }
         }
 
         void LayoutGameplayChrome()

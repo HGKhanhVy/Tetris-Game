@@ -319,6 +319,8 @@ namespace BrickStacker
         public Vector2Int MonsterPosition { get; private set; }
         public int MoveBank { get; private set; }
         public int MovesUsed { get; private set; }
+        // GD v3 §9: lớp khiên tích từ cụm Khiên, tự tiêu thụ khi quái chạm Player.
+        public int ShieldLayers { get; private set; }
         public TacticalBoardStatus Status { get; private set; }
         public string LastMessage { get; set; }
 
@@ -341,6 +343,12 @@ namespace BrickStacker
         public int PatrolDirection { get; private set; } = 1;
 
         readonly HashSet<Vector2Int> walls = new HashSet<Vector2Int>();
+
+        // GD v3 §8: lịch sử ô quái đã rời (mới nhất ở cuối) để Attack đẩy quái lùi đúng đường.
+        readonly List<Vector2Int> monsterHistory = new List<Vector2Int>();
+        const int MonsterHistoryLimit = 64;
+        const int MaxKnockbackPerResolution = 3; // GD §8
+        const int MaxShieldLayer = 2;            // GD §9
 
         // === Trạng thái địa hình runtime (design §3) ===
         readonly Dictionary<Vector2Int, int> boxHp = new Dictionary<Vector2Int, int>();
@@ -388,6 +396,8 @@ namespace BrickStacker
             MonsterPosition = Data.MonsterStartPosition;
             MoveBank = 0;
             MovesUsed = 0;
+            ShieldLayers = 0;
+            monsterHistory.Clear();
             Status = TacticalBoardStatus.Running;
             LastMessage = "Xóa dòng để nhận lượt di chuyển.";
             walls.Clear();
@@ -428,6 +438,85 @@ namespace BrickStacker
         }
 
         // Design §2.3: 1 dòng→1, 2 dòng→2, 3 dòng→2, 4+ dòng→3. Trần MaxMovementPoint.
+        // GD v3 §7: cụm Giày → điểm di chuyển (Basic +1 / Strong +2), trần MaxMovementPoint.
+        public int AddMovementPoints(int amount)
+        {
+            if (amount <= 0 || Status != TacticalBoardStatus.Running)
+                return 0;
+
+            int cap = Mathf.Max(1, Data.MaxMovementPoint);
+            int before = MoveBank;
+            MoveBank = Mathf.Min(cap, MoveBank + amount);
+            int gain = MoveBank - before;
+            LastMessage = gain > 0 ? "+" + gain + " lượt di chuyển (Giày)." : "Đã đầy lượt (" + cap + ").";
+            return gain;
+        }
+
+        // GD v3 §9: cụm Khiên → lớp khiên (Basic +1 / Strong +2), trần MaxShieldLayer.
+        public int AddShield(int amount)
+        {
+            if (amount <= 0 || Status != TacticalBoardStatus.Running)
+                return 0;
+
+            int before = ShieldLayers;
+            ShieldLayers = Mathf.Min(MaxShieldLayer, ShieldLayers + amount);
+            int gain = ShieldLayers - before;
+            if (gain > 0)
+                LastMessage = "+" + gain + " lớp khiên (còn " + ShieldLayers + ").";
+            return gain;
+        }
+
+        // GD v3 §8: cụm Kiếm → đẩy quái lùi theo lịch sử đường đi. Trần MaxKnockbackPerResolution.
+        // Dừng ở ô hợp lệ cuối nếu ô lùi không đi được; đẩy trúng Enemy = thắng.
+        public int KnockbackMonster(int steps)
+        {
+            if (steps <= 0 || Status != TacticalBoardStatus.Running)
+                return 0;
+
+            steps = Mathf.Min(steps, MaxKnockbackPerResolution);
+            int moved = 0;
+            for (int i = 0; i < steps; i++)
+            {
+                if (monsterHistory.Count == 0)
+                    break;
+
+                var prev = monsterHistory[monsterHistory.Count - 1];
+                if (!IsWalkable(prev))
+                    break;
+
+                monsterHistory.RemoveAt(monsterHistory.Count - 1);
+                MonsterPosition = prev;
+                moved++;
+                if (Evaluate() != TacticalBoardStatus.Running)
+                    break;
+            }
+
+            if (moved > 0)
+            {
+                MonsterTimer = MonsterAutoMoveInterval; // Attack reset timer (GD §8)
+                if (Status == TacticalBoardStatus.Running)
+                {
+                    LastMessage = "Đẩy quái lùi " + moved + " ô (Kiếm).";
+                    RecomputeMonsterIntent();
+                }
+            }
+            return moved;
+        }
+
+        // Quái quay lại 1 ô trước khi bị Khiên chặn (GD §9).
+        void RetreatMonsterOneStep()
+        {
+            if (monsterHistory.Count == 0)
+                return;
+
+            var prev = monsterHistory[monsterHistory.Count - 1];
+            if (!IsWalkable(prev))
+                return;
+
+            monsterHistory.RemoveAt(monsterHistory.Count - 1);
+            MonsterPosition = prev;
+        }
+
         public int AddMovesForClearedLines(int clearedLines, bool comboBonus)
         {
             int gained = 0;
@@ -623,6 +712,10 @@ namespace BrickStacker
             }
 
             var dir = next - MonsterPosition;
+            // GD v3 §8: ghi ô vừa rời để Attack có thể đẩy quái lùi theo đúng đường đã đi.
+            monsterHistory.Add(MonsterPosition);
+            if (monsterHistory.Count > MonsterHistoryLimit)
+                monsterHistory.RemoveAt(0);
             MonsterPosition = next;
 
             // Design §3.3: đạp bẫy → choáng lượt sau, bẫy biến mất.
@@ -816,8 +909,19 @@ namespace BrickStacker
             }
             else if (MonsterPosition == PlayerPosition)
             {
-                Status = TacticalBoardStatus.Failed;
-                LastMessage = "Quái đã bắt được bạn.";
+                if (ShieldLayers > 0)
+                {
+                    // GD §9: Khiên tự tiêu thụ — trừ 1 lớp, quái lùi 1 ô, reset timer, không thua.
+                    ShieldLayers--;
+                    RetreatMonsterOneStep();
+                    MonsterTimer = MonsterAutoMoveInterval;
+                    LastMessage = "Khiên đỡ đòn! (còn " + ShieldLayers + " lớp)";
+                }
+                else
+                {
+                    Status = TacticalBoardStatus.Failed;
+                    LastMessage = "Quái đã bắt được bạn.";
+                }
             }
             return Status;
         }

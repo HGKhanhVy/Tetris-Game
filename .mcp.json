@@ -2,7 +2,13 @@
   "mcpServers": {
     "unity-mcp": {
       "command": "C:\\Users\\khanh\\.unity\\relay\\relay_win.exe",
-      "args": ["--mcp"]
+      "args": [
+        "--mcp"
+      ]
+    },
+    "ai-game-developer": {
+      "type": "http",
+      "url": "http://localhost:24572/p/0caca21f"
     }
   }
 }

@@ -1,0 +1,14 @@
+{
+    "name": "BrickStacker.Puzzle",
+    "rootNamespace": "BrickStacker.Puzzle",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

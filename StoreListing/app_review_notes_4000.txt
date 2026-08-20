@@ -1,0 +1,27 @@
+BLOCKFALL v1.1 — Review Notes
+
+RESPONSE TO PREVIOUS 4.3(a) REJECTION: Following your feedback, we redesigned the entire game around a new core mechanic. Each level now has TWO linked boards: clearing lines is no longer the goal — cleared lines convert into MOVES spent on a tactical board to lure a monster (chases 2 cells) into catching the enemy (flees 1 cell). We believe no other App Store game uses this mechanic; playing level 1 (2-3 minutes) demonstrates it. All code and art are made in-house; we publish no similar apps on any account. A detailed reply is in Resolution Center.
+
+WHAT ELSE CHANGED: The previous build was offline-only with no data collection. This version adds online features (cloud save, daily leaderboard, real-time online 1v1 with room codes and garbage attacks) powered by Unity Gaming Services; App Privacy declarations updated accordingly.
+
+ABOUT THE APP: BLOCKFALL is a falling-block puzzle game with the tactical twist described above, fully in Vietnamese, rated 4+. Win a level by luring the monster into catching the enemy (1-3 stars). 10 solo levels, a daily score leaderboard, and an online 1v1 race mode.
+
+SETUP & ACCESS: No setup required. No account, password, or credentials: the app signs in anonymously via Unity Authentication at launch (no registration flow exists). Solo play works fully on a single device. Internet is used for cloud progress sync, leaderboards, and 1v1.
+
+HOW TO PLAY: Tap BẮT ĐẦU (Start) > pick a level on the map. Drag the falling block left/right, tap the rotate button to rotate. Fill a horizontal line to clear it; each cleared line grants 1 move (multiple lines at once grant more). Tap cells on the tactical board to spend moves. Win by luring the monster onto the enemy; lose if the monster catches you or the block board fills up.
+
+TESTING THE 1V1 MODE (needs 2 devices): Device A: menu > "1 vs 1" > TẠO PHÒNG (Create Room) > a 4-digit code appears. Device B: menu > "1 vs 1" > enter the code > VÀO PHÒNG (Join). Both enter the match after a 3-2-1 countdown; both play the same level with the same block sequence; first to finish the tactical board wins. GHÉP NHANH (Quick Match) also works instead of a code. With a single device, all other features remain fully testable.
+
+EXTERNAL SERVICES: Unity Gaming Services only: Authentication (anonymous), Cloud Save (progress), Leaderboards (daily scores), Relay/Multiplayer (1v1 connectivity). No payment processors, no IAP, no subscriptions, no ads SDKs, no behavioral analytics, no AI services. Some audio assets are sourced from Pixabay and packaged locally.
+
+PERMISSIONS & TRACKING: The app requests no sensitive permissions (no location, contacts, camera, microphone, photo library) and does not use App Tracking Transparency (no tracking).
+
+USER-GENERATED CONTENT: The only user content is an optional display nickname (shown on the leaderboard and in 1v1), tied to an anonymous ID. There is no chat or any other content sharing between players.
+
+PRIVACY: The app collects an anonymous player ID (User ID), an optional nickname (Name), basic device info processed by Unity Services (Device ID), and game progress/scores (Product Interaction) - all for App Functionality only, NOT linked to real identity, NOT used for tracking, consistent with this submission's App Privacy answers. Players can request full data deletion via our support email (info@biexce.com). Privacy policy: [POLICY URL]
+
+REGIONAL DIFFERENCES: None.
+
+REGULATED INDUSTRY: None. No real-money transactions, no gambling.
+
+Tested on: iPhone 12 Pro Max (iOS 26.5); iPad Pro 11 (tablet layout verified). A screen recording of the full user flow (launch > menu > guide > solo gameplay > level clear > leaderboard > 1v1 create/join with two devices) is provided with this submission.

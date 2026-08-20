@@ -571,7 +571,7 @@ namespace BrickStacker
             bestText.text = "";
             int nextType = PeekNext(0);
             nextText.text = "TIẾP";
-            RenderPiecePreview(nextPreviewCells, nextType, true);
+            RenderPiecePreview(nextPreviewCells, nextType, true, nextResources);
             RenderPiecePreview(holdPreviewCells, holdType, holdType >= 0);
             if (MultiplayerMatch.Active)
             {
@@ -623,6 +623,13 @@ namespace BrickStacker
             gameplayTime = 0f;
             fallTimer = 0f;
             piecesLocked = 0;
+            if (rules.UseResourceClusters)
+            {
+                resourceBag = null; // tạo lại túi theo mode Offline/Online của ván này
+                activeResources = null;
+                nextResources = null;
+                EnsureResourcePuzzle();
+            }
             RefreshTacticalBoardUi();
 
             // 1v1: khởi tạo máu + năng lượng cho trận mới (design §6-8).
@@ -631,6 +638,8 @@ namespace BrickStacker
                 energySystem.Reset();
                 healthSystem.Reset();
                 nextAttackTime = 0f;
+                pendingAttacks.Clear();
+                lastAttackScheduledAt = 0f;
                 RefreshSkillBar();
             }
 

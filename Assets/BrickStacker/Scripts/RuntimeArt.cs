@@ -159,6 +159,81 @@ namespace BrickStacker
             return sprites;
         }
 
+        // GD v3: 4 ô tài nguyên lẻ, đánh chỉ số theo ResourceType (Move, Attack, Shield, Energy).
+        // Tự cắt lề trong suốt (trim) để phần khối lấp đầy ô đều nhau giữa 4 file (art có lề khác nhau).
+        public static Sprite[] LoadResourceSprites()
+        {
+            string[] names =
+            {
+                "Assets-v3.0/block-tainguyen/block-dichuyen",  // Move
+                "Assets-v3.0/block-tainguyen/block-kiem",      // Attack
+                "Assets-v3.0/block-tainguyen/block-khien",     // Shield
+                "Assets-v3.0/block-tainguyen/block-nangluong"  // Energy
+            };
+
+            var sprites = new Sprite[names.Length];
+            for (int i = 0; i < names.Length; i++)
+            {
+                var texture = Resources.Load<Texture2D>(names[i]);
+                if (texture != null)
+                {
+                    var trimmed = CreateTrimmedSpriteSafe(texture);
+                    if (trimmed != null)
+                    {
+                        sprites[i] = trimmed;
+                        continue;
+                    }
+                }
+
+                // Fallback: sprite nguyên khung nếu texture không đọc được pixel.
+                sprites[i] = Resources.Load<Sprite>(names[i]) ?? CreateFullRectSpriteSafe(texture);
+            }
+            return sprites;
+        }
+
+        // Cắt sprite theo hộp bao các pixel không trong suốt để phần vẽ lấp đầy, đều giữa các icon.
+        static Sprite CreateTrimmedSpriteSafe(Texture2D texture)
+        {
+            if (texture == null)
+                return null;
+
+            try
+            {
+                var pixels = texture.GetPixels32();
+                int w = texture.width;
+                int h = texture.height;
+                int minX = w, minY = h, maxX = -1, maxY = -1;
+                const byte alphaThreshold = 10;
+
+                for (int y = 0; y < h; y++)
+                {
+                    int row = y * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        if (pixels[row + x].a > alphaThreshold)
+                        {
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                        }
+                    }
+                }
+
+                if (maxX < minX || maxY < minY)
+                    return CreateFullRectSpriteSafe(texture); // ảnh trống → dùng nguyên khung
+
+                var rect = new Rect(minX, minY, (maxX - minX) + 1, (maxY - minY) + 1);
+                texture.filterMode = FilterMode.Bilinear;
+                texture.wrapMode = TextureWrapMode.Clamp;
+                return Sprite.Create(texture, rect, new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            }
+            catch (Exception)
+            {
+                return CreateFullRectSpriteSafe(texture);
+            }
+        }
+
         static Sprite CreateFullRectSpriteSafe(Texture2D texture)
         {
             if (texture == null)

@@ -85,13 +85,13 @@ namespace BrickStacker
             var hero = MakeSpriteImage(cc, "Runtime Online Hero", DIR + "player.png", new Rect(0.283f, 0.271f, 0.475f, 0.593f), false);
             Ui.Rect(hero, new Vector2(-0.09f, 0.50f), new Vector2(0.58f, 1.03f), Vector2.zero); // rộng hơn để cao bằng nhân vật đỏ
 
-            // 3 lá kỹ năng (THẢ RÁC / HÚT MÁU / CUỒNG NỘ) — số đếm trên, tên dưới.
-            string[] skillAssets = { "btn-chieu1.png", "btn-chieu2.png", "btn-chieu3.png" };
-            Rect[] skillCrops = { new Rect(0.271f, 0.138f, 0.459f, 0.783f), new Rect(0.288f, 0.146f, 0.423f, 0.774f), new Rect(0.301f, 0.152f, 0.399f, 0.712f) };
+            // 3 lá kỹ năng (THẢ RÁC / HÚT MÁU / CUỒNG NỘ) — icon + badge cost baked; tên dưới.
+            string[] skillAssets = { "btn-chieu1-tharac.png", "btn-chieu2-hoimau.png", "btn-chieu3-cuongno.png" };
+            Rect[] skillCrops = { new Rect(0.115f, 0.109f, 0.770f, 0.829f), new Rect(0.089f, 0.082f, 0.821f, 0.891f), new Rect(0.104f, 0.077f, 0.790f, 0.885f) };
             string[] skillNames = { "THẢ RÁC", "HÚT MÁU", "CUỒNG NỘ" };
-            OnlineSkill[] map = { OnlineSkill.Garbage, OnlineSkill.Attack, OnlineSkill.Shield };
+            OnlineSkill[] map = { OnlineSkill.GarbageDrop, OnlineSkill.LifeDrain, OnlineSkill.OverloadBlast };
             float[] cx = { 0.243f, 0.50f, 0.757f };
-            float half = 0.123f;
+            float half = 0.104f; // hẹp lại cho lá chiêu đỡ bè
             for (int i = 0; i < 3; i++)
             {
                 var si = i;
@@ -108,21 +108,22 @@ namespace BrickStacker
                 skOutline.effectDistance = new Vector2(2.2f, -2.2f);
             }
 
-            // ATTACK / SHIELD.
-            var atk = MakeSpriteButton(cc, "Runtime Online Atk", DIR + "btn-tancong.png", new Rect(0.105f, 0.338f, 0.771f, 0.369f),
-                new Vector2(0.5f, 0.5f), new Vector2(100, 40), () => TryUseSkill(OnlineSkill.Attack));
-            onlineAtkRect = atk.GetComponent<RectTransform>();
-            Ui.Rect(atk.gameObject, new Vector2(0.13f, 0.055f), new Vector2(0.488f, 0.185f), Vector2.zero);
-            onlineAtkText = MakeBarText(atk.transform, "TẤN CÔNG\nx3", titleFont, 24, TextAnchor.MiddleCenter, new Vector2(0.28f, 0.05f), new Vector2(0.98f, 0.95f));
-            onlineAtkText.lineSpacing = 0.78f;
-            onlineAtkText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            var def = MakeSpriteButton(cc, "Runtime Online Def", DIR + "btn-khien.png", new Rect(0.128f, 0.388f, 0.744f, 0.311f),
-                new Vector2(0.5f, 0.5f), new Vector2(100, 40), () => TryUseSkill(OnlineSkill.Shield));
+            // GD §12: Đánh TỰ ĐỘNG (không nút). Chỉ còn 1 nút KHIÊN (btn-khienbv, đã baked chữ+icon)
+            // để bấm bật Active Shield (§13). Số Shield Charge / trạng thái BẬT hiện ở phần phải nút.
+            var def = MakeSpriteButton(cc, "Runtime Online Def", DIR + "btn-khienbv.png", new Rect(0.134f, 0.327f, 0.728f, 0.402f),
+                new Vector2(0.5f, 0.5f), new Vector2(100, 40), () => TryActivateShield());
+            var defImg = def.GetComponent<Image>(); if (defImg != null) defImg.preserveAspect = true;
             onlineDefRect = def.GetComponent<RectTransform>();
-            Ui.Rect(def.gameObject, new Vector2(0.512f, 0.055f), new Vector2(0.87f, 0.185f), Vector2.zero);
-            onlineDefText = MakeBarText(def.transform, "KHIÊN\nx3", titleFont, 24, TextAnchor.MiddleCenter, new Vector2(0.28f, 0.05f), new Vector2(0.98f, 0.95f));
-            onlineDefText.lineSpacing = 0.78f;
+            Ui.Rect(def.gameObject, new Vector2(0.235f, 0.035f), new Vector2(0.765f, 0.225f), Vector2.zero);
+            onlineDefText = MakeBarText(def.transform, "", RuntimeArt.LoadMenuButtonFont(), 46, TextAnchor.MiddleLeft, new Vector2(0.72f, 0.08f), new Vector2(1.10f, 0.92f));
             onlineDefText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            // Viền dày hơn để chữ "x0" khớp với chữ "Khiên" đã baked trên nút.
+            var defOutline = onlineDefText.GetComponent<Outline>();
+            if (defOutline != null)
+            {
+                defOutline.effectColor = new Color(0.16f, 0.065f, 0.02f, 1f);
+                defOutline.effectDistance = new Vector2(1.7f, -1.7f);
+            }
         }
 
         RectTransform BuildEnergyBar(Transform parent, string tag, string iconAsset, Rect iconCrop, Color onColor, Image[] segs, out Text valueText)
@@ -172,10 +173,10 @@ namespace BrickStacker
             // Thanh trên — chừa lề, không sát mép trên/hai bên.
             if (onlineTopBarRect != null) ApplySceneRect(onlineTopBarRect, new Vector2(0.015f, 0.842f), new Vector2(0.985f, 0.972f));
 
-            // --- Hai bàn cùng cỡ, tỉ lệ 10x20 (to hơn + dời vào trong) ---
+            // --- Hai bàn cùng cỡ. Bàn hẹp/cao hơn (0.500) để ô 7×17 không bị bè (cao ~ bằng rộng). ---
             float boardTop = 0.825f, boardBottom = 0.145f;
             float boardH = boardTop - boardBottom;
-            float boardW = boardH * 0.560f / Mathf.Max(1f, aspect);
+            float boardW = boardH * 0.500f / Mathf.Max(1f, aspect);
 
             // Bàn người chơi (trái) — dời vào trong.
             float youLeft = 0.138f, youRight = youLeft + boardW;
@@ -240,6 +241,12 @@ namespace BrickStacker
             for (int i = 0; i < 3; i++)
                 if (onlineSkillCount[i] != null) onlineSkillCount[i].text = (youEn / cardCost[i]).ToString();
 
+            // GD v3: nút Khiên (chữ baked) chỉ hiện số Shield Charge / trạng thái BẬT ở phần phải.
+            if (onlineDefText != null)
+                onlineDefText.text = healthSystem.IsShieldActive
+                    ? "BẬT " + healthSystem.ActiveShieldHP
+                    : "x" + healthSystem.ShieldCharges;
+
             if (oppNameText != null && !string.IsNullOrEmpty(MultiplayerMatch.OpponentName))
                 oppNameText.text = MultiplayerMatch.OpponentName;
         }
@@ -292,7 +299,7 @@ namespace BrickStacker
             }
 
             // --- Bàn xếp gạch mini ---
-            var panel = Ui.Panel(parent, "Runtime Opponent Mini Board", new Color(0.14f, 0.06f, 0.022f, 0.90f));
+            var panel = Ui.Panel(parent, "Runtime Opponent Mini Board", new Color(0.035f, 0.075f, 0.16f, 1f));
             opponentMiniPanelRect = panel.GetComponent<RectTransform>();
             // Anchor mặc định cho fallback path; scene layout sẽ đặt lại mỗi lần responsive chạy.
             Ui.Rect(panel, new Vector2(0.815f, 0.520f), new Vector2(0.960f, 0.745f), Vector2.zero);
@@ -327,9 +334,9 @@ namespace BrickStacker
             Ui.Rect(skillInfoText, new Vector2(0f, 1.02f), new Vector2(1f, 1.42f), Vector2.zero);
             AddDarkWoodTextEdge(skillInfoText, 0.5f, 0.7f);
 
-            skillAttackButton = BuildSkillButton(skillBar.transform, "ĐÁNH", 0f, 0.32f, OnlineSkill.Attack);
-            skillShieldButton = BuildSkillButton(skillBar.transform, "KHIÊN", 0.34f, 0.66f, OnlineSkill.Shield);
-            skillGarbageButton = BuildSkillButton(skillBar.transform, "RÁC", 0.68f, 1f, OnlineSkill.Garbage);
+            skillAttackButton = BuildSkillButton(skillBar.transform, "RÁC", 0f, 0.32f, OnlineSkill.GarbageDrop);
+            skillShieldButton = BuildSkillButton(skillBar.transform, "HÚT", 0.34f, 0.66f, OnlineSkill.LifeDrain);
+            skillGarbageButton = BuildSkillButton(skillBar.transform, "NỘ", 0.68f, 1f, OnlineSkill.OverloadBlast);
             attackButton = skillGarbageButton; // giữ tham chiếu cũ cho code layout legacy
         }
 
@@ -427,15 +434,37 @@ namespace BrickStacker
             {
                 int cols = MultiplayerMatch.OpponentBoardCols;
                 int rows = MultiplayerMatch.OpponentBoardRows;
+                bool clusters = rules != null && rules.UseResourceClusters;
                 for (int x = 0; x < Width; x++)
                 {
                     for (int y = 0; y < Height; y++)
                     {
                         byte value = x < cols && y < rows ? board[x + y * cols] : (byte)0;
                         var cell = opponentMiniCells[x, y];
-                        cell.enabled = value > 0;
-                        if (value > 0)
+                        cell.enabled = true;
+                        if (clusters && value >= 1 && value <= 4)
+                        {
+                            // Tài nguyên v3 (sprite giày/kiếm/khiên/sấm) lấp đầy ô.
+                            cell.sprite = GetPieceBlockSprite(value - 1);
+                            cell.preserveAspect = false;
+                            cell.color = Color.white;
+                        }
+                        else if (clusters && value >= 5)
+                        {
+                            cell.sprite = blockSprite; cell.preserveAspect = false;
+                            cell.color = new Color(0.40f, 0.43f, 0.50f, 1f); // rác xám
+                        }
+                        else if (value > 0)
+                        {
+                            cell.sprite = null;
                             cell.color = value - 1 < palette.Length ? palette[value - 1] : new Color(0.9f, 0.9f, 0.9f);
+                        }
+                        else
+                        {
+                            // Ô trống = tile navy nhạt → thấy lưới ô như bàn mình.
+                            cell.sprite = null;
+                            cell.color = new Color(0.10f, 0.17f, 0.31f, 1f);
+                        }
                     }
                 }
             }
@@ -543,20 +572,24 @@ namespace BrickStacker
             string msg;
             switch (skill)
             {
-                case OnlineSkill.Attack:
-                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.Attack, (byte)OnlineConfig.AttackDamage);
+                case OnlineSkill.LifeDrain:
+                    // §15.2 P2P: gây damage lên đối thủ; hồi ĐÚNG lượng máu họ thực mất — chờ họ gửi
+                    // DrainHeal xác nhận (xử ở ProcessIncomingAttacks) thay vì hồi ước lượng tức thì.
+                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.LifeDrain, (byte)OnlineConfig.LifeDrainDamage);
                     shake = 0.18f;
-                    msg = "Tung đòn tấn công!";
+                    msg = "Hút máu đối thủ!";
                     break;
-                case OnlineSkill.Shield:
-                    healthSystem.AddShield();
-                    msg = "Dựng khiên (chặn 1 đòn).";
+                case OnlineSkill.OverloadBlast:
+                    // §15.3: 25 damage (phá Active Shield + 8 xuyên do đối thủ tự xử lý).
+                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.OverloadBlast, (byte)OnlineConfig.OverloadDamage);
+                    shake = 0.22f;
+                    msg = "Cuồng nộ!";
                     break;
-                case OnlineSkill.Garbage:
+                case OnlineSkill.GarbageDrop:
                 default:
-                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.Garbage, (byte)OnlineConfig.GarbageLines);
+                    MultiplayerManager.Instance?.SendSkill(OnlineSkill.GarbageDrop, (byte)OnlineConfig.GarbageDropLines);
                     shake = 0.15f;
-                    msg = "Thả " + OnlineConfig.GarbageLines + " hàng rác sang đối thủ!";
+                    msg = "Thả " + OnlineConfig.GarbageDropLines + " hàng rác sang đối thủ!";
                     break;
             }
             RefreshSkillBar();
@@ -568,23 +601,43 @@ namespace BrickStacker
             }
         }
 
+        // GD §13: bấm bật Active Shield (tiêu 1 Shield Charge → HP 16, 4 giây).
+        void TryActivateShield()
+        {
+            if (!MultiplayerMatch.Active || gameOver)
+                return;
+            if (!healthSystem.ActivateShield())
+            {
+                if (tacticalBoard != null)
+                {
+                    tacticalBoard.LastMessage = healthSystem.IsShieldActive ? "Khiên đang bật." : "Chưa có lớp khiên.";
+                    RefreshTacticalBoardUi();
+                }
+                return;
+            }
+            RuntimeArt.PlayUiSwitchSound();
+            RefreshSkillBar();
+            SendMultiplayerState();
+        }
+
         void RefreshSkillBar()
         {
+            bool live = MultiplayerMatch.Active && !gameOver;
             if (skillAttackButton != null)
-                skillAttackButton.interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Attack);
+                skillAttackButton.interactable = live && energySystem.CanAfford(OnlineSkill.GarbageDrop);
             if (skillShieldButton != null)
-                skillShieldButton.interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Shield);
+                skillShieldButton.interactable = live && energySystem.CanAfford(OnlineSkill.LifeDrain);
             if (skillGarbageButton != null)
-                skillGarbageButton.interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Garbage);
+                skillGarbageButton.interactable = live && energySystem.CanAfford(OnlineSkill.OverloadBlast);
             if (skillInfoText != null)
                 skillInfoText.text = "NL " + energySystem.Energy + "/" + energySystem.Max
                     + "   Máu " + healthSystem.Health + "/" + healthSystem.Max
-                    + (healthSystem.ShieldCharges > 0 ? " [Khiên]" : "");
+                    + (healthSystem.IsShieldActive ? " [Khiên " + healthSystem.ActiveShieldHP + "]" : (healthSystem.ShieldCharges > 0 ? " [x" + healthSystem.ShieldCharges + "]" : ""));
 
-            // HUD online mới.
-            if (onlineSkillBtn[0] != null) onlineSkillBtn[0].interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Garbage);
-            if (onlineSkillBtn[1] != null) onlineSkillBtn[1].interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Attack);
-            if (onlineSkillBtn[2] != null) onlineSkillBtn[2].interactable = MultiplayerMatch.Active && !gameOver && energySystem.CanAfford(OnlineSkill.Shield);
+            // HUD online v3: 3 lá = GarbageDrop / LifeDrain / OverloadBlast.
+            if (onlineSkillBtn[0] != null) onlineSkillBtn[0].interactable = live && energySystem.CanAfford(OnlineSkill.GarbageDrop);
+            if (onlineSkillBtn[1] != null) onlineSkillBtn[1].interactable = live && energySystem.CanAfford(OnlineSkill.LifeDrain);
+            if (onlineSkillBtn[2] != null) onlineSkillBtn[2].interactable = live && energySystem.CanAfford(OnlineSkill.OverloadBlast);
             UpdateOnlineHud();
         }
 
@@ -624,32 +677,123 @@ namespace BrickStacker
                 garbageWarningText.gameObject.SetActive(false);
         }
 
+        // GD v3 GĐ4: chuyển cụm tài nguyên online thành hiệu ứng. Kiếm → đòn TỰ ĐỘNG gửi đối thủ
+        // (Basic 8 / Strong 16), Khiên → Shield Charge, Sấm sét → Energy. Cộng dồn mọi cụm/chain.
+        void ApplyOnlineClusterEffects(Puzzle.ResolutionOutcome outcome)
+        {
+            if (!MultiplayerMatch.Active || outcome == null)
+                return;
+
+            int attackDamage = 0;
+            foreach (var step in outcome.Steps)
+            {
+                foreach (var cluster in step.Clusters)
+                {
+                    bool strong = cluster.Tier == Puzzle.ClusterTier.Strong;
+                    switch (cluster.Resource)
+                    {
+                        case Puzzle.ResourceType.Attack:
+                            attackDamage += OnlineConfig.AttackDamage(strong ? AttackTier.Strong : AttackTier.Basic);
+                            break;
+                        case Puzzle.ResourceType.Shield:
+                            healthSystem.AddShieldCharge(strong);
+                            break;
+                        case Puzzle.ResourceType.Energy:
+                            energySystem.GainFromCluster(strong);
+                            break;
+                    }
+                }
+            }
+
+            if (attackDamage > 0)
+            {
+                MultiplayerManager.Instance?.SendSkill(OnlineSkill.Attack, (byte)Mathf.Clamp(attackDamage, 1, 255));
+                shake = 0.15f;
+            }
+
+            RefreshSkillBar();
+            SendMultiplayerState();
+        }
+
+        // Một đòn tấn công đã lên lịch áp — giữ loại skill để xử lý xuyên khiên / hút máu (§12.5).
+        struct PendingAttack
+        {
+            public OnlineSkill Skill;
+            public int Damage;
+            public float ApplyAt;
+        }
+
         void ProcessIncomingAttacks()
         {
-            int pending = MultiplayerMatch.PendingIncomingAttacks;
-            if (pending <= 0)
-                return;
-            MultiplayerMatch.PendingIncomingAttacks = 0;
-            MultiplayerMatch.AttackWarningActive = false;
-
-            bool anyBlocked = false, anyHit = false;
-            for (int i = 0; i < pending; i++)
+            // 1) Kéo đòn mới từ hàng đợi mạng → lịch áp RIÊNG từng đòn (§12.5): warning dài hơn nếu
+            //    đòn mạnh, các đòn liên tiếp giãn tối thiểu MinAttackInterval để kịp phản ứng.
+            var incoming = MultiplayerMatch.IncomingAttacks;
+            while (incoming.Count > 0)
             {
-                bool blocked = healthSystem.TakeAttack(OnlineConfig.AttackDamage);
-                anyBlocked |= blocked;
-                anyHit |= !blocked;
+                var atk = incoming.Dequeue();
+                bool strong = atk.Amount >= OnlineConfig.AttackDamage(AttackTier.Strong);
+                float warn = OnlineConfig.AttackWarning(strong ? AttackTier.Strong : AttackTier.Basic);
+                float earliest = Mathf.Max(Time.unscaledTime + warn, lastAttackScheduledAt + OnlineConfig.MinAttackInterval);
+                lastAttackScheduledAt = earliest;
+                pendingAttacks.Enqueue(new PendingAttack { Skill = atk.Skill, Damage = Mathf.Max(1, atk.Amount), ApplyAt = earliest });
+                shake = Mathf.Max(shake, 0.12f);
             }
+            MultiplayerMatch.AttackWarningActive = pendingAttacks.Count > 0;
+
+            // Hồi máu Hút máu đã được đối thủ xác nhận đúng lượng (§15.2 P2P).
+            if (MultiplayerMatch.PendingDrainHeal > 0)
+            {
+                int healed = healthSystem.Heal(MultiplayerMatch.PendingDrainHeal);
+                MultiplayerMatch.PendingDrainHeal = 0;
+                if (healed > 0)
+                {
+                    RefreshSkillBar();
+                    SendMultiplayerState();
+                    if (tacticalBoard != null)
+                    {
+                        tacticalBoard.LastMessage = "Hút được " + healed + " máu từ đối thủ!";
+                        RefreshTacticalBoardUi();
+                    }
+                }
+            }
+
+            UpdateAttackFlash();
+
+            // 2) Áp lần lượt các đòn tới hạn (hàng đợi đã theo thời gian tăng dần).
+            while (pendingAttacks.Count > 0 && Time.unscaledTime >= pendingAttacks.Peek().ApplyAt)
+            {
+                ApplyIncomingAttack(pendingAttacks.Dequeue());
+                if (gameOver)
+                    return;
+            }
+        }
+
+        // Áp một đòn: Cuồng nộ (§15.3) phá Active Shield rồi xuyên; Hút máu (§15.2) báo lại lượng
+        // máu thực mất để bên gây hồi đúng; còn lại trừ máu qua Active Shield như thường.
+        void ApplyIncomingAttack(PendingAttack atk)
+        {
+            bool shieldWasActive = healthSystem.IsShieldActive;
+            int lost = atk.Skill == OnlineSkill.OverloadBlast
+                ? healthSystem.TakeOverload(OnlineConfig.OverloadDamage, OnlineConfig.OverloadShieldPierce)
+                : healthSystem.TakeDamage(atk.Damage);
+
+            if (atk.Skill == OnlineSkill.LifeDrain && lost > 0)
+                MultiplayerManager.Instance?.SendSkill(OnlineSkill.DrainHeal, (byte)Mathf.Clamp(lost, 1, 255));
+
+            bool blocked = shieldWasActive && lost < atk.Damage;
+            bool hit = lost > 0;
+            if (hit)
+                VibrateOnHit();
             RefreshSkillBar();
             SendMultiplayerState();
             if (tacticalBoard != null)
             {
-                tacticalBoard.LastMessage = anyBlocked && !anyHit ? "Khiên đã chặn đòn tấn công!"
+                tacticalBoard.LastMessage = blocked && !hit ? "Khiên đã chặn đòn tấn công!"
                     : "Trúng đòn! Máu còn " + healthSystem.Health + "/" + healthSystem.Max;
                 RefreshTacticalBoardUi();
             }
             shake = 0.2f;
 
-            // Design §9: máu về 0 → thua. Nếu đối thủ cũng vừa hết máu → luật hòa §15.
             if (healthSystem.IsDead)
             {
                 if (MultiplayerMatch.OpponentHealth <= 0)
@@ -657,6 +801,57 @@ namespace BrickStacker
                 else
                     MultiplayerEndMatch(-1, "Bạn đã hết máu!");
             }
+        }
+
+        // Rung nhẹ khi trúng đòn (chỉ trên thiết bị di động thật, không rung trong Editor).
+        static void VibrateOnHit()
+        {
+#if UNITY_ANDROID || UNITY_IOS
+            if (!Application.isEditor)
+                Handheld.Vibrate();
+#endif
+        }
+
+        // Viền đỏ nháy toàn màn khi đang có đòn chờ (GD §12.3) — mờ dần khi gần trúng.
+        void UpdateAttackFlash()
+        {
+            EnsureAttackFlashOverlay();
+            if (attackFlashOverlay == null)
+                return;
+
+            float alpha = 0f;
+            if (pendingAttacks.Count > 0)
+            {
+                // Theo đòn sắp trúng sớm nhất: nhấp nháy nhanh, đậm hơn khi gần trúng.
+                var next = pendingAttacks.Peek();
+                float remain = Mathf.Max(0f, next.ApplyAt - Time.unscaledTime);
+                // Nhẹ, không che khuất bàn (§12.3): alpha thấp, nháy.
+                float urgency = next.Damage >= OnlineConfig.AttackDamage(AttackTier.Strong) ? 0.18f : 0.12f;
+                float pulse = 0.55f + 0.45f * Mathf.Sin(Time.unscaledTime * 18f);
+                alpha = urgency * pulse * (remain < 1.2f ? 1f : 0.8f);
+            }
+            var c = attackFlashOverlay.color;
+            attackFlashOverlay.color = new Color(0.92f, 0.12f, 0.10f, alpha);
+            attackFlashOverlay.enabled = alpha > 0.01f;
+        }
+
+        void EnsureAttackFlashOverlay()
+        {
+            if (attackFlashOverlay != null)
+                return;
+            Transform parent = sceneGameplayCanvas != null ? sceneGameplayCanvas.transform
+                : (safeAreaRoot != null ? (Transform)safeAreaRoot : null);
+            if (parent == null)
+                return;
+
+            // Viền: dùng sprite khung rỗng-giữa nếu có; else Image full-screen alpha thấp (không che bàn).
+            var go = Ui.Panel(parent, "Runtime Attack Flash", new Color(0.92f, 0.12f, 0.10f, 0f));
+            Ui.Stretch(go);
+            var img = go.GetComponent<Image>();
+            img.raycastTarget = false;
+            img.enabled = false;
+            go.transform.SetAsLastSibling();
+            attackFlashOverlay = img;
         }
 
         void CheckMatchTimeLimit()

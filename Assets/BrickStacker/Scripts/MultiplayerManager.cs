@@ -9,6 +9,14 @@ using UnityEngine.SceneManagement;
 
 namespace BrickStacker
 {
+    // Một đòn tấn công tới từ đối thủ, giữ nguyên loại skill để gameplay xử lý đúng
+    // (Overload xuyên khiên, LifeDrain báo hồi máu) và xếp hàng đợi riêng từng đòn (§12.5).
+    public struct IncomingAttack
+    {
+        public OnlineSkill Skill;
+        public int Amount;
+    }
+
     // Trạng thái trận 1v1 đua điểm hiện tại. Gameplay đọc/ghi qua đây,
     // MultiplayerManager cập nhật từ mạng. Active=false nghĩa là đang chơi solo.
     public static class MultiplayerMatch
@@ -29,7 +37,11 @@ namespace BrickStacker
         // === Chế độ năng lượng/kỹ năng (design §6-11) ===
         public static int OpponentHealth = OnlineConfig.MaxHealth; // máu đối thủ (HUD)
         public static int OpponentEnergy;                          // năng lượng đối thủ (HUD)
-        public static int PendingIncomingAttacks;                  // đòn tấn công chờ áp vào máu mình
+        // §12.5 hàng đợi từng đòn: mỗi đòn tấn công tới xếp riêng để gameplay áp lần lượt,
+        // giãn cách tối thiểu MinAttackInterval; giữ loại skill để xử lý xuyên khiên / hút máu.
+        public static readonly System.Collections.Generic.Queue<IncomingAttack> IncomingAttacks
+            = new System.Collections.Generic.Queue<IncomingAttack>();
+        public static int PendingDrainHeal;                        // máu Hút máu đối thủ xác nhận, chờ hồi
         public static bool AttackWarningActive;                    // đang cảnh báo đòn tới (§7.1)
 
         // Ảnh chụp bàn xếp gạch của đối thủ (0 = trống, 1..N = loại khối + 1),
@@ -66,7 +78,8 @@ namespace BrickStacker
             PendingGarbage = 0;
             OpponentHealth = OnlineConfig.MaxHealth;
             OpponentEnergy = 0;
-            PendingIncomingAttacks = 0;
+            IncomingAttacks.Clear();
+            PendingDrainHeal = 0;
             AttackWarningActive = false;
             // OpponentName giữ nguyên — có thể đã nhận từ bắt tay trước khi Begin chạy.
         }
@@ -742,14 +755,24 @@ namespace BrickStacker
                 return;
             lastSkillSeqApplied = seq;
 
-            switch ((OnlineSkill)skillId)
+            var incomingSkill = (OnlineSkill)skillId;
+            switch (incomingSkill)
             {
+                // GD v3: Attack (auto) / LifeDrain / OverloadBlast là damage đến — xếp hàng đợi RIÊNG
+                // từng đòn (§12.5) và giữ loại skill để gameplay xử đúng (Overload xuyên khiên,
+                // LifeDrain báo hồi máu). amount = damage đã tính tier ở phía gửi.
                 case OnlineSkill.Attack:
-                    MultiplayerMatch.PendingIncomingAttacks += Mathf.Max(1, amount);
+                case OnlineSkill.LifeDrain:
+                case OnlineSkill.OverloadBlast:
+                    MultiplayerMatch.IncomingAttacks.Enqueue(new IncomingAttack { Skill = incomingSkill, Amount = Mathf.Max(1, amount) });
                     MultiplayerMatch.AttackWarningActive = true;
                     break;
-                case OnlineSkill.Garbage:
+                case OnlineSkill.GarbageDrop:
                     MultiplayerMatch.PendingGarbage += Mathf.Clamp(amount, 1, 4);
+                    break;
+                case OnlineSkill.DrainHeal:
+                    // Bên bị Hút máu xác nhận lượng máu thực mất → mình (bên gây) hồi đúng lượng đó (§15.2).
+                    MultiplayerMatch.PendingDrainHeal += Mathf.Max(0, amount);
                     break;
             }
         }

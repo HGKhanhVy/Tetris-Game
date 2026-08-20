@@ -660,6 +660,40 @@ namespace BrickStacker
                 EndGame(false);
         }
 
+        // GD v3 GĐ2: chuyển cụm tài nguyên đã kích hoạt thành hiệu ứng bàn Monster (offline).
+        // Giày → điểm di chuyển, Kiếm → đẩy quái lùi, Khiên → lớp khiên. Cộng dồn mọi cụm/chain.
+        // Trả về true nếu bàn cờ vừa kết thúc (quái bị đẩy trúng Enemy = thắng).
+        bool ApplyOfflineClusterEffects(Puzzle.ResolutionOutcome outcome)
+        {
+            if (tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return false;
+
+            int moveGain = 0, shieldGain = 0, knockback = 0;
+            foreach (var step in outcome.Steps)
+            {
+                foreach (var cluster in step.Clusters)
+                {
+                    bool strong = cluster.Tier == Puzzle.ClusterTier.Strong;
+                    switch (cluster.Resource)
+                    {
+                        case Puzzle.ResourceType.Move: moveGain += strong ? 2 : 1; break;
+                        case Puzzle.ResourceType.Attack: knockback += strong ? 2 : 1; break;
+                        case Puzzle.ResourceType.Shield: shieldGain += strong ? 2 : 1; break;
+                    }
+                }
+            }
+
+            if (moveGain > 0)
+                tacticalBoard.AddMovementPoints(moveGain);
+            if (shieldGain > 0)
+                tacticalBoard.AddShield(shieldGain);
+            if (knockback > 0)
+                tacticalBoard.KnockbackMonster(knockback);
+
+            RefreshTacticalBoardUi();
+            return tacticalBoard.Status != TacticalBoardStatus.Running;
+        }
+
         void AwardTacticalMoves(int clearedLines, bool comboBonus)
         {
             if (tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running || clearedLines <= 0)

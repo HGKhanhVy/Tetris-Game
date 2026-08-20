@@ -20,7 +20,7 @@ namespace BrickStacker
                 FillBag();
 
             currentSpecialKind = 0;
-            if (rules.AllowSpecialBlocks && piecesLocked > 4)
+            if (!rules.UseResourceClusters && rules.AllowSpecialBlocks && piecesLocked > 4)
             {
                 float roll = UnityEngine.Random.value;
                 float twoRowChance = 0.050f + Mathf.Min(0.035f, journeyLevel * 0.001f);
@@ -34,6 +34,8 @@ namespace BrickStacker
             currentPieceIsSpecial = currentSpecialKind > 0;
             currentType = currentPieceIsSpecial ? UnityEngine.Random.Range(0, palette.Length) : nextBag.Dequeue();
             origin = SpawnOriginForCurrentPiece();
+            if (rules.UseResourceClusters)
+                AssignActiveResources();
             rotation = 0;
             canHold = true;
             fallTimer = 0f;
@@ -188,7 +190,7 @@ namespace BrickStacker
 
         void SwapHoldPiece()
         {
-            if (paused || resolving || gameOver || puzzlePausedForTacticalTurn || !canHold || currentPieceIsSpecial)
+            if (paused || resolving || gameOver || puzzlePausedForTacticalTurn || !canHold || currentPieceIsSpecial || rules.UseResourceClusters)
                 return;
 
             RuntimeArt.PlayUiSwitchSound();
@@ -254,16 +256,19 @@ namespace BrickStacker
             }
             else
             {
-                foreach (var localCell in shapes[currentType])
+                var shape = shapes[currentType];
+                for (int i = 0; i < shape.Length; i++)
                 {
-                    var cell = CellFromLocal(localCell, origin, rotation);
+                    var cell = CellFromLocal(shape[i], origin, rotation);
                     if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height)
                         continue;
 
-                    grid[cell.x, cell.y] = currentType + 1;
+                    bool clusters = rules.UseResourceClusters && activeResources != null && i < activeResources.Length;
+                    int blockType = clusters ? (int)activeResources[i] : currentType;
+                    grid[cell.x, cell.y] = clusters ? Puzzle.GridBridge.Encode(activeResources[i]) : currentType + 1;
                     if (!usingSceneGameplayCanvas)
                     {
-                        var block = NewPieceBlock("Locked Block", currentType, settledRoot);
+                        var block = NewPieceBlock("Locked Block", blockType, settledRoot);
                         block.transform.position = CellToWorld(cell.x, cell.y);
                         lockedBlocks[cell.x, cell.y] = block;
                     }
@@ -275,7 +280,10 @@ namespace BrickStacker
             ClearActive();
             int specialKind = currentSpecialKind;
             currentSpecialKind = 0;
-            StartCoroutine(ResolveLinesThenSpawn(bombShouldExplode, bombCell, specialKind));
+            if (rules.UseResourceClusters)
+                StartCoroutine(ResolveClustersThenSpawn());
+            else
+                StartCoroutine(ResolveLinesThenSpawn(bombShouldExplode, bombCell, specialKind));
         }
 
         IEnumerator ResolveLinesThenSpawn(bool bombShouldExplode, Vector2Int bombCell, int specialKind)
@@ -301,6 +309,120 @@ namespace BrickStacker
             bool timedGarbage = rules.GarbageEveryPieces > 0 && piecesLocked % rules.GarbageEveryPieces == 0;
             bool surpriseGarbage = cleared == 0 && piecesLocked > 5 && rules.SurpriseGarbageChance > 0f && UnityEngine.Random.value < rules.SurpriseGarbageChance;
             if (!gameOver && (timedGarbage || surpriseGarbage || risingGarbage))
+            {
+                AddGarbageRow();
+                shake = 0.2f;
+                Beep(82f, 0.12f, 0.2f);
+            }
+
+            if (IsMissionComplete())
+            {
+                LevelComplete();
+                yield break;
+            }
+
+            resolving = false;
+            SpawnPiece();
+        }
+
+        // GD v3 – khởi tạo tầng puzzle cụm (gọi lười, mode theo Offline/Online hiện tại).
+        void EnsureResourcePuzzle()
+        {
+            if (clusterResolver == null)
+            {
+                puzzleBoard = new Puzzle.PuzzleBoard(Width, Height);
+                clusterResolver = new Puzzle.ClusterResolutionSystem(Width, Height);
+            }
+            if (resourceBag == null)
+            {
+                var mode = MultiplayerMatch.Active ? Puzzle.PuzzleMode.Online : Puzzle.PuzzleMode.Offline;
+                resourceBag = new Puzzle.ResourceBagService(mode);
+            }
+        }
+
+        // Gán tài nguyên cho mô hình đang rơi, giữ tỷ lệ số-loại 15/55/30 (GD §2.1).
+        // Dùng lại bộ tài nguyên đã sinh trước cho ô Next để "TIẾP" khớp đúng mô hình sắp rơi.
+        void AssignActiveResources()
+        {
+            EnsureResourcePuzzle();
+            var shape = shapes[currentType];
+            if (nextResources != null && nextResources.Length == shape.Length)
+            {
+                activeResources = nextResources;
+            }
+            else
+            {
+                activeResources = new Puzzle.ResourceType[shape.Length];
+                Puzzle.ResourceAssigner.Assign(resourceBag, puzzleRng, activeResources);
+            }
+
+            PrepareNextResources();
+        }
+
+        // Sinh trước tài nguyên cho mô hình kế tiếp (PeekNext) để ô Next hiển thị đúng.
+        void PrepareNextResources()
+        {
+            int len = shapes[PeekNext(0)].Length;
+            if (nextResources == null || nextResources.Length != len || ReferenceEquals(nextResources, activeResources))
+                nextResources = new Puzzle.ResourceType[len];
+            Puzzle.ResourceAssigner.Assign(resourceBag, puzzleRng, nextResources);
+        }
+
+        // GD v3 – thay xóa hàng bằng: tìm cụm 4 hướng → nổ rác sát cạnh → xóa đồng thời →
+        // gravity từng cột → combo dây chuyền. Chưa nối hiệu ứng Move/Attack/Shield/Energy (GĐ2/GĐ4).
+        IEnumerator ResolveClustersThenSpawn()
+        {
+            EnsureResourcePuzzle();
+            Puzzle.GridBridge.Load(grid, puzzleBoard);
+            var outcome = clusterResolver.Resolve(puzzleBoard);
+            Puzzle.GridBridge.Store(puzzleBoard, grid);
+
+            if (outcome.ActivatedAnything)
+            {
+                combo = outcome.ChainCount;
+                maxComboThisLevel = Mathf.Max(maxComboThisLevel, combo);
+
+                int activated = 0;
+                foreach (var step in outcome.Steps)
+                    activated += step.Clusters.Count;
+
+                float finalMultiplier = outcome.Steps[outcome.Steps.Count - 1].Multiplier;
+                score += Mathf.RoundToInt(activated * 120 * Mathf.Max(1, rules.ScoreMultiplier) * finalMultiplier);
+                shake = 0.12f + Mathf.Min(0.3f, activated * 0.04f);
+                Beep(760f + combo * 90f, 0.12f, 0.22f);
+
+                clearParticles.transform.position = CellToWorld(Width / 2, Height / 2);
+                clearParticles.Play();
+                RedrawLocked();
+                UpdateUi();
+                if (usingSceneGameplayCanvas)
+                    yield return new WaitForSeconds(0.12f);
+            }
+            else
+            {
+                combo = 0;
+            }
+
+            // GD v3: nối cụm → hiệu ứng. Offline: bàn Monster. Online 1v1: đánh/khiên/energy (GĐ4).
+            if (!MultiplayerMatch.Active && outcome.ActivatedAnything)
+            {
+                if (ApplyOfflineClusterEffects(outcome))
+                {
+                    OnTacticalStatusResolved();
+                    yield break;
+                }
+            }
+            else if (MultiplayerMatch.Active && outcome.ActivatedAnything)
+            {
+                ApplyOnlineClusterEffects(outcome);
+            }
+
+            int dangerTick = rules.RisingDangerSeconds > 0 ? Mathf.FloorToInt(gameplayTime / rules.RisingDangerSeconds) : 0;
+            bool risingGarbage = dangerTick > 0 && dangerTick != lastRisingDangerTick;
+            if (risingGarbage)
+                lastRisingDangerTick = dangerTick;
+            bool timedGarbage = rules.GarbageEveryPieces > 0 && piecesLocked % rules.GarbageEveryPieces == 0;
+            if (!gameOver && (timedGarbage || risingGarbage))
             {
                 AddGarbageRow();
                 shake = 0.2f;
@@ -391,18 +513,8 @@ namespace BrickStacker
             shake = 0.1f + clearCount * 0.05f;
             Beep(880f + clearCount * 120f, 0.12f, 0.24f);
 
-            // Trận 1v1 (design §6.4): xóa hàng nạp NĂNG LƯỢNG (1/3/5/8 + combo).
-            // Người chơi chủ động tiêu năng lượng cho Đánh / Khiên / Rác.
-            if (MultiplayerMatch.Active)
-            {
-                int gained = energySystem.GainFromLines(clearCount, combo);
-                RefreshSkillBar();
-                if (gained > 0 && tacticalBoard != null)
-                {
-                    tacticalBoard.LastMessage = "+" + gained + " năng lượng (" + energySystem.Energy + "/" + energySystem.Max + ")";
-                    RefreshTacticalBoardUi();
-                }
-            }
+            // GD v3: 1v1 KHÔNG dùng luật xóa-hàng này (dùng cụm tài nguyên). Năng lượng/đánh/khiên
+            // nạp từ CỤM trong ResolveClustersThenSpawn (ApplyOnlineClusterEffects).
 
             foreach (int row in rows)
             {
@@ -583,8 +695,10 @@ namespace BrickStacker
             }
 
             int hole = UnityEngine.Random.Range(0, Width);
+            // GD v3 §16: chế độ cụm → ô RÁC thật (không mang tài nguyên, phá bằng vụ nổ cụm sát cạnh).
+            int fill = rules.UseResourceClusters ? Puzzle.GridBridge.GarbageValue : UnityEngine.Random.Range(1, 8);
             for (int x = 0; x < Width; x++)
-                grid[x, 0] = x == hole ? 0 : UnityEngine.Random.Range(1, 8);
+                grid[x, 0] = x == hole ? 0 : fill;
 
             RedrawLocked();
         }
@@ -643,9 +757,18 @@ namespace BrickStacker
                 while (IsValid(ghostOrigin + Vector2Int.down, rotation))
                     ghostOrigin += Vector2Int.down;
 
-                foreach (var cell in Cells(ghostOrigin, rotation))
+                bool clustersGhost = rules.UseResourceClusters && activeResources != null;
+                var ghostShape = shapes[currentType];
+                for (int i = 0; i < ghostShape.Length; i++)
                 {
-                    if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height && grid[cell.x, cell.y] == 0)
+                    var cell = CellFromLocal(ghostShape[i], ghostOrigin, rotation);
+                    if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height || grid[cell.x, cell.y] != 0)
+                        continue;
+
+                    // Chế độ cụm: ghost là sprite tài nguyên mờ, đúng loại của từng ô → khớp lúc đáp.
+                    if (clustersGhost && i < activeResources.Length)
+                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.34f), (int)activeResources[i]);
+                    else
                         SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.22f), -1);
                 }
             }
@@ -656,10 +779,27 @@ namespace BrickStacker
                     ? (currentSpecialKind == 2 ? new Color(0.35f, 0.95f, 1f, 1f) : RuntimeArt.SpecialBlockColor)
                     : Color.white;
 
-                foreach (var cell in Cells(origin, rotation))
+                if (currentPieceIsSpecial)
                 {
-                    if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height)
-                        SetScenePuzzleCell(cell.x, cell.y, activeColor, currentPieceIsSpecial ? -1 : currentType);
+                    foreach (var cell in Cells(origin, rotation))
+                    {
+                        if (cell.x >= 0 && cell.x < Width && cell.y >= 0 && cell.y < Height)
+                            SetScenePuzzleCell(cell.x, cell.y, activeColor, -1);
+                    }
+                }
+                else
+                {
+                    bool clusters = rules.UseResourceClusters && activeResources != null;
+                    var shape = shapes[currentType];
+                    for (int i = 0; i < shape.Length; i++)
+                    {
+                        var cell = CellFromLocal(shape[i], origin, rotation);
+                        if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height)
+                            continue;
+
+                        int type = clusters && i < activeResources.Length ? (int)activeResources[i] : currentType;
+                        SetScenePuzzleCell(cell.x, cell.y, activeColor, type);
+                    }
                 }
             }
         }
@@ -676,22 +816,44 @@ namespace BrickStacker
             bool filled = color.a > 0.01f;
             if (filled)
             {
-                cell.sprite = GetPieceBlockSprite(type);
-                cell.preserveAspect = true;
-                cell.color = type < 0 ? PuzzleBlockColor(color) : color;
+                // Chế độ cụm: khối tài nguyên LẤP ĐẦY ô (preserveAspect=false) để bằng ô khung.
+                bool clusters = rules != null && rules.UseResourceClusters;
+                bool clusterResource = clusters && type >= 0 && type < 4;
+                bool clusterGarbage = clusters && type >= 4; // ô rác (§16): xám, không mang tài nguyên
+                if (clusterGarbage)
+                {
+                    cell.sprite = blockSprite;
+                    cell.preserveAspect = false;
+                    cell.color = new Color(0.40f, 0.43f, 0.50f, 1f);
+                }
+                else
+                {
+                    cell.sprite = GetPieceBlockSprite(type);
+                    cell.preserveAspect = !clusterResource;
+                    cell.color = type < 0 ? PuzzleBlockColor(color) : color;
+                }
             }
             else
             {
-                // Ô trống = màu board của khung (khe hở lộ nền navy nhạt = đường lưới).
+                // Ô trống = tile navy nhạt (thấy rõ từng ô để di chuyển mô hình); khe hở lộ nền
+                // đậm = đường lưới.
                 cell.sprite = null;
                 cell.preserveAspect = false;
-                cell.color = new Color(0.063f, 0.153f, 0.30f, 1f);
+                cell.color = new Color(0.10f, 0.17f, 0.31f, 1f);
             }
             cell.enabled = true;
         }
 
         Sprite GetPieceBlockSprite(int type)
         {
+            // GD v3: khi bật cụm, "type" là chỉ số ResourceType (0..3) → sprite ô tài nguyên.
+            if (rules != null && rules.UseResourceClusters && resourceSprites != null)
+            {
+                if (type >= 0 && type < resourceSprites.Length && resourceSprites[type] != null)
+                    return resourceSprites[type];
+                return blockSprite;
+            }
+
             if (type >= 0 && pieceBlockSprites != null && pieceBlockSprites.Length > 0)
             {
                 var sprite = pieceBlockSprites[Mathf.Abs(type) % pieceBlockSprites.Length];
@@ -749,10 +911,13 @@ namespace BrickStacker
                 return;
             }
 
-            foreach (var localCell in shapes[currentType])
+            bool clusterActive = rules.UseResourceClusters && activeResources != null;
+            var activeShape = shapes[currentType];
+            for (int i = 0; i < activeShape.Length; i++)
             {
-                var cell = CellFromLocal(localCell, origin, rotation);
-                var block = NewPieceBlock("Active Block", currentType, activeRoot);
+                var cell = CellFromLocal(activeShape[i], origin, rotation);
+                int blockType = clusterActive && i < activeResources.Length ? (int)activeResources[i] : currentType;
+                var block = NewPieceBlock("Active Block", blockType, activeRoot);
                 block.transform.position = CellToWorld(cell.x, cell.y);
                 activeBlocks.Add(block);
             }
@@ -849,8 +1014,9 @@ namespace BrickStacker
             return Mathf.Max(0.08f, interval);
         }
 
-        void RenderPiecePreview(List<Image> cells, int type, bool visible)
+        void RenderPiecePreview(List<Image> cells, int type, bool visible, Puzzle.ResourceType[] resources = null)
         {
+            bool clusters = rules != null && rules.UseResourceClusters && resourceSprites != null;
             for (int i = 0; i < cells.Count; i++)
             {
                 cells[i].color = new Color(1f, 1f, 1f, 0f);
@@ -882,8 +1048,12 @@ namespace BrickStacker
                 var cell = shape[i];
                 var image = cells[i];
                 image.rectTransform.anchoredPosition = new Vector2((cell.x - shapeCenterX) * step, -(cell.y - shapeCenterY) * step);
-                image.sprite = GetPieceBlockSprite(type);
+                // Chế độ cụm: mỗi ô một sprite tài nguyên (khớp mô hình sắp rơi), không map theo shape id.
+                image.sprite = clusters && resources != null && i < resources.Length
+                    ? GetPieceBlockSprite((int)resources[i])
+                    : GetPieceBlockSprite(type);
                 image.color = Color.white;
+                image.preserveAspect = !clusters; // chế độ cụm: khối lấp đầy ô như bàn chính
             }
         }
 

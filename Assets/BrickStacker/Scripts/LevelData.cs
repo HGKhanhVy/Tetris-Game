@@ -72,6 +72,9 @@ namespace BrickStacker
         public int ScoreMultiplier;
         public int ForcedPieceType = -1;
         public bool AllowSpecialBlocks = true;
+        // GD v3: bật cơ chế ghép cụm tài nguyên thay cho xóa hàng ngang. Mặc định tắt để
+        // giữ nguyên game hiện tại cho tới khi cơ chế mới được playtest.
+        public bool UseResourceClusters = false;
         public bool GhostPreview = true;
         public bool FastBlocks;
         public bool HasStoneBlocks;
@@ -108,6 +111,8 @@ namespace BrickStacker
             rules.TacticalData = TacticalLevelData.Create(stage);
             rules.FallInterval = rules.TacticalData.InitialFallSpeed;
             rules.CoinReward = rules.TacticalData.CoinReward;
+            // GD v3: bật ghép cụm tài nguyên. Online 1v1 LUÔN dùng cụm; offline hiện bật Màn 1 để test.
+            rules.UseResourceClusters = stage == 1 || MultiplayerMatch.Active;
             return rules;
         }
 

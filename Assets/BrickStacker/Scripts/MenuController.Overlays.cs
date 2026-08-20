@@ -452,82 +452,82 @@ namespace BrickStacker
             ovCanvas.sortingOrder = 5000;
             mapOverlay.AddComponent<UnityEngine.UI.GraphicRaycaster>();
 
-            // Panel nền (đã bao sẵn tiêu đề ONLINE/JOIN ROOM và chữ ENTER ROOM CODE).
-            float boxW = 920f, boxH = boxW / 1.509f;
+            // Panel nền MỚI (khung + vương miện + "1 VS 1" + "Nhập mã phòng" baked sẵn).
+            float boxW = 620f, boxH = boxW / 1.195f;
             var box = Ui.Panel(mapOverlay.transform, "Multiplayer Box", Color.white);
             Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(boxW, boxH));
             var boxImg = box.GetComponent<Image>();
-            var panelSpr = RuntimeArt.LoadV3SubSprite(V1V1 + "panel-bg.png", new Rect(0.054f, 0.066f, 0.865f, 0.859f));
+            var panelSpr = RuntimeArt.LoadV3SubSprite(V1V1 + "panel.png", new Rect(0.003f, 0.078f, 0.992f, 0.906f));
             if (panelSpr != null) { boxImg.sprite = panelSpr; boxImg.type = Image.Type.Simple; boxImg.preserveAspect = false; boxImg.color = Color.white; }
 
-            // Nhân vật hai bên (đè lên mép panel, đứng trên bệ đá).
-            BuildOnlineCharacter(box.transform, V1V1 + "decor-characterxanh.png", new Rect(0.230f, 0.089f, 0.550f, 0.803f), new Vector2(0.0f, 0.25f), new Vector2(56f, 0f));
-            BuildOnlineCharacter(box.transform, V1V1 + "decor-characterdo.png", new Rect(0.273f, 0.114f, 0.526f, 0.780f), new Vector2(1.0f, 0.25f), new Vector2(-56f, 0f));
+            // Ô NHẬP MÃ PHÒNG (input-maphong.png có sẵn icon chìa khoá) + InputField 4 số.
+            var inputImg = MakeV3Image(box.transform, "Room Input BG", V1V1 + "input-maphong.png", new Rect(0.016f, 0.200f, 0.969f, 0.588f), true);
+            inputImg.preserveAspect = false;
+            var inRt = inputImg.rectTransform;
+            inRt.anchorMin = inRt.anchorMax = new Vector2(0.5f, 0.465f);
+            inRt.pivot = new Vector2(0.5f, 0.5f);
+            inRt.sizeDelta = new Vector2(boxW * 0.80f, boxW * 0.80f / 4.94f);
+            var codeInput = inputImg.gameObject.AddComponent<InputField>();
+            var inputText = Ui.Text(inputImg.transform, "", font, 46, Color.white, TextAnchor.MiddleLeft);
+            inputText.fontStyle = FontStyle.Bold;
+            var itRt = inputText.rectTransform;
+            itRt.anchorMin = new Vector2(0.22f, 0.14f); itRt.anchorMax = new Vector2(0.95f, 0.86f);
+            itRt.offsetMin = Vector2.zero; itRt.offsetMax = Vector2.zero;
+            var placeholder = Ui.Text(inputImg.transform, "Mã phòng...", font, 46, new Color(0.82f, 0.90f, 1f, 0.72f), TextAnchor.MiddleLeft);
+            placeholder.fontStyle = FontStyle.BoldAndItalic;
+            var phRt = placeholder.rectTransform;
+            phRt.anchorMin = new Vector2(0.22f, 0.14f); phRt.anchorMax = new Vector2(0.95f, 0.86f);
+            phRt.offsetMin = Vector2.zero; phRt.offsetMax = Vector2.zero;
+            codeInput.textComponent = inputText;
+            codeInput.placeholder = placeholder;
+            codeInput.contentType = InputField.ContentType.IntegerNumber;
+            codeInput.characterLimit = 4;
 
-            // 4 ô nhập mã phòng (dịch nhẹ sang phải cho cân với ô beige).
-            var codeInput = BuildCodeBoxes(box.transform, new Vector2(0.528f, 0.47f), 92f, 116f);
-
-            // Dòng trạng thái/thông báo (giữa ô mã và hàng nút).
-            var statusLabel = Ui.Text(box.transform, "", font, 24, new Color(0.36f, 0.24f, 0.14f), TextAnchor.MiddleCenter);
+            // Dòng trạng thái (giữa ô mã và hàng nút).
+            var statusLabel = Ui.Text(box.transform, "", font, 22, new Color(1f, 0.96f, 0.82f), TextAnchor.MiddleCenter);
             statusLabel.fontStyle = FontStyle.Bold;
             statusLabel.raycastTarget = false;
-            Ui.Rect(statusLabel, new Vector2(0.5f, 0.345f), new Vector2(0.5f, 0.345f), new Vector2(620, 70));
+            Ui.Rect(statusLabel, new Vector2(0.5f, 0.35f), new Vector2(0.5f, 0.35f), new Vector2(720, 60));
+            AddDarkWoodTextEdge(statusLabel, 0.6f, 0.6f);
 
-            // Nút JOIN ROOM (xanh) + QUICK MATCH (vàng).
-            var joinBtn = BuildOnlineActionButton(box.transform, V1V1 + "btn-join.png", new Rect(0.137f, 0.332f, 0.750f, 0.389f),
-                "JOIN\nROOM", new Vector2(0.5f, 0.245f), new Vector2(-120f, 0f), new Vector2(240, 83), new Color(1f, 0.99f, 0.96f));
-            var quickBtn = BuildOnlineActionButton(box.transform, V1V1 + "btn-quickjoin.png", new Rect(0.169f, 0.370f, 0.703f, 0.300f),
-                "QUICK\nMATCH", new Vector2(0.5f, 0.245f), new Vector2(136f, 0f), new Vector2(240, 83), new Color(0.30f, 0.17f, 0.03f));
+            // 3 nút (chữ + icon đã baked trong sprite): Tạo phòng / Vào phòng / Ghép nhanh.
+            float btnW = boxW * 0.25f, btnH = btnW / 1.8f;
+            const float by = 0.225f;
+            var createBtn = BuildV1V1Button(box.transform, V1V1 + "btn-taophong.png", new Rect(0.013f, 0.184f, 0.974f, 0.668f), new Vector2(0.205f, by), new Vector2(btnW, btnH));
+            var joinBtn = BuildV1V1Button(box.transform, V1V1 + "btn-vaophong.png", new Rect(0.023f, 0.184f, 0.954f, 0.653f), new Vector2(0.5f, by), new Vector2(btnW, btnH));
+            var quickBtn = BuildV1V1Button(box.transform, V1V1 + "btn-ghepnhanh.png", new Rect(0.009f, 0.155f, 0.979f, 0.703f), new Vector2(0.795f, by), new Vector2(btnW, btnH));
 
-            // Nút X đỏ góc phải trên, nằm ngoài panel.
-            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            // Nút X đỏ (btn-close) góc phải trên — nằm trên chữ X in sẵn của panel.
+            var closeBtn = BuildV1V1Button(box.transform, V1V1 + "btn-close.png", new Rect(0.061f, 0.069f, 0.876f, 0.888f), new Vector2(0.935f, 0.792f), new Vector2(58f, 58f));
+            closeBtn.onClick.AddListener(() =>
             {
                 RuntimeArt.PlayUiSwitchSound();
                 var manager = MultiplayerManager.Instance;
                 if (manager != null && manager.InSession)
-                    _ = manager.LeaveAsync(); // hủy phòng đang chờ
+                    _ = manager.LeaveAsync();
                 Destroy(mapOverlay);
             });
-            var cbRt = closeBtn.GetComponent<RectTransform>();
-            cbRt.anchorMin = cbRt.anchorMax = new Vector2(1.0f, 0.76f);
-            cbRt.pivot = new Vector2(0.5f, 0.5f);
-            cbRt.sizeDelta = new Vector2(96, 96);
-            cbRt.anchoredPosition = new Vector2(-100f, 0f);
-            var cbImg = closeBtn.GetComponent<Image>();
-            var closeSpr = RuntimeArt.LoadV3SubSprite(V1V1 + "btn-close.png", new Rect(0.309f, 0.254f, 0.382f, 0.560f));
-            if (closeSpr != null) { cbImg.sprite = closeSpr; cbImg.type = Image.Type.Simple; cbImg.preserveAspect = true; cbImg.color = Color.white; }
-            AddPressScaleFeedback(closeBtn.gameObject, 0.9f);
-
-            // Nút phụ nhỏ dưới panel: Tạo phòng (host + mã rủ bạn) và Xem thử giao diện.
-            var (createBtn, _) = AddMenuButton(box.transform, "TẠO PHÒNG", new Vector2(0.5f, 0.0f), new Vector2(0f, -66f), () => { }, new Vector2(300, 60), 24);
-            AddMenuButton(box.transform, "XEM THỬ GIAO DIỆN", new Vector2(0.5f, 0.0f), new Vector2(0f, -134f), () =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                MultiplayerMatch.Begin(1, UnityEngine.Random.Range(1, 999999));
-                MultiplayerMatch.Preview = true;
-                MultiplayerMatch.OpponentName = "Đối thủ (thử)";
-                MultiplayerMatch.OpponentHealth = OnlineConfig.MaxHealth;
-                GameSession.SelectedLevel = 1;
-                GameSession.JourneyLevel = 1;
-                SceneManager.LoadScene("BrickGame");
-            }, new Vector2(300, 54), 22);
 
             var buttons = new[] { quickBtn, createBtn, joinBtn };
-            quickBtn.onClick.AddListener(() =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                QuickMatch(box, statusLabel, buttons);
-            });
-            createBtn.onClick.AddListener(() =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                CreateRoom(box, codeInput, statusLabel, buttons);
-            });
-            joinBtn.onClick.AddListener(() =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                JoinRoom(box, codeInput, statusLabel, buttons);
-            });
+            quickBtn.onClick.AddListener(() => { RuntimeArt.PlayUiSwitchSound(); QuickMatch(box, statusLabel, buttons); });
+            createBtn.onClick.AddListener(() => { RuntimeArt.PlayUiSwitchSound(); CreateRoom(box, codeInput, statusLabel, buttons); });
+            joinBtn.onClick.AddListener(() => { RuntimeArt.PlayUiSwitchSound(); JoinRoom(box, codeInput, statusLabel, buttons); });
+        }
+
+        // Nút ảnh 1vs1: sprite (đã baked chữ+icon) lấp khung, có phản hồi nhấn.
+        Button BuildV1V1Button(Transform parent, string asset, Rect crop, Vector2 anchor, Vector2 size)
+        {
+            var btn = Ui.Button(parent, "", font, 1, () => { });
+            var rt = btn.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = anchor;
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = size;
+            rt.anchoredPosition = Vector2.zero;
+            var img = btn.GetComponent<Image>();
+            var spr = RuntimeArt.LoadV3SubSprite(asset, crop);
+            if (spr != null) { img.sprite = spr; img.type = Image.Type.Simple; img.preserveAspect = true; img.color = Color.white; }
+            AddPressScaleFeedback(btn.gameObject, 0.93f);
+            return btn;
         }
 
         Image MakeV3Image(Transform parent, string name, string asset, Rect crop, bool raycast)

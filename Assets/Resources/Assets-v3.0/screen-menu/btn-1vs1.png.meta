@@ -5,12 +5,6 @@ TextureImporter:
   - first:
       213: 8418795204965092997
     second: btn-1vs1_0
-  - first:
-      213: 3617066143301157951
-    second: btn-1vs1_1
-  - first:
-      213: -6048778786569579673
-    second: btn-1vs1_2
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -161,10 +155,10 @@ TextureImporter:
       name: btn-1vs1_0
       rect:
         serializedVersion: 2
-        x: 11
-        y: 0
-        width: 1513
-        height: 1024
+        x: 105
+        y: 75
+        width: 1968
+        height: 598
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -175,50 +169,6 @@ TextureImporter:
       bones: []
       spriteID: 58ec4bc52a195d470800000000000000
       internalID: 8418795204965092997
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: btn-1vs1_1
-      rect:
-        serializedVersion: 2
-        x: 82
-        y: 351
-        width: 6
-        height: 6
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: f34ce884e76623230800000000000000
-      internalID: 3617066143301157951
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: btn-1vs1_2
-      rect:
-        serializedVersion: 2
-        x: 82
-        y: 231
-        width: 6
-        height: 6
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      customData: 
-      outline: []
-      physicsShape: []
-      tessellationDetail: -1
-      bones: []
-      spriteID: 7631a9dcdbb6e0ca0800000000000000
-      internalID: -6048778786569579673
       vertices: []
       indices: 
       edges: []
@@ -238,8 +188,6 @@ TextureImporter:
       entries: []
     nameFileIdTable:
       btn-1vs1_0: 8418795204965092997
-      btn-1vs1_1: 3617066143301157951
-      btn-1vs1_2: -6048778786569579673
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

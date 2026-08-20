@@ -2,34 +2,64 @@ using UnityEngine;
 
 namespace BrickStacker
 {
-    // Ba kỹ năng MVP (design §11). Giá trị id dùng luôn cho gói mạng.
+    // GD v3 §15: ba Skill tiêu Energy. Id dùng luôn cho gói mạng.
     public enum OnlineSkill : byte
     {
-        Attack = 1,  // §7.1 cost 3, dmg 2
-        Shield = 2,  // §7.2 cost 2, chặn 1 đòn
-        Garbage = 3  // §7.3 cost 5, +1 hàng rác
+        GarbageDrop = 1,   // §15.1 cost 4, +1 hàng rác
+        LifeDrain = 2,     // §15.2 cost 4, hút 16 máu
+        OverloadBlast = 3, // §15.3 cost 7, 25 dmg / phá khiên +8
+        Attack = 4,        // §12 đòn Kiếm tự động (id mạng — không phải skill người chơi bấm)
+        DrainHeal = 5      // §15.2 gói mạng: bên bị Hút máu báo lượng máu thực mất để bên gây hồi đúng
     }
 
-    // DTO nạp thông số Online từ JSON (design §13). Field nào có trong file sẽ ghi đè mặc định.
+    // GD v3 §12: đòn đánh tự động theo cụm Kiếm.
+    public enum AttackTier : byte
+    {
+        Basic = 1, // 4–5 ô
+        Strong = 2 // 6+ ô
+    }
+
+    // DTO nạp thông số Online v3 từ JSON (GD §22). Field nào có trong file sẽ ghi đè mặc định.
     [System.Serializable]
     public class OnlineConfigData
     {
-        public int maxHealth = 10;
+        public int initialHealth = 100;
+        public int maxHealth = 100;
         public int maxEnergy = 10;
-        public int attackCost = 3;
-        public int attackDamage = 2;
-        public float attackWarning = 0.75f;
-        public int shieldCost = 2;
-        public int shieldBlocks = 1;
-        public int garbageCost = 5;
-        public int garbageLines = 1;
-        public float garbageWarning = 2.0f;
-        public int maxComboBonusEnergy = 3;
+        public int maxShieldCharge = 2;   // §13
+        public int activeShieldHP = 16;   // §13
+        public float activeShieldDuration = 4f;
+
+        // §12 Attack tự động
+        public int basicAttackDamage = 8;
+        public int strongAttackDamage = 16;
+        public float basicAttackWarning = 0.75f;
+        public float strongAttackWarning = 1.0f;
+        public float minAttackInterval = 0.5f; // §12.5 hàng đợi
+
+        // Cụm → tài nguyên (§13 Shield, §14 Energy)
+        public int shieldChargeBasic = 1;
+        public int shieldChargeStrong = 2;
+        public int energyBasic = 3;
+        public int energyStrong = 5;
+
+        // §15 Skill
+        public int garbageDropCost = 4;
+        public int garbageDropLines = 1;
+        public float garbageDropWarning = 2f;
+        public int lifeDrainCost = 4;
+        public int lifeDrainDamage = 16;
+        public float lifeDrainWarning = 0.75f;
+        public int overloadCost = 7;
+        public int overloadDamage = 25;
+        public int overloadShieldPierce = 8;
+        public float overloadWarning = 1.5f;
+
         public float maxMatchSeconds = 180f;
     }
 
-    // Thông số cân bằng Online (design §11). Không ghi cứng — nạp override từ
-    // Resources/BrickStacker/online_config.json nếu có (design §13), else dùng mặc định.
+    // Thông số cân bằng Online v3 (GD §11–16). Nạp override từ
+    // Resources/BrickStacker/online_config.json nếu có, else dùng mặc định.
     public static class OnlineConfig
     {
         static OnlineConfigData data = new OnlineConfigData();
@@ -48,44 +78,43 @@ namespace BrickStacker
             }
         }
 
+        public static int InitialHealth { get { EnsureLoaded(); return data.initialHealth; } }
         public static int MaxHealth { get { EnsureLoaded(); return data.maxHealth; } }
         public static int MaxEnergy { get { EnsureLoaded(); return data.maxEnergy; } }
-        public static int AttackCost { get { EnsureLoaded(); return data.attackCost; } }
-        public static int AttackDamage { get { EnsureLoaded(); return data.attackDamage; } }
-        public static float AttackWarning { get { EnsureLoaded(); return data.attackWarning; } }
-        public static int ShieldCost { get { EnsureLoaded(); return data.shieldCost; } }
-        public static int ShieldBlocks { get { EnsureLoaded(); return data.shieldBlocks; } }
-        public static int GarbageCost { get { EnsureLoaded(); return data.garbageCost; } }
-        public static int GarbageLines { get { EnsureLoaded(); return data.garbageLines; } }
-        public static float GarbageWarning { get { EnsureLoaded(); return data.garbageWarning; } }
-        public static int MaxComboBonusEnergy { get { EnsureLoaded(); return data.maxComboBonusEnergy; } }
-        public static float MaxMatchSeconds { get { EnsureLoaded(); return data.maxMatchSeconds; } }
+        public static int MaxShieldCharge { get { EnsureLoaded(); return data.maxShieldCharge; } }
+        public static int ActiveShieldHP { get { EnsureLoaded(); return data.activeShieldHP; } }
+        public static float ActiveShieldDuration { get { EnsureLoaded(); return data.activeShieldDuration; } }
 
-        // §6.4: xóa 1/2/3/4 hàng → 1/3/5/8 năng lượng.
-        public static int EnergyForLines(int lines)
-        {
-            switch (lines)
-            {
-                case 1: return 1;
-                case 2: return 3;
-                case 3: return 5;
-                default: return lines >= 4 ? 8 : 0;
-            }
-        }
+        public static int AttackDamage(AttackTier tier) { EnsureLoaded(); return tier == AttackTier.Strong ? data.strongAttackDamage : data.basicAttackDamage; }
+        public static float AttackWarning(AttackTier tier) { EnsureLoaded(); return tier == AttackTier.Strong ? data.strongAttackWarning : data.basicAttackWarning; }
+        public static float MinAttackInterval { get { EnsureLoaded(); return data.minAttackInterval; } }
 
-        public static int EnergyCost(OnlineSkill skill)
+        public static int ShieldChargeGain(bool strong) { EnsureLoaded(); return strong ? data.shieldChargeStrong : data.shieldChargeBasic; }
+        public static int EnergyGain(bool strong) { EnsureLoaded(); return strong ? data.energyStrong : data.energyBasic; }
+
+        public static int SkillCost(OnlineSkill s)
         {
-            switch (skill)
+            EnsureLoaded();
+            switch (s)
             {
-                case OnlineSkill.Attack: return AttackCost;
-                case OnlineSkill.Shield: return ShieldCost;
-                case OnlineSkill.Garbage: return GarbageCost;
+                case OnlineSkill.GarbageDrop: return data.garbageDropCost;
+                case OnlineSkill.LifeDrain: return data.lifeDrainCost;
+                case OnlineSkill.OverloadBlast: return data.overloadCost;
                 default: return 0;
             }
         }
+
+        public static int GarbageDropLines { get { EnsureLoaded(); return data.garbageDropLines; } }
+        public static float GarbageDropWarning { get { EnsureLoaded(); return data.garbageDropWarning; } }
+        public static int LifeDrainDamage { get { EnsureLoaded(); return data.lifeDrainDamage; } }
+        public static float LifeDrainWarning { get { EnsureLoaded(); return data.lifeDrainWarning; } }
+        public static int OverloadDamage { get { EnsureLoaded(); return data.overloadDamage; } }
+        public static int OverloadShieldPierce { get { EnsureLoaded(); return data.overloadShieldPierce; } }
+        public static float OverloadWarning { get { EnsureLoaded(); return data.overloadWarning; } }
+        public static float MaxMatchSeconds { get { EnsureLoaded(); return data.maxMatchSeconds; } }
     }
 
-    // Năng lượng của người chơi (design §6.4). Tích khi xóa hàng, tiêu khi dùng kỹ năng.
+    // GD v3 §14: Energy tích từ cụm Sấm sét, tiêu cho Skill.
     public class EnergySystem
     {
         public int Energy { get; private set; }
@@ -93,26 +122,18 @@ namespace BrickStacker
 
         public void Reset() => Energy = 0;
 
-        // Trả về lượng năng lượng thực nhận (đã kẹp trần). combo = số lần đặt khối
-        // liên tiếp có xóa hàng, thưởng thêm (kẹp MaxComboBonusEnergy).
-        public int GainFromLines(int lines, int combo)
+        public int GainFromCluster(bool strong)
         {
-            int gain = OnlineConfig.EnergyForLines(lines);
-            if (gain <= 0)
-                return 0;
-            if (combo > 1)
-                gain += Mathf.Min(combo - 1, OnlineConfig.MaxComboBonusEnergy);
             int before = Energy;
-            Energy = Mathf.Min(Max, Energy + gain);
+            Energy = Mathf.Min(Max, Energy + OnlineConfig.EnergyGain(strong));
             return Energy - before;
         }
 
-        public bool CanAfford(OnlineSkill skill) => Energy >= OnlineConfig.EnergyCost(skill);
+        public bool CanAfford(OnlineSkill skill) => Energy >= OnlineConfig.SkillCost(skill);
 
-        // Tiêu năng lượng nếu đủ. Trả về true nếu thành công.
         public bool TrySpend(OnlineSkill skill)
         {
-            int cost = OnlineConfig.EnergyCost(skill);
+            int cost = OnlineConfig.SkillCost(skill);
             if (Energy < cost)
                 return false;
             Energy -= cost;
@@ -120,38 +141,95 @@ namespace BrickStacker
         }
     }
 
-    // Máu + khiên của người chơi (design §7.2, §8). Người chơi tự quản máu của mình;
-    // khi nhận đòn tấn công từ đối thủ thì áp sát thương vào máu mình (peer chịu trách
-    // nhiệm về máu của chính mình — thay cho server authority §14 vì kiến trúc P2P).
+    // GD v3 §13: Khiên = Shield Charge (tích, tối đa 2) + Active Shield (bấm để bật: HP 16, 4 giây).
+    // §17: Máu 100.
     public class HealthSystem
     {
         public int Health { get; private set; }
         public int ShieldCharges { get; private set; }
+        public int ActiveShieldHP { get; private set; }
+        public float ActiveShieldTimer { get; private set; }
+
         public int Max => OnlineConfig.MaxHealth;
         public bool IsDead => Health <= 0;
+        public bool IsShieldActive => ActiveShieldHP > 0 && ActiveShieldTimer > 0f;
 
         public void Reset()
         {
-            Health = OnlineConfig.MaxHealth;
+            Health = OnlineConfig.InitialHealth;
             ShieldCharges = 0;
+            ActiveShieldHP = 0;
+            ActiveShieldTimer = 0f;
         }
 
-        public void AddShield()
+        // Cụm Khiên → +1/+2 charge (trần MaxShieldCharge).
+        public int AddShieldCharge(bool strong)
         {
-            ShieldCharges += OnlineConfig.ShieldBlocks;
+            int before = ShieldCharges;
+            ShieldCharges = Mathf.Min(OnlineConfig.MaxShieldCharge, ShieldCharges + OnlineConfig.ShieldChargeGain(strong));
+            return ShieldCharges - before;
         }
 
-        // Nhận 1 đòn tấn công. Nếu còn khiên thì chặn (tiêu 1 lớp) và không mất máu.
-        // Trả về true nếu đòn bị khiên chặn.
-        public bool TakeAttack(int damage)
+        // Bấm Khiên: tiêu 1 charge → bật Active Shield (HP 16, 4s). Không cộng dồn nhiều khiên.
+        public bool ActivateShield()
         {
-            if (ShieldCharges > 0)
+            if (ShieldCharges <= 0 || IsShieldActive)
+                return false;
+            ShieldCharges--;
+            ActiveShieldHP = OnlineConfig.ActiveShieldHP;
+            ActiveShieldTimer = OnlineConfig.ActiveShieldDuration;
+            return true;
+        }
+
+        public void Tick(float dt)
+        {
+            if (ActiveShieldTimer > 0f)
             {
-                ShieldCharges--;
-                return true; // chặn được
+                ActiveShieldTimer -= dt;
+                if (ActiveShieldTimer <= 0f)
+                    ActiveShieldHP = 0; // hết thời gian → khiên biến mất
             }
-            Health = Mathf.Max(0, Health - Mathf.Max(0, damage));
-            return false;
+        }
+
+        // Nhận sát thương: trừ vào Active Shield trước (nếu đang bật), phần dư trừ vào máu.
+        // Trả về lượng máu thực mất (để Life Drain hồi đúng lượng).
+        public int TakeDamage(int damage)
+        {
+            damage = Mathf.Max(0, damage);
+            if (IsShieldActive)
+            {
+                int absorbed = Mathf.Min(ActiveShieldHP, damage);
+                ActiveShieldHP -= absorbed;
+                if (ActiveShieldHP <= 0)
+                    ActiveShieldTimer = 0f; // khiên vỡ
+                damage -= absorbed;
+            }
+            int before = Health;
+            Health = Mathf.Max(0, Health - damage);
+            return before - Health;
+        }
+
+        // §15.3 Overload: phá Active Shield rồi gây sát thương xuyên.
+        public int TakeOverload(int fullDamage, int pierceDamage)
+        {
+            if (IsShieldActive)
+            {
+                ActiveShieldHP = 0;
+                ActiveShieldTimer = 0f;
+                int before = Health;
+                Health = Mathf.Max(0, Health - Mathf.Max(0, pierceDamage));
+                return before - Health;
+            }
+            int b = Health;
+            Health = Mathf.Max(0, Health - Mathf.Max(0, fullDamage));
+            return b - Health;
+        }
+
+        public int Heal(int amount)
+        {
+            int before = Health;
+            Health = Mathf.Min(Max, Health + Mathf.Max(0, amount));
+            return Health - before;
         }
     }
 }

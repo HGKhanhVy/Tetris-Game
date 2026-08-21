@@ -424,6 +424,8 @@ namespace BrickStacker
         Button pauseButton;
         Button rotateButton;
         ParticleSystem clearParticles;
+        Text clusterComboText;        // "COMBO xN" khi có phản ứng dây chuyền (§3.5)
+        Coroutine clusterComboRoutine;
         AudioSource audioSource;
         AudioSource musicSource;
         GameObject pauseOverlay;
@@ -592,7 +594,7 @@ namespace BrickStacker
                 {
                     CheckOpponentMatchEvents();
                     ProcessIncomingAttacks();
-                    CheckMatchTimeLimit();
+                    // Online KHÔNG giới hạn thời gian: chỉ thua khi máu=0 hoặc đầy bàn xếp gạch.
                 }
                 UpdateOnlineHud(); // giữ 2 thanh máu/năng lượng luôn khớp máu mình + máu đối thủ (mạng)
                 ApplyPendingGarbage();

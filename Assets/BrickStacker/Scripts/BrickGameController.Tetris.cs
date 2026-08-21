@@ -374,8 +374,16 @@ namespace BrickStacker
         {
             EnsureResourcePuzzle();
             Puzzle.GridBridge.Load(grid, puzzleBoard);
-            var outcome = clusterResolver.Resolve(puzzleBoard);
-            Puzzle.GridBridge.Store(puzzleBoard, grid);
+
+            var outcome = new Puzzle.ResolutionOutcome();
+            if (usingSceneGameplayCanvas)
+                // Bàn UI: giải TỪNG BẬC dây chuyền, animate biến mất giữa các bậc (§3.5) để thấy rõ.
+                yield return ResolveClustersAnimated(outcome);
+            else
+            {
+                outcome = clusterResolver.Resolve(puzzleBoard);
+                Puzzle.GridBridge.Store(puzzleBoard, grid);
+            }
 
             if (outcome.ActivatedAnything)
             {
@@ -389,14 +397,15 @@ namespace BrickStacker
                 float finalMultiplier = outcome.Steps[outcome.Steps.Count - 1].Multiplier;
                 score += Mathf.RoundToInt(activated * 120 * Mathf.Max(1, rules.ScoreMultiplier) * finalMultiplier);
                 shake = 0.12f + Mathf.Min(0.3f, activated * 0.04f);
-                Beep(760f + combo * 90f, 0.12f, 0.22f);
 
-                clearParticles.transform.position = CellToWorld(Width / 2, Height / 2);
-                clearParticles.Play();
-                RedrawLocked();
+                if (!usingSceneGameplayCanvas)
+                {
+                    Beep(760f + combo * 90f, 0.12f, 0.22f);
+                    clearParticles.transform.position = CellToWorld(Width / 2, Height / 2);
+                    clearParticles.Play();
+                    RedrawLocked();
+                }
                 UpdateUi();
-                if (usingSceneGameplayCanvas)
-                    yield return new WaitForSeconds(0.12f);
             }
             else
             {
@@ -729,6 +738,132 @@ namespace BrickStacker
             }
 
             RefreshScenePuzzleBoardUi();
+        }
+
+        // Giải dây chuyền TỪNG BẬC: hiện trạng thái trước xóa → animate ô biến mất → xóa + trọng lực
+        // → vẽ lại → dừng nhẹ → bậc kế. Tích lũy outcome cho hiệu ứng đánh/khiên/energy sau đó.
+        IEnumerator ResolveClustersAnimated(Puzzle.ResolutionOutcome outcome)
+        {
+            int chain = 0;
+            while (true)
+            {
+                var clusters = clusterResolver.DetectStep(puzzleBoard);
+                if (clusters == null)
+                    break;
+                chain++;
+
+                // Bàn đang hiển thị trạng thái TRƯỚC khi xóa bậc này → cho ô phồng to + mờ dần.
+                Puzzle.GridBridge.Store(puzzleBoard, grid);
+                RedrawLocked();
+                ShowClusterCombo(chain);
+                Beep(720f + chain * 110f, 0.10f, 0.20f);
+                shake = Mathf.Max(shake, 0.14f);
+                yield return PlayClusterVanishFx(clusters);
+
+                // Xóa + trọng lực → vẽ trạng thái mới, dừng nhẹ để mắt kịp theo.
+                var destroyed = clusterResolver.RemoveStep(puzzleBoard, clusters);
+                clusterResolver.ApplyGravityStep(puzzleBoard);
+                Puzzle.GridBridge.Store(puzzleBoard, grid);
+                RedrawLocked();
+                outcome.Steps.Add(new Puzzle.ResolutionStep(clusters, chain,
+                    Puzzle.ClusterResolutionSystem.ComboMultiplier(chain), destroyed));
+                yield return new WaitForSeconds(0.30f);
+            }
+        }
+
+        // Hiệu ứng ô tài nguyên biến mất: phồng to + mờ dần rồi mới vẽ lại bàn (cụm mode, bàn UI).
+        readonly List<Vector2Int> clusterVanishBuffer = new List<Vector2Int>();
+        IEnumerator PlayClusterVanishFx(List<Puzzle.Cluster> clusters)
+        {
+            if (scenePuzzleCells == null || clusters == null)
+                yield break;
+
+            clusterVanishBuffer.Clear();
+            foreach (var cluster in clusters)
+                foreach (var c in cluster.Cells)
+                    clusterVanishBuffer.Add(c);
+            if (clusterVanishBuffer.Count == 0)
+                yield break;
+
+            const float dur = 0.28f;
+            for (float t = 0f; t < dur; t += Time.deltaTime)
+            {
+                float k = Mathf.Clamp01(t / dur);
+                // Nảy to (0–30%) rồi co nhỏ dần về 0 + mờ (30–100%): cảm giác "nổ rồi biến mất".
+                float scale = k < 0.3f ? Mathf.Lerp(1f, 1.4f, k / 0.3f) : Mathf.Lerp(1.4f, 0.05f, (k - 0.3f) / 0.7f);
+                float alpha = k < 0.5f ? 1f : Mathf.Clamp01(1f - (k - 0.5f) / 0.5f);
+                for (int i = 0; i < clusterVanishBuffer.Count; i++)
+                {
+                    var c = clusterVanishBuffer[i];
+                    if (c.x < 0 || c.x >= Width || c.y < 0 || c.y >= Height)
+                        continue;
+                    var img = scenePuzzleCells[c.x, c.y];
+                    if (img == null)
+                        continue;
+                    img.rectTransform.localScale = new Vector3(scale, scale, 1f);
+                    var col = img.color; col.a = alpha; img.color = col;
+                }
+                yield return null;
+            }
+
+            // Trả scale về 1 (RedrawLocked ngay sau sẽ đặt lại màu/sprite).
+            for (int i = 0; i < clusterVanishBuffer.Count; i++)
+            {
+                var c = clusterVanishBuffer[i];
+                if (c.x < 0 || c.x >= Width || c.y < 0 || c.y >= Height)
+                    continue;
+                var img = scenePuzzleCells[c.x, c.y];
+                if (img != null)
+                    img.rectTransform.localScale = Vector3.one;
+            }
+        }
+
+        // Text "COMBO xN" khi có phản ứng dây chuyền (chain >= 2).
+        void ShowClusterCombo(int chain)
+        {
+            if (!usingSceneGameplayCanvas || chain < 2)
+                return;
+            EnsureClusterComboText();
+            if (clusterComboText == null)
+                return;
+            clusterComboText.text = "COMBO x" + chain + "!";
+            if (clusterComboRoutine != null)
+                StopCoroutine(clusterComboRoutine);
+            clusterComboRoutine = StartCoroutine(AnimateComboText());
+        }
+
+        void EnsureClusterComboText()
+        {
+            if (clusterComboText != null)
+                return;
+            Transform parent = sceneGameplayCanvas != null ? sceneGameplayCanvas.transform
+                : (safeAreaRoot != null ? (Transform)safeAreaRoot : transform);
+            if (parent == null)
+                return;
+            clusterComboText = Ui.Text(parent, "", font, 64, new Color(1f, 0.86f, 0.35f), TextAnchor.MiddleCenter);
+            clusterComboText.fontStyle = FontStyle.Bold;
+            clusterComboText.raycastTarget = false;
+            Ui.Rect(clusterComboText, new Vector2(0.5f, 0.62f), new Vector2(0.5f, 0.62f), new Vector2(640, 130));
+            AddDarkWoodTextEdge(clusterComboText, 1.3f, 0.95f);
+            var c = clusterComboText.color; c.a = 0f; clusterComboText.color = c;
+        }
+
+        IEnumerator AnimateComboText()
+        {
+            var rt = clusterComboText.rectTransform;
+            var baseCol = clusterComboText.color; baseCol.a = 1f;
+            const float dur = 0.8f;
+            for (float t = 0f; t < dur; t += Time.deltaTime)
+            {
+                float k = t / dur;
+                float scale = k < 0.2f ? Mathf.Lerp(0.5f, 1.25f, k / 0.2f) : Mathf.Lerp(1.25f, 1f, (k - 0.2f) / 0.8f);
+                rt.localScale = new Vector3(scale, scale, 1f);
+                var col = baseCol; col.a = k < 0.6f ? 1f : Mathf.Clamp01(1f - (k - 0.6f) / 0.4f); clusterComboText.color = col;
+                yield return null;
+            }
+            var end = clusterComboText.color; end.a = 0f; clusterComboText.color = end;
+            rt.localScale = Vector3.one;
+            clusterComboRoutine = null;
         }
 
         void RefreshScenePuzzleBoardUi()

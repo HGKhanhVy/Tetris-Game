@@ -844,14 +844,14 @@ namespace BrickStacker
                                 // đòn mạnh: rung dài & liên hồi, biên độ tối đa (dồn dập, đô rõ)
                                 ? effectClass.CallStatic<AndroidJavaObject>("createWaveform",
                                     new long[] { 0, 380, 90, 380, 90, 260 }, new int[] { 0, 255, 0, 255, 0, 255 }, -1)
-                                : effectClass.CallStatic<AndroidJavaObject>("createOneShot", 220L, 255);
+                                : effectClass.CallStatic<AndroidJavaObject>("createOneShot", 300L, 255);
                             vibrator.Call("vibrate", effect);
                         }
                     }
                     else if (strong)
                         vibrator.Call("vibrate", new long[] { 0, 380, 90, 380, 90, 260 }, -1);
                     else
-                        vibrator.Call("vibrate", 220L);
+                        vibrator.Call("vibrate", 300L);
                 }
             }
             catch
@@ -926,18 +926,6 @@ namespace BrickStacker
             img.enabled = false;
             go.transform.SetAsLastSibling();
             attackFlashOverlay = img;
-        }
-
-        void CheckMatchTimeLimit()
-        {
-            if (gameOver || gameplayTime < OnlineConfig.MaxMatchSeconds)
-                return;
-            int outcome;
-            if (healthSystem.Health != MultiplayerMatch.OpponentHealth)
-                outcome = healthSystem.Health > MultiplayerMatch.OpponentHealth ? 1 : -1;
-            else
-                outcome = ResolveByLines();
-            MultiplayerEndMatch(outcome, "Hết giờ trận đấu!");
         }
 
         void CheckOpponentMatchEvents()

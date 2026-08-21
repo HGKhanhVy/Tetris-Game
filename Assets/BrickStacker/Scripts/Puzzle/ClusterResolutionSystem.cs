@@ -56,6 +56,21 @@ namespace BrickStacker.Puzzle
             return outcome;
         }
 
+        // --- API giải TỪNG BẬC (cho controller animate chain từng bước, GD §3.5) ---
+        // Trả về cụm phát hiện ở trạng thái hiện tại của board (chưa xóa). Sao chép để giữ lại.
+        public List<Cluster> DetectStep(PuzzleBoard board)
+        {
+            var detected = detector.DetectAll(board);
+            return detected.Count == 0 ? null : new List<Cluster>(detected);
+        }
+
+        // Xóa các cụm đã phát hiện + nổ rác kề (chưa rơi). Trả về obstacle bị phá.
+        public List<Vector2Int> RemoveStep(PuzzleBoard board, List<Cluster> clusters)
+            => ApplyBlastAndRemove(board, clusters);
+
+        // Áp trọng lực sau khi xóa một bậc.
+        public void ApplyGravityStep(PuzzleBoard board) => gravity.Apply(board);
+
         List<Vector2Int> ApplyBlastAndRemove(PuzzleBoard board, List<Cluster> clusters)
         {
             obstacleDamage.Clear();

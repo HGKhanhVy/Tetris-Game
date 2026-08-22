@@ -380,6 +380,10 @@ namespace BrickStacker
         Image attackFlashOverlay;   // quầng đỏ vignette lan tỏa khi trúng đòn (bật/tắt theo cường độ)
         float impactFlashUntil;     // nháy đậm đúng lúc trúng đòn (unscaled)
         bool impactFlashStrong;     // đòn vừa trúng là đòn MẠNH → viền đậm hơn
+        Text incomingWarnText;      // banner tên đòn/skill đang tới (§12.4 nhắc bấm Khiên)
+        RectTransform incomingWarnPanel; // nền tối của banner (bật/tắt + phập phồng)
+        Image attackProjectile;     // đòn bay từ bàn mình sang bàn đối thủ (tái dùng)
+        Coroutine attackProjectileRoutine;
         float nextAttackTime;       // chống spam: giãn cách giữa hai lần dùng kỹ năng
         Button attackButton;        // = skillGarbageButton (giữ tên cũ cho layout/legacy)
         RectTransform attackButtonRect;
@@ -396,6 +400,7 @@ namespace BrickStacker
         Image playerAvatarImg, oppAvatarImg;
         Image hpYouFill, hpOppFill;
         Text hpYouText, hpOppText, playerNameText, oppNameText, playerCupText, oppCupText;
+        Text oppShieldText;         // trạng thái Khiên của đối thủ (HUD §13)
         // Cột giữa (nhân vật + 3 lá kỹ năng + TẤN CÔNG/PHÒNG THỦ).
         RectTransform onlineCenterRect;
         RectTransform onlineAtkRect, onlineDefRect;
@@ -426,6 +431,7 @@ namespace BrickStacker
         ParticleSystem clearParticles;
         Text clusterComboText;        // "COMBO xN" khi có phản ứng dây chuyền (§3.5)
         Coroutine clusterComboRoutine;
+        Color comboBaseColor = new Color(1f, 0.86f, 0.35f);
         AudioSource audioSource;
         AudioSource musicSource;
         GameObject pauseOverlay;
@@ -448,6 +454,9 @@ namespace BrickStacker
         Button continueButton;
         Button stopButton;
         Button nextButton;
+        Button loseHomeButton;      // nút popup THẤT BẠI (field để online re-wire)
+        Button loseRetryButton;
+        Button loseNextButton;
         Image[] levelClearStarImgs;
         Vector3 cameraHome;
         RectTransform safeAreaRoot;
@@ -507,6 +516,10 @@ namespace BrickStacker
         Puzzle.ResourceBagService resourceBag;
         Puzzle.ResourceType[] activeResources;
         Puzzle.ResourceType[] nextResources; // tài nguyên đã sinh trước cho mô hình kế (khớp ô Next)
+        // Ô TRỐNG/rác trong mô hình (offline): làm loãng tài nguyên để khó spam cụm (§ cân bằng).
+        bool[] activeBlank;
+        bool[] nextBlank;
+        const float OfflineBlankChance = 0.24f; // tỉ lệ mỗi ô thành ô trống (chỉ offline)
         readonly System.Random puzzleRng = new System.Random();
         GameObject[,] lockedBlocks = new GameObject[Width, Height];
         List<GameObject> activeBlocks = new List<GameObject>();
@@ -595,6 +608,7 @@ namespace BrickStacker
                     CheckOpponentMatchEvents();
                     ProcessIncomingAttacks();
                     // Online KHÔNG giới hạn thời gian: chỉ thua khi máu=0 hoặc đầy bàn xếp gạch.
+                    SendMultiplayerState(); // dedup: chỉ gửi khi state đổi (đồng bộ khiên hết hạn kịp thời)
                 }
                 UpdateOnlineHud(); // giữ 2 thanh máu/năng lượng luôn khớp máu mình + máu đối thủ (mạng)
                 ApplyPendingGarbage();
@@ -620,14 +634,29 @@ namespace BrickStacker
             // ngay cả khi người chơi đang xếp gạch. 1v1 không dùng bàn chiến thuật kiểu này.
             if (!MultiplayerMatch.Active && tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Running)
             {
+                // Giới hạn thời gian màn (§ cân bằng): quá giờ = THUA, chống farm vô hạn.
+                float maxPlay = rules != null && rules.TacticalData != null ? rules.TacticalData.MaxPlaySeconds : 0f;
+                if (maxPlay > 0f && gameplayTime >= maxPlay)
+                {
+                    tacticalBoard.LastMessage = "Hết giờ! Bạn đã thua màn này.";
+                    EndGame(false);
+                    return;
+                }
                 if (tacticalBoard.TickMonsterTimer(Time.deltaTime))
                     RefreshTacticalBoardUi();
+                if (tacticalBoard.ShieldConsumedFlag)
+                {
+                    tacticalBoard.ClearShieldConsumedFlag();
+                    SpawnTacticalFloat("-1 Khiên", new Color(0.55f, 0.85f, 1f), tacticalBoard.PlayerPosition, 55f, 1f);
+                    Beep(520f, 0.10f, 0.24f);
+                }
                 if (tacticalBoard.Status != TacticalBoardStatus.Running)
                 {
                     OnTacticalStatusResolved();
                     return;
                 }
                 UpdateMonsterTimerHud();
+                AnimateTacticalPieces(); // nhún/react quân + cảnh báo nguy hiểm (FX offline)
             }
 
             if (!puzzlePausedForTacticalTurn)
@@ -1359,11 +1388,19 @@ namespace BrickStacker
         readonly List<Image> tacticalCellImageCache = new List<Image>();
         int monsterNextCellIndex = -1;
         Sprite obstacleBlueSprite, obstacleBushSprite;
+        // FX bàn cờ offline: chữ nổi (pool), thời điểm react của quân, chống spam rung nguy hiểm.
+        readonly List<FloatingLabel> floatingLabelPool = new List<FloatingLabel>();
+        readonly List<ClusterBurst> clusterBurstPool = new List<ClusterBurst>();
+        Transform floatFxRoot; // canvas overlay riêng (sorting cao) cho chữ nổi, toạ độ theo screen px
+        Image tacticalShieldAura;   // bong bóng khiên xanh quanh player khi có khiên (bàn cờ offline)
+        Text tacticalShieldCount;   // badge "x{N}" số lớp khiên
+        float tacticalPlayerReactUntil, tacticalMonsterReactUntil, tacticalEnemyReactUntil, nextDangerShakeTime;
 
         // Sprite chướng ngại vật (chuongngaivat) — xen kẽ khối xanh / bụi xanh lá như thiết kế.
 
         int hudCachedMoveBank = int.MinValue;
         int hudCachedShield = int.MinValue;
+        int hudCachedPlayLeft = int.MinValue;
         int hudCachedLevel = -1;
         bool hudCachedMultiplayer;
 
@@ -1387,17 +1424,25 @@ namespace BrickStacker
             int shieldLayers = tacticalBoard != null ? tacticalBoard.ShieldLayers : 0;
             // Offline: kèm đồng hồ đếm ngược trước lượt tự đi của quái (design §2.7).
             int monsterSecond = -1;
+            int playLeft = -1;
             if (!MultiplayerMatch.Active && tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Running)
+            {
                 monsterSecond = Mathf.CeilToInt(Mathf.Max(0f, tacticalBoard.MonsterTimer));
+                float maxPlay = rules != null && rules.TacticalData != null ? rules.TacticalData.MaxPlaySeconds : 0f;
+                if (maxPlay > 0f)
+                    playLeft = Mathf.CeilToInt(Mathf.Max(0f, maxPlay - gameplayTime));
+            }
 
-            if (sceneMoveText != null && (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond || shieldLayers != hudCachedShield))
+            if (sceneMoveText != null && (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond || shieldLayers != hudCachedShield || playLeft != hudCachedPlayLeft))
             {
                 hudCachedMoveBank = moveBank;
                 hudCachedMonsterSecond = monsterSecond;
                 hudCachedShield = shieldLayers;
+                hudCachedPlayLeft = playLeft;
                 string shieldPart = shieldLayers > 0 ? "   Khiên: " + shieldLayers : "";
+                string timePart = playLeft >= 0 ? "   Còn: " + (playLeft / 60) + ":" + (playLeft % 60).ToString("00") : "";
                 sceneMoveText.text = monsterSecond >= 0
-                    ? "Lượt đi: " + moveBank + shieldPart + "   Quái đi sau: " + monsterSecond + "s"
+                    ? "Lượt đi: " + moveBank + shieldPart + "   Quái đi sau: " + monsterSecond + "s" + timePart
                     : "Lượt đi: " + moveBank + shieldPart;
             }
 
@@ -1476,7 +1521,7 @@ namespace BrickStacker
             if (rebuiltTactical)
                 RefreshTacticalBoardUi();
             if (rebuiltPreview && nextPreviewCells != null && nextPreviewCells.Count > 0 && nextBag.Count > 0)
-                RenderPiecePreview(nextPreviewCells, PeekNext(0), true, nextResources);
+                RenderPiecePreview(nextPreviewCells, PeekNext(0), true, nextResources, nextBlank);
         }
 
         TMP_FontAsset PopupTitleFont()
@@ -1671,6 +1716,31 @@ namespace BrickStacker
             tex.Apply();
             _vignetteSprite = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
             return _vignetteSprite;
+        }
+
+        // Bong bóng khiên TRÒN: vòng sáng ở rìa + fill mờ bên trong (thấy player bên trong), rỗng ngoài.
+        static Sprite _shieldBubbleSprite;
+        static Sprite ShieldBubbleSprite()
+        {
+            if (_shieldBubbleSprite != null)
+                return _shieldBubbleSprite;
+            int s = 128;
+            var tex = new Texture2D(s, s, TextureFormat.RGBA32, false)
+            { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            float c = (s - 1) * 0.5f;
+            for (int y = 0; y < s; y++)
+                for (int x = 0; x < s; x++)
+                {
+                    float nx = (x - c) / c, ny = (y - c) / c;
+                    float d = Mathf.Sqrt(nx * nx + ny * ny); // 0 giữa .. 1 ở rìa .. >1 ngoài
+                    float ring = Mathf.Exp(-Mathf.Pow((d - 0.82f) / 0.13f, 2f)); // vòng sáng ở rìa
+                    float fill = d < 0.92f ? 0.16f * (1f - d) : 0f;              // fill mờ bên trong
+                    float a = d > 1f ? 0f : Mathf.Clamp01(ring + fill);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            _shieldBubbleSprite = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
+            return _shieldBubbleSprite;
         }
 
         // Rãnh máu bo tròn (xanh-đậm hòa panel) + fill xanh bo tròn, thụt vào chút.

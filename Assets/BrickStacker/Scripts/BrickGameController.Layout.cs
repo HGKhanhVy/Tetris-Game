@@ -913,7 +913,7 @@ namespace BrickStacker
             // Vẽ lại ô Next theo ĐÚNG hình dạng mô hình kế (không xếp lưới cứng — trước đây mọi
             // khối 4 ô bị dồn thành hàng ngang trông như "I" và lệch với mô hình thật khi rơi).
             if (nextBag != null && nextBag.Count > 0)
-                RenderPiecePreview(nextPreviewCells, PeekNext(0), true, nextResources);
+                RenderPiecePreview(nextPreviewCells, PeekNext(0), true, nextResources, nextBlank);
         }
 
         float CalculatePreviewCellSize(RectTransform previewRect)

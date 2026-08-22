@@ -89,11 +89,22 @@ namespace BrickStacker
         // === Sao theo thời gian (design §5) ===
         public float ThreeStarTime = 100f;
         public float TwoStarTime = 150f;
+        // Giới hạn thời gian chơi màn: quá giờ = THUA (tránh farm vô hạn). 0 = không giới hạn.
+        public float MaxPlaySeconds = 210f;
 
         public static TacticalLevelData Create(int level)
         {
             const int width = 8;
             const int height = 8;
+
+            // === Độ khó CÓ KIỂM SOÁT + XEN KẼ (không màn nào quá dễ/khó vô lý) ===
+            // d ∈ [0.08, 0.92]: tăng dần theo màn + sóng nhẹ (xen kẽ) + "màn nghỉ" mỗi 5 màn.
+            // Mọi thông số then chốt suy ra từ d nên màn nghỉ tự dễ đều, màn đỉnh khó có TRẦN.
+            float rise = Mathf.Clamp01((level - 1) / 24f);
+            float wave = 0.10f * Mathf.Sin((level - 1) * 1.1f);
+            float breather = level % 5 == 0 ? 0.14f : 0f;
+            float d = Mathf.Clamp(rise + wave - breather, 0.08f, 0.92f);
+
             var data = new TacticalLevelData
             {
                 LevelId = Mathf.Max(1, level),
@@ -107,7 +118,8 @@ namespace BrickStacker
                 MonsterStartPosition = new Vector2Int(4, 4),
                 ThreeStarMoveLimit = Mathf.Max(8, 10 + level / 3),
                 TwoStarMoveLimit = Mathf.Max(14, 16 + level / 2),
-                InitialFallSpeed = Mathf.Max(0.34f, 0.82f - Mathf.Min(level, 30) * 0.010f),
+                // Gạch rơi: nhanh dần theo d nhưng KHÔNG bao giờ quá 0.48s (đủ thời gian ghép cụm).
+                InitialFallSpeed = Mathf.Lerp(0.80f, 0.48f, d),
                 LineToMoveRate = 1,
                 CoinReward = 45 + level * 5,
                 UnlockNextLevel = true
@@ -174,10 +186,10 @@ namespace BrickStacker
             // Mỗi trigger (timer hoặc player hành động) quái đi 1 bước.
             data.MonsterStepsPerTurn = 1;
 
-            // Design §4: độ khó tăng bằng cách rút ngắn interval + giảm trần điểm.
-            //   Dễ 8s · Thường 6s · Khó 4.5s · Rất khó 3.5s.
-            data.MonsterAutoMoveInterval = Mathf.Max(3.5f, 7.5f - Mathf.Min(level, 30) * 0.16f);
-            data.MaxMovementPoint = level >= 18 ? 3 : (level >= 10 ? 4 : 5);
+            // Design §4: độ khó qua interval quái + trần điểm, suy từ d nên có SÀN chơi được.
+            // Quái đi nhanh nhất 4.5s (đủ nhịp phá cụm Giày để theo kịp), chậm nhất 7.0s (màn nghỉ).
+            data.MonsterAutoMoveInterval = Mathf.Lerp(7.0f, 4.5f, d);
+            data.MaxMovementPoint = d < 0.45f ? 5 : (d < 0.78f ? 4 : 3);
             data.TargetSwitchThreshold = 2;
 
             // Design §2.8: mỗi màn một loại Enemy để đa dạng chiến thuật.
@@ -186,9 +198,11 @@ namespace BrickStacker
             if (data.EnemyType == TacticalEnemyType.Patrol)
                 data.BuildDefaultPatrolRoute();
 
-            // Design §5: mốc thời gian cho sao (khó hơn thì siết chặt hơn một chút).
-            data.ThreeStarTime = Mathf.Max(45f, 105f - level * 1.5f);
-            data.TwoStarTime = Mathf.Max(80f, 160f - level * 1.5f);
+            // Design §5: mốc thời gian cho sao theo d (chỉ ảnh hưởng SỐ SAO, không quyết thắng/thua).
+            data.ThreeStarTime = Mathf.Lerp(105f, 58f, d);
+            data.TwoStarTime = Mathf.Lerp(160f, 98f, d);
+            // Giới hạn chơi: rộng rãi (màn dễ 3.5' → khó 2.5'), quá giờ mới thua để chống farm.
+            data.MaxPlaySeconds = Mathf.Lerp(210f, 150f, d);
 
             // Drop pattern walls that collide with start positions first — a wall on a
             // start cell makes the connectivity check in AddProgressiveWalls always fail.
@@ -204,7 +218,10 @@ namespace BrickStacker
         // level (seeded) and never allowed to cut the board apart.
         void AddProgressiveWalls(int level)
         {
-            int extra = Mathf.Min(1 + (level - 1) / 3, 8);
+            // Trần thấp hơn (tối đa 5) + màn nghỉ ít tường hơn → không màn nào thành mê cung bí.
+            int extra = Mathf.Min(1 + (level - 1) / 4, 5);
+            if (level % 5 == 0)
+                extra = Mathf.Max(1, extra - 2);
             if (extra <= 0)
                 return;
 
@@ -348,7 +365,7 @@ namespace BrickStacker
         readonly List<Vector2Int> monsterHistory = new List<Vector2Int>();
         const int MonsterHistoryLimit = 64;
         const int MaxKnockbackPerResolution = 3; // GD §8
-        const int MaxShieldLayer = 2;            // GD §9
+        const int MaxShieldLayer = 3;            // GD §9 (giới hạn 3 lớp khiên)
 
         // === Trạng thái địa hình runtime (design §3) ===
         readonly Dictionary<Vector2Int, int> boxHp = new Dictionary<Vector2Int, int>();
@@ -685,6 +702,13 @@ namespace BrickStacker
 
         // Quái đi đúng 1 bước theo mục tiêu hiện tại. Xử lý bẫy (stun), phá thùng,
         // trượt băng, cổng (design §3.2-3.5).
+        static bool IsAdjacent(Vector2Int a, Vector2Int b)
+            => Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y) == 1;
+
+        // Đặt true trong Evaluate khi Khiên vừa đỡ 1 đòn; controller đọc để hiện "-1 Khiên" rồi tự xóa.
+        public bool ShieldConsumedFlag { get; private set; }
+        public void ClearShieldConsumedFlag() => ShieldConsumedFlag = false;
+
         void StepMonsterOnce()
         {
             if (Status != TacticalBoardStatus.Running)
@@ -695,6 +719,25 @@ namespace BrickStacker
             {
                 monsterStunTurns--;
                 LastMessage = "Quái đang mắc bẫy!";
+                return;
+            }
+
+            // Quái KỀ SÁT mục tiêu khi tới lượt đi → xử NGAY (không cần trượt/pathfinding):
+            // kề Enemy = THẮNG, kề Player = THUA (Evaluate xử khiên). Enemy ưu tiên (thân thiện người chơi).
+            if (IsAdjacent(MonsterPosition, EnemyPosition))
+            {
+                monsterHistory.Add(MonsterPosition);
+                if (monsterHistory.Count > MonsterHistoryLimit) monsterHistory.RemoveAt(0);
+                MonsterPosition = EnemyPosition;
+                Evaluate();
+                return;
+            }
+            if (IsAdjacent(MonsterPosition, PlayerPosition))
+            {
+                monsterHistory.Add(MonsterPosition);
+                if (monsterHistory.Count > MonsterHistoryLimit) monsterHistory.RemoveAt(0);
+                MonsterPosition = PlayerPosition;
+                Evaluate(); // xử khiên/thua bên trong; nếu có khiên sẽ đỡ + quái lùi
                 return;
             }
 
@@ -725,8 +768,11 @@ namespace BrickStacker
                 LastMessage = "Quái dính bẫy!";
             }
 
-            // Design §3.4/§3.5: quái cũng trượt băng và đi qua cổng.
-            MonsterPosition = ResolveEntityLanding(MonsterPosition, dir, forEnemy: false);
+            // Design §3.4/§3.5: quái cũng trượt băng và đi qua cổng — NHƯNG nếu vừa bước ĐÚNG vào
+            // ô Player/Enemy (kết thúc bàn) thì KHÔNG trượt/dịch, để bắt trúng. Tránh lỗi đứng trên
+            // ô băng/cổng khiến quái bị đẩy đi hoài, không thua được.
+            if (next != PlayerPosition && next != EnemyPosition)
+                MonsterPosition = ResolveEntityLanding(MonsterPosition, dir, forEnemy: false);
         }
 
         // Quái phá 1 thùng kề nó theo hướng ngắn nhất tới mục tiêu (design §3.2).
@@ -913,6 +959,7 @@ namespace BrickStacker
                 {
                     // GD §9: Khiên tự tiêu thụ — trừ 1 lớp, quái lùi 1 ô, reset timer, không thua.
                     ShieldLayers--;
+                    ShieldConsumedFlag = true; // controller đọc để hiện chữ "-1 Khiên"
                     RetreatMonsterOneStep();
                     MonsterTimer = MonsterAutoMoveInterval;
                     LastMessage = "Khiên đỡ đòn! (còn " + ShieldLayers + " lớp)";

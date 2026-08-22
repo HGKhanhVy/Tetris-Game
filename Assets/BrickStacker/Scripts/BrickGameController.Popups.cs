@@ -296,8 +296,8 @@ namespace BrickStacker
             BuildMissionIcon(box.transform, "popup-start/icon-player.png", new Rect(0.357f, 0.316f, 0.286f, 0.422f), new Vector2(0.045f, 0.80f));
             BuildMissionIcon(box.transform, "popup-start/icon-enemy.png", new Rect(0.367f, 0.340f, 0.266f, 0.383f), new Vector2(0.955f, 0.80f));
 
-            // Phụ đề "Sẵn sàng chưa?" (chữ lớn, chính giữa phần thân popup).
-            missionDescText = Ui.Text(box.transform, "Sẵn sàng chưa?", titleFont != null ? titleFont : font, 56, new Color(1f, 0.99f, 0.95f), TextAnchor.MiddleCenter);
+            // Phụ đề "Sẵn sàng chưa?" — dùng font chính (đủ dấu tiếng Việt); titleFont trang trí thiếu glyph.
+            missionDescText = Ui.Text(box.transform, "Sẵn sàng chưa?", font, 56, new Color(1f, 0.99f, 0.95f), TextAnchor.MiddleCenter);
             missionDescText.fontStyle = FontStyle.Bold;
             missionDescText.raycastTarget = false;
             Ui.Rect(missionDescText, new Vector2(0.5f, 0.56f), new Vector2(0.5f, 0.56f), new Vector2(700, 110));
@@ -425,6 +425,9 @@ namespace BrickStacker
         {
             const string DIR = "screen-thatbai/";
 
+            // Đốm mờ trôi nhẹ (buồn) cho popup đỡ trống — vẽ TRƯỚC để nằm sau mọi thứ.
+            BuildLoseAmbiance(parent);
+
             // --- Tiêu đề "THẤT BẠI!" ---
             var title = MakeSpriteImage(parent, "Lose Title", DIR + "title.png", new Rect(0.133f, 0.414f, 0.757f, 0.336f), false);
             var tRt = title.rectTransform;
@@ -489,20 +492,20 @@ namespace BrickStacker
             // --- 3 nút: TRANG CHỦ, CHƠI LẠI, TIẾP (khoá xám) ---
             const string DB = "screen-chienthang/";
             const float btnH = 142f;
-            MakeSpriteButton(parent, "Btn Home", DB + "btn-home.png", new Rect(0.150f, 0.275f, 0.697f, 0.479f),
+            loseHomeButton = MakeSpriteButton(parent, "Btn Home", DB + "btn-home.png", new Rect(0.150f, 0.275f, 0.697f, 0.479f),
                 new Vector2(0.388f, 0.118f), new Vector2(btnH * 0.97f, btnH), () =>
                 {
                     RuntimeArt.PlayUiSwitchSound();
                     Time.timeScale = 1f;
                     SceneManager.LoadScene("BrickLevel");
                 });
-            MakeSpriteButton(parent, "Btn Retry", DB + "btn-retry.png", new Rect(0.271f, 0.168f, 0.458f, 0.664f),
+            loseRetryButton = MakeSpriteButton(parent, "Btn Retry", DB + "btn-retry.png", new Rect(0.271f, 0.168f, 0.458f, 0.664f),
                 new Vector2(0.446f, 0.118f), new Vector2(btnH * 1.04f, btnH), () =>
                 {
                     RuntimeArt.PlayUiSwitchSound();
                     Restart();
                 });
-            MakeSpriteButton(parent, "Btn Next", DB + "btn-next.png", new Rect(0.077f, 0.287f, 0.841f, 0.434f),
+            loseNextButton = MakeSpriteButton(parent, "Btn Next", DB + "btn-next.png", new Rect(0.077f, 0.287f, 0.841f, 0.434f),
                 new Vector2(0.553f, 0.118f), new Vector2(btnH * 2.91f, btnH), () =>
                 {
                     RuntimeArt.PlayUiSwitchSound();
@@ -516,6 +519,34 @@ namespace BrickStacker
                     }
                     else SceneManager.LoadScene("BrickLevel");
                 });
+        }
+
+        // Đốm sáng mờ xanh lam trôi/lấp lánh êm dịu quanh rìa popup THẤT BẠI (không né vùng giữa nhiều
+        // vì hero gục nằm giữa; đặt quanh mép). Dùng chung ConfettiTwinkle nhưng êm hơn.
+        void BuildLoseAmbiance(Transform parent)
+        {
+            Vector2[] pos =
+            {
+                new Vector2(0.08f, 0.86f), new Vector2(0.16f, 0.66f), new Vector2(0.10f, 0.44f),
+                new Vector2(0.14f, 0.24f), new Vector2(0.30f, 0.80f), new Vector2(0.24f, 0.50f),
+                new Vector2(0.90f, 0.84f), new Vector2(0.84f, 0.62f), new Vector2(0.92f, 0.40f),
+                new Vector2(0.78f, 0.26f), new Vector2(0.70f, 0.82f), new Vector2(0.88f, 0.20f),
+                new Vector2(0.05f, 0.66f), new Vector2(0.95f, 0.70f), new Vector2(0.20f, 0.90f), new Vector2(0.80f, 0.90f),
+            };
+            var rng = new System.Random(770231);
+            var tint = new Color(0.5f, 0.62f, 0.9f);
+            foreach (var p in pos)
+            {
+                var img = Ui.Panel(parent, "Lose Ember", tint).GetComponent<Image>();
+                img.sprite = RoundUiSprite();
+                img.raycastTarget = false;
+                var rt = img.rectTransform;
+                rt.anchorMin = rt.anchorMax = p;
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                float s = 8f + (float)rng.NextDouble() * 14f;
+                rt.sizeDelta = new Vector2(s, s);
+                img.gameObject.AddComponent<ConfettiTwinkle>().Init(0.5f, rng, 0.5f, 1.7f);
+            }
         }
 
         void BuildVictoryConfetti(Transform parent)
@@ -549,10 +580,13 @@ namespace BrickStacker
                 var rt = img.rectTransform;
                 rt.anchorMin = rt.anchorMax = p;
                 rt.pivot = new Vector2(0.5f, 0.5f);
-                float h = 22f + (float)rng.NextDouble() * 26f;
+                float h = 24f + (float)rng.NextDouble() * 30f;
                 rt.sizeDelta = new Vector2(h * aspects[i], h);
                 rt.localEulerAngles = new Vector3(0f, 0f, (float)rng.NextDouble() * 360f);
-                var c = img.color; c.a = 0.42f; img.color = c;
+                img.raycastTarget = false;
+                var c = img.color; c.a = 0.6f; img.color = c;
+                // Tự lấp lánh + đung đưa + xoay khi popup CHIẾN THẮNG hiện.
+                img.gameObject.AddComponent<ConfettiTwinkle>().Init(0.75f, rng);
             }
         }
 
@@ -571,7 +605,7 @@ namespace BrickStacker
             bestText.text = "";
             int nextType = PeekNext(0);
             nextText.text = "TIẾP";
-            RenderPiecePreview(nextPreviewCells, nextType, true, nextResources);
+            RenderPiecePreview(nextPreviewCells, nextType, true, nextResources, nextBlank);
             RenderPiecePreview(holdPreviewCells, holdType, holdType >= 0);
             if (MultiplayerMatch.Active)
             {
@@ -784,13 +818,15 @@ namespace BrickStacker
 
         int CalculateStars()
         {
-            // Design §5: sao theo thời gian; 3 sao còn cần dùng ít lượt (ít kỹ năng hỗ trợ).
+            // Sao theo SỐ BƯỚC di chuyển (hiệu quả) — thời gian đã là điều kiện THUA riêng.
+            // Ít bước hơn = nhiều sao hơn: 3 sao ≤ ThreeStarMoveLimit, 2 sao ≤ TwoStarMoveLimit.
             if (tacticalBoard != null && rules.TacticalData != null)
             {
+                int moves = tacticalBoard.MovesUsed;
                 var d = rules.TacticalData;
-                if (gameplayTime <= d.ThreeStarTime && tacticalBoard.MovesUsed <= d.ThreeStarMoveLimit)
+                if (moves <= d.ThreeStarMoveLimit)
                     return 3;
-                if (gameplayTime <= d.TwoStarTime)
+                if (moves <= d.TwoStarMoveLimit)
                     return 2;
             }
             return 1;
@@ -808,9 +844,9 @@ namespace BrickStacker
             missionStar1CondText.text = "Hoàn thành";
             if (rules != null && rules.TacticalData != null)
             {
-                // Design §5: hiển thị mốc thời gian; 3 sao còn giới hạn số lượt.
-                missionStar2CondText.text = "≤ " + FormatSeconds(rules.TacticalData.TwoStarTime);
-                missionStar3CondText.text = "≤ " + FormatSeconds(rules.TacticalData.ThreeStarTime) + " · ≤ " + rules.TacticalData.ThreeStarMoveLimit + " lượt";
+                // Sao theo SỐ BƯỚC di chuyển (ít bước hơn = nhiều sao hơn).
+                missionStar2CondText.text = "≤ " + rules.TacticalData.TwoStarMoveLimit + " lượt";
+                missionStar3CondText.text = "≤ " + rules.TacticalData.ThreeStarMoveLimit + " lượt";
                 return;
             }
             missionStar2CondText.text = "—";
@@ -830,6 +866,13 @@ namespace BrickStacker
             StopBackgroundMusic();
             ClearActive();
             statusText.text = "";
+
+            // BXH: gửi điểm NGAY CẢ KHI THUA (offline) để bảng có dữ liệu (cúp = điểm cao nhất tuần).
+            if (!MultiplayerMatch.Active && score > 0)
+            {
+                LevelProgress.SaveLevelBestScore(journeyLevel, score);
+                LeaderboardsSync.SubmitScore(score);
+            }
 
             // Thua (không phải 1v1): màn hình THẤT BẠI mới.
             if (!won && gameLoseOverlay != null)

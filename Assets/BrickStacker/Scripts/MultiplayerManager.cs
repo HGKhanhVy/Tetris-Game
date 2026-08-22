@@ -37,6 +37,8 @@ namespace BrickStacker
         // === Chế độ năng lượng/kỹ năng (design §6-11) ===
         public static int OpponentHealth = OnlineConfig.MaxHealth; // máu đối thủ (HUD)
         public static int OpponentEnergy;                          // năng lượng đối thủ (HUD)
+        public static int OpponentShieldCharges;                   // số Shield Charge đối thủ (HUD §13)
+        public static int OpponentActiveShieldHP;                  // HP Active Shield đối thủ đang bật (0 = tắt)
         // §12.5 hàng đợi từng đòn: mỗi đòn tấn công tới xếp riêng để gameplay áp lần lượt,
         // giãn cách tối thiểu MinAttackInterval; giữ loại skill để xử lý xuyên khiên / hút máu.
         public static readonly System.Collections.Generic.Queue<IncomingAttack> IncomingAttacks
@@ -78,6 +80,8 @@ namespace BrickStacker
             PendingGarbage = 0;
             OpponentHealth = OnlineConfig.MaxHealth;
             OpponentEnergy = 0;
+            OpponentShieldCharges = 0;
+            OpponentActiveShieldHP = 0;
             IncomingAttacks.Clear();
             PendingDrainHeal = 0;
             AttackWarningActive = false;
@@ -613,9 +617,10 @@ namespace BrickStacker
         }
 
         // Gameplay gọi mỗi khi điểm/hàng/cờ thay đổi; chỉ gửi khi khác lần trước.
-        // Kèm máu + năng lượng để HUD đối thủ hiển thị (design §6.1).
-        int lastSentHealth = -1, lastSentEnergy = -1;
-        public void SendState(int score, int lines, byte flags, int health = -1, int energy = -1)
+        // Kèm máu + năng lượng + khiên để HUD đối thủ hiển thị (design §6.1, §13).
+        int lastSentHealth = -1, lastSentEnergy = -1, lastSentShieldCharges = -1, lastSentActiveShield = -1;
+        public void SendState(int score, int lines, byte flags, int health = -1, int energy = -1,
+            int shieldCharges = -1, int activeShieldHP = -1)
         {
             if (!matchStarted)
                 return;
@@ -623,7 +628,8 @@ namespace BrickStacker
             if ((lastSentFlags & (FlagFinished | FlagLost)) != 0)
                 return;
             if (score == lastSentScore && lines == lastSentLines && flags == lastSentFlags
-                && health == lastSentHealth && energy == lastSentEnergy)
+                && health == lastSentHealth && energy == lastSentEnergy
+                && shieldCharges == lastSentShieldCharges && activeShieldHP == lastSentActiveShield)
                 return;
 
             var networkManager = NetworkManager.Singleton;
@@ -639,13 +645,17 @@ namespace BrickStacker
             lastSentFlags = flags;
             lastSentHealth = health;
             lastSentEnergy = energy;
+            lastSentShieldCharges = shieldCharges;
+            lastSentActiveShield = activeShieldHP;
 
-            using var writer = new FastBufferWriter(sizeof(int) * 4 + 1, Allocator.Temp);
+            using var writer = new FastBufferWriter(sizeof(int) * 6 + 1, Allocator.Temp);
             writer.WriteValueSafe(score);
             writer.WriteValueSafe(lines);
             writer.WriteValueSafe(flags);
             writer.WriteValueSafe(health);
             writer.WriteValueSafe(energy);
+            writer.WriteValueSafe(shieldCharges);
+            writer.WriteValueSafe(activeShieldHP);
             networkManager.CustomMessagingManager.SendNamedMessage(
                 StateMsg, target, writer, NetworkDelivery.ReliableSequenced);
         }
@@ -783,17 +793,24 @@ namespace BrickStacker
             reader.ReadValueSafe(out int score);
             reader.ReadValueSafe(out int lines);
             reader.ReadValueSafe(out byte flags);
-            int health = -1, energy = -1;
+            int health = -1, energy = -1, shieldCharges = -1, activeShieldHP = -1;
             if (reader.Length - reader.Position >= sizeof(int) * 2)
             {
                 reader.ReadValueSafe(out health);
                 reader.ReadValueSafe(out energy);
+            }
+            if (reader.Length - reader.Position >= sizeof(int) * 2)
+            {
+                reader.ReadValueSafe(out shieldCharges);
+                reader.ReadValueSafe(out activeShieldHP);
             }
 
             MultiplayerMatch.OpponentScore = score;
             MultiplayerMatch.OpponentLines = lines;
             if (health >= 0) MultiplayerMatch.OpponentHealth = health;
             if (energy >= 0) MultiplayerMatch.OpponentEnergy = energy;
+            if (shieldCharges >= 0) MultiplayerMatch.OpponentShieldCharges = shieldCharges;
+            if (activeShieldHP >= 0) MultiplayerMatch.OpponentActiveShieldHP = activeShieldHP;
             if ((flags & FlagFinished) != 0) MultiplayerMatch.OpponentFinished = true;
             if ((flags & FlagLost) != 0) MultiplayerMatch.OpponentLost = true;
         }

@@ -52,6 +52,9 @@ namespace BrickStacker
             hpOppFill = MakeHpFill(tb, new Vector2(0.572f, 0.40f), new Vector2(0.710f, 0.70f), false);
             hpOppFill.color = hpGreen;
             hpOppText = MakeBarText(tb, "100/100", font, 22, TextAnchor.MiddleCenter, new Vector2(0.572f, 0.37f), new Vector2(0.710f, 0.73f));
+            // Trạng thái Khiên đối thủ ngay dưới thanh máu (biết đối thủ đang thủ hay có sẵn khiên).
+            oppShieldText = MakeBarText(tb, "", font, 19, TextAnchor.MiddleCenter, new Vector2(0.560f, 0.02f), new Vector2(0.722f, 0.34f));
+            oppShieldText.color = new Color(0.62f, 0.86f, 1f);
             var heart2 = MakeSpriteImage(tb, "Runtime Heart2", DIR + "decor-tim.png", new Rect(0.327f, 0.298f, 0.348f, 0.461f), false);
             Ui.Rect(heart2, new Vector2(0.712f, 0.34f), new Vector2(0.740f, 0.72f), Vector2.zero);
             oppNameText = MakeBarText(tb, "Player2", titleFont, 28, TextAnchor.UpperRight, new Vector2(0.740f, 0.46f), new Vector2(0.834f, 0.83f));
@@ -246,6 +249,25 @@ namespace BrickStacker
                 onlineDefText.text = healthSystem.IsShieldActive
                     ? "BẬT " + healthSystem.ActiveShieldHP
                     : "x" + healthSystem.ShieldCharges;
+
+            // Khiên đối thủ (§13): đang bật → "KHIÊN {HP}" xanh sáng; else số charge; hết thì ẩn.
+            if (oppShieldText != null)
+            {
+                if (MultiplayerMatch.OpponentActiveShieldHP > 0)
+                {
+                    oppShieldText.text = "KHIÊN " + MultiplayerMatch.OpponentActiveShieldHP;
+                    oppShieldText.color = new Color(0.5f, 0.95f, 1f);
+                }
+                else if (MultiplayerMatch.OpponentShieldCharges > 0)
+                {
+                    oppShieldText.text = "Khiên x" + MultiplayerMatch.OpponentShieldCharges;
+                    oppShieldText.color = new Color(0.62f, 0.82f, 1f, 0.9f);
+                }
+                else
+                {
+                    oppShieldText.text = "";
+                }
+            }
 
             if (oppNameText != null && !string.IsNullOrEmpty(MultiplayerMatch.OpponentName))
                 oppNameText.text = MultiplayerMatch.OpponentName;
@@ -601,6 +623,7 @@ namespace BrickStacker
                     msg = "Thả " + OnlineConfig.GarbageDropLines + " hàng rác sang đối thủ!";
                     break;
             }
+            FireAttackProjectile(skill); // đòn/skill bay sang bàn đối thủ
             RefreshSkillBar();
             SendMultiplayerState();
             if (tacticalBoard != null)
@@ -654,7 +677,8 @@ namespace BrickStacker
         {
             if (!MultiplayerMatch.Active || MultiplayerManager.Instance == null)
                 return;
-            MultiplayerManager.Instance.SendState(score, lines, 0, healthSystem.Health, energySystem.Energy);
+            MultiplayerManager.Instance.SendState(score, lines, 0, healthSystem.Health, energySystem.Energy,
+                healthSystem.ShieldCharges, healthSystem.IsShieldActive ? healthSystem.ActiveShieldHP : 0);
         }
 
         void ShowGarbageWarning()
@@ -718,6 +742,7 @@ namespace BrickStacker
             {
                 MultiplayerManager.Instance?.SendSkill(OnlineSkill.Attack, (byte)Mathf.Clamp(attackDamage, 1, 255));
                 shake = 0.15f;
+                FireAttackProjectile(OnlineSkill.Attack); // đòn Kiếm bay sang bàn đối thủ
             }
 
             RefreshSkillBar();
@@ -746,6 +771,7 @@ namespace BrickStacker
                 lastAttackScheduledAt = earliest;
                 pendingAttacks.Enqueue(new PendingAttack { Skill = atk.Skill, Damage = Mathf.Max(1, atk.Amount), ApplyAt = earliest });
                 shake = Mathf.Max(shake, 0.12f);
+                PlayIncomingSkillSound(atk.Skill, strong); // âm cảnh báo RIÊNG theo loại đòn tới
             }
             MultiplayerMatch.AttackWarningActive = pendingAttacks.Count > 0;
 
@@ -869,6 +895,7 @@ namespace BrickStacker
         // đậm hẳn lúc trúng (GD §12.3). Đòn càng mạnh quầng càng đỏ đậm + phập phồng mạnh.
         void UpdateAttackFlash()
         {
+            UpdateIncomingWarnBanner(); // banner tên đòn/skill tới (luôn cập nhật kể cả khi hết flash)
             EnsureAttackFlashOverlay();
             if (attackFlashOverlay == null)
                 return;
@@ -928,6 +955,176 @@ namespace BrickStacker
             attackFlashOverlay = img;
         }
 
+        // Banner nêu RÕ đòn/skill đang tới để người chơi biết đường bấm Khiên (§12.4).
+        void UpdateIncomingWarnBanner()
+        {
+            if (pendingAttacks.Count == 0)
+            {
+                if (incomingWarnPanel != null && incomingWarnPanel.gameObject.activeSelf)
+                    incomingWarnPanel.gameObject.SetActive(false);
+                return;
+            }
+            EnsureIncomingWarnText();
+            if (incomingWarnText == null || incomingWarnPanel == null)
+                return;
+
+            var next = pendingAttacks.Peek();
+            bool strong = next.Damage >= OnlineConfig.AttackDamage(AttackTier.Strong);
+            string label;
+            Color baseCol;
+            switch (next.Skill)
+            {
+                case OnlineSkill.OverloadBlast:
+                    label = "CUỒNG NỘ — XUYÊN KHIÊN!";
+                    baseCol = new Color(1f, 0.45f, 1f);
+                    break;
+                case OnlineSkill.LifeDrain:
+                    label = "ĐỐI THỦ HÚT MÁU!";
+                    baseCol = new Color(0.6f, 1f, 0.5f);
+                    break;
+                default:
+                    label = strong ? "ĐÒN MẠNH TỚI!" : "ĐÒN TẤN CÔNG!";
+                    baseCol = new Color(1f, 0.62f, 0.28f);
+                    break;
+            }
+            incomingWarnText.text = label + "  BẤM KHIÊN!";
+            incomingWarnText.color = baseCol;
+            // Phập phồng to/nhỏ + nền đỏ đậm nhạt để đập vào mắt.
+            float pulse = 0.5f + 0.5f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 8f));
+            float s = 1f + 0.06f * pulse;
+            incomingWarnPanel.localScale = new Vector3(s, s, 1f);
+            var bg = incomingWarnPanel.GetComponent<Image>();
+            if (bg != null)
+                bg.color = new Color(0.16f, 0.02f, 0.02f, 0.70f + 0.22f * pulse);
+            if (!incomingWarnPanel.gameObject.activeSelf)
+                incomingWarnPanel.gameObject.SetActive(true);
+        }
+
+        void EnsureIncomingWarnText()
+        {
+            if (incomingWarnText != null)
+                return;
+            Transform parent = safeAreaRoot != null ? (Transform)safeAreaRoot
+                : (sceneGameplayCanvas != null ? sceneGameplayCanvas.transform : transform);
+            if (parent == null)
+                return;
+
+            // Dải nền tối bo tròn để chữ nổi hẳn trên nền bàn.
+            var panel = Ui.Panel(parent, "Runtime Incoming Warn", new Color(0.16f, 0.02f, 0.02f, 0.78f));
+            var panelImg = panel.GetComponent<Image>();
+            panelImg.sprite = PillSprite();
+            panelImg.type = Image.Type.Sliced;
+            panelImg.raycastTarget = false;
+            Ui.Rect(panel, new Vector2(0.085f, 0.700f), new Vector2(0.915f, 0.792f), Vector2.zero);
+            incomingWarnPanel = panel.GetComponent<RectTransform>();
+            panel.transform.SetAsLastSibling();
+
+            incomingWarnText = Ui.Text(panel.transform, "", RuntimeArt.LoadMenuButtonFont(), 50, new Color(1f, 0.62f, 0.28f), TextAnchor.MiddleCenter);
+            incomingWarnText.fontStyle = FontStyle.Bold;
+            incomingWarnText.raycastTarget = false;
+            incomingWarnText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            incomingWarnText.verticalOverflow = VerticalWrapMode.Overflow;
+            Ui.Rect(incomingWarnText, Vector2.zero, Vector2.one, Vector2.zero);
+            AddDarkWoodTextEdge(incomingWarnText, 1.7f, 1f);
+            panel.SetActive(false);
+        }
+
+        // Âm cảnh báo riêng theo loại đòn tới: Cuồng nộ trầm/đe dọa, Hút máu vừa, đòn thường/mạnh cao dần.
+        void PlayIncomingSkillSound(OnlineSkill skill, bool strong)
+        {
+            switch (skill)
+            {
+                case OnlineSkill.OverloadBlast:
+                    Beep(140f, 0.20f, 0.32f);
+                    break;
+                case OnlineSkill.LifeDrain:
+                    Beep(300f, 0.14f, 0.26f);
+                    break;
+                default:
+                    Beep(strong ? 200f : 260f, 0.14f, 0.26f);
+                    break;
+            }
+        }
+
+        // Đòn bay từ bàn mình sang bàn đối thủ khi mình tấn công/dùng skill (phản hồi "đã đánh trúng").
+        void FireAttackProjectile(OnlineSkill skill)
+        {
+            if (scenePuzzleBoardAnchorRect == null || opponentMiniPanelRect == null)
+                return;
+            if (attackProjectileRoutine != null)
+                StopCoroutine(attackProjectileRoutine);
+            attackProjectileRoutine = StartCoroutine(FlyAttackProjectile(skill));
+        }
+
+        System.Collections.IEnumerator FlyAttackProjectile(OnlineSkill skill)
+        {
+            EnsureAttackProjectile();
+            if (attackProjectile == null)
+                yield break;
+
+            Color color = skill == OnlineSkill.OverloadBlast ? new Color(1f, 0.4f, 0.95f)
+                : skill == OnlineSkill.LifeDrain ? new Color(0.55f, 1f, 0.45f)
+                : skill == OnlineSkill.GarbageDrop ? new Color(0.7f, 0.72f, 0.8f)
+                : new Color(1f, 0.7f, 0.3f);
+
+            var rt = attackProjectile.rectTransform;
+            Vector3 from = scenePuzzleBoardAnchorRect.position;
+            Vector3 to = opponentMiniPanelRect.position;
+            attackProjectile.gameObject.SetActive(true);
+            attackProjectile.color = color;
+
+            const float dur = 0.42f;
+            for (float t = 0f; t < dur; t += Time.deltaTime)
+            {
+                float k = Mathf.Clamp01(t / dur);
+                rt.position = Vector3.Lerp(from, to, k);
+                float s = Mathf.Lerp(1.1f, 0.5f, k);
+                rt.localScale = new Vector3(s, s, 1f);
+                var c = color; c.a = 1f - 0.3f * k; attackProjectile.color = c;
+                yield return null;
+            }
+            attackProjectile.gameObject.SetActive(false);
+            attackProjectileRoutine = null;
+        }
+
+        void EnsureAttackProjectile()
+        {
+            if (attackProjectile != null)
+                return;
+            Transform parent = sceneGameplayCanvas != null ? sceneGameplayCanvas.transform
+                : (safeAreaRoot != null ? (Transform)safeAreaRoot : null);
+            if (parent == null)
+                return;
+            var go = Ui.Panel(parent, "Runtime Attack Projectile", Color.white);
+            var img = go.GetComponent<Image>();
+            img.sprite = GetPieceBlockSprite((int)Puzzle.ResourceType.Attack);
+            img.preserveAspect = true;
+            img.raycastTarget = false;
+            var rt = img.rectTransform;
+            rt.sizeDelta = new Vector2(70, 70);
+            go.transform.SetAsLastSibling();
+            go.SetActive(false);
+            attackProjectile = img;
+        }
+
+        // Popup kết quả online chỉ cần 1 nút TRANG CHỦ (Chơi lại/Tiếp không hợp 1v1 P2P): ẩn 2 nút kia,
+        // căn giữa nút Trang chủ và đổi hành động sang rời phòng + về menu chính.
+        void WireOnlineHomeOnly(Button home, Button hide1, Button hide2, System.Action onHome)
+        {
+            if (hide1 != null) hide1.gameObject.SetActive(false);
+            if (hide2 != null) hide2.gameObject.SetActive(false);
+            if (home == null)
+                return;
+            home.gameObject.SetActive(true);
+            var rt = home.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, rt.anchorMin.y);
+            rt.anchorMax = new Vector2(0.5f, rt.anchorMax.y);
+            rt.anchoredPosition = new Vector2(0f, rt.anchoredPosition.y);
+            home.interactable = true;
+            home.onClick.RemoveAllListeners();
+            home.onClick.AddListener(() => onHome());
+        }
+
         void CheckOpponentMatchEvents()
         {
             if (MultiplayerMatch.OpponentLost)
@@ -966,25 +1163,46 @@ namespace BrickStacker
             StopBackgroundMusic();
             ClearActive();
             statusText.text = "";
+            if (incomingWarnPanel != null) incomingWarnPanel.gameObject.SetActive(false);
+            if (attackProjectile != null) attackProjectile.gameObject.SetActive(false);
 
             var manager = MultiplayerManager.Instance;
             if (manager != null)
                 manager.SendState(score, lines, outcome > 0 ? MultiplayerManager.FlagFinished : MultiplayerManager.FlagLost,
                     healthSystem.Health, energySystem.Energy);
 
-            if (outcome > 0) { gameOverTitleText.text = "THẮNG TRẬN!"; gameOverTitleText.color = new Color(1f, 0.86f, 0.56f); }
-            else if (outcome < 0) { gameOverTitleText.text = "THUA TRẬN"; gameOverTitleText.color = new Color(1f, 0.62f, 0.36f); }
-            else { gameOverTitleText.text = "HÒA"; gameOverTitleText.color = new Color(0.92f, 0.88f, 0.66f); }
-
+            // Popup thắng/thua ONLINE dùng CHUNG giao diện với offline (CHIẾN THẮNG / THẤT BẠI).
             string opponentLabel = string.IsNullOrEmpty(MultiplayerMatch.OpponentName) ? "Đối thủ" : MultiplayerMatch.OpponentName;
-            gameOverScoreText.text = reason + "\nBạn  " + score + " điểm · " + lines + " hàng"
-                + "\n" + opponentLabel + "  " + MultiplayerMatch.OpponentScore + " điểm · " + MultiplayerMatch.OpponentLines + " hàng";
-            gameOverOverlay.SetActive(true);
-            shake = outcome > 0 ? 0.35f : 0.2f;
+            string body = reason + "\nBạn " + score + " điểm · " + lines + " hàng"
+                + "\n" + opponentLabel + " " + MultiplayerMatch.OpponentScore + " điểm · " + MultiplayerMatch.OpponentLines + " hàng";
+
+            System.Action goHome = () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                Time.timeScale = 1f;
+                var m = MultiplayerManager.Instance;
+                if (m != null && m.InSession)
+                    _ = m.LeaveAsync();
+                SceneManager.LoadScene("BrickMenu");
+            };
+
             if (outcome > 0)
+            {
+                SetLevelClearStars(3); // thắng: 3 sao ăn mừng
+                if (levelClearBodyText != null) levelClearBodyText.text = body;
+                WireOnlineHomeOnly(continueButton, stopButton, nextButton, goHome);
+                if (levelClearOverlay != null) { levelClearOverlay.transform.SetAsLastSibling(); levelClearOverlay.SetActive(true); }
+                shake = 0.35f;
                 Beep(1180f, 0.22f, 0.35f);
+            }
             else
+            {
+                if (gameLoseSubtitle != null) gameLoseSubtitle.text = (outcome == 0 ? "HÒA!\n" : "") + body;
+                WireOnlineHomeOnly(loseHomeButton, loseRetryButton, loseNextButton, goHome);
+                if (gameLoseOverlay != null) { gameLoseOverlay.transform.SetAsLastSibling(); gameLoseOverlay.SetActive(true); }
+                shake = 0.2f;
                 RuntimeArt.PlayGameOverSound();
+            }
 
             // Chờ chút cho cờ kết thúc kịp đến đối thủ rồi mới rời phòng.
             StartCoroutine(LeaveMatchAfterDelay(1.5f));

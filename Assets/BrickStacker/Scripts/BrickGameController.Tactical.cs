@@ -332,7 +332,9 @@ namespace BrickStacker
             if (tacticalBoard.MoveBank <= 0)
             {
                 tacticalPieceSelected = false;
-                tacticalBoard.LastMessage = "Cần lượt đi để di chuyển.";
+                tacticalBoard.LastMessage = "Hết lượt đi! Xếp gạch tạo cụm Giày để có thêm lượt.";
+                SpawnTacticalFloat("HẾT LƯỢT!", new Color(1f, 0.45f, 0.4f), tacticalBoard.PlayerPosition, 60f, 1f);
+                Beep(180f, 0.12f, 0.25f);
                 RefreshTacticalBoardUi();
                 return;
             }
@@ -652,12 +654,210 @@ namespace BrickStacker
         {
             if (tacticalBoard == null)
                 return;
+            if (tacticalShieldAura != null) tacticalShieldAura.gameObject.SetActive(false);
             RefreshTacticalBoardUi();
             UpdateUi();
             if (tacticalBoard.Status == TacticalBoardStatus.Won)
                 LevelComplete();
             else if (tacticalBoard.Status == TacticalBoardStatus.Failed)
                 EndGame(false);
+        }
+
+        // Nhún nhẹ + react (nảy) cho Player/Monster/Enemy; cảnh báo nguy hiểm khi quái kề sát Player.
+        // Gọi mỗi frame ở Update offline (RefreshTacticalBoardUi chỉ chạy khi có thay đổi nên bob phải ở đây).
+        void AnimateTacticalPieces()
+        {
+            if (tacticalBoard == null || tacticalCellIcons.Count == 0)
+                return;
+            int w = tacticalBoard.Data.BoardWidth;
+            int h = tacticalBoard.Data.BoardHeight;
+            float t = Time.unscaledTime;
+
+            AnimatePieceIcon(tacticalBoard.PlayerPosition, w, h, t, 0f, tacticalPlayerReactUntil);
+            AnimatePieceIcon(tacticalBoard.MonsterPosition, w, h, t, 1.7f, tacticalMonsterReactUntil);
+            AnimatePieceIcon(tacticalBoard.EnemyPosition, w, h, t, 3.1f, tacticalEnemyReactUntil);
+
+            // Nguy hiểm: quái kề sát Player (khoảng cách 1) → viền đỏ lan tỏa nhẹ + rung định kỳ.
+            var mp = tacticalBoard.MonsterPosition;
+            var pp = tacticalBoard.PlayerPosition;
+            int dist = Mathf.Abs(mp.x - pp.x) + Mathf.Abs(mp.y - pp.y);
+            EnsureAttackFlashOverlay();
+            if (attackFlashOverlay != null)
+            {
+                float a = 0f;
+                if (dist == 1 && tacticalBoard.Status == TacticalBoardStatus.Running)
+                {
+                    float pulse = 0.55f + 0.45f * Mathf.Sin(t * 12f);
+                    a = 0.16f * pulse;
+                    if (t > nextDangerShakeTime)
+                    {
+                        shake = Mathf.Max(shake, 0.12f);
+                        nextDangerShakeTime = t + 0.55f;
+                    }
+                }
+                attackFlashOverlay.enabled = a > 0.01f;
+                if (a > 0.01f)
+                {
+                    attackFlashOverlay.color = new Color(0.92f, 0.12f, 0.10f, a);
+                    attackFlashOverlay.rectTransform.localScale = Vector3.one;
+                }
+            }
+
+            UpdateTacticalShieldVisual(t);
+        }
+
+        // Bong bóng khiên xanh phập phồng + badge "x{N}" quanh Player khi có khiên (rõ ngay trên bàn).
+        void UpdateTacticalShieldVisual(float t)
+        {
+            int layers = tacticalBoard != null ? tacticalBoard.ShieldLayers : 0;
+            bool show = layers > 0 && !MultiplayerMatch.Active
+                && tacticalBoard != null && tacticalBoard.Status == TacticalBoardStatus.Running;
+
+            EnsureTacticalShieldVisual();
+            if (tacticalShieldAura == null)
+                return;
+            if (!show)
+            {
+                if (tacticalShieldAura.gameObject.activeSelf)
+                    tacticalShieldAura.gameObject.SetActive(false);
+                return;
+            }
+
+            var pp = tacticalBoard.PlayerPosition;
+            int w = tacticalBoard.Data.BoardWidth;
+            int idx = pp.y * w + pp.x;
+            if (idx < 0 || idx >= tacticalCellButtons.Count || tacticalCellButtons[idx] == null)
+            {
+                tacticalShieldAura.gameObject.SetActive(false);
+                return;
+            }
+
+            var cellRt = (RectTransform)tacticalCellButtons[idx].transform;
+            var auraRt = tacticalShieldAura.rectTransform;
+            auraRt.anchorMin = cellRt.anchorMin;
+            auraRt.anchorMax = cellRt.anchorMax;
+            auraRt.offsetMin = Vector2.zero;
+            auraRt.offsetMax = Vector2.zero;
+
+            float pulse = 0.5f + 0.5f * Mathf.Sin(t * 4.5f);
+            auraRt.localScale = Vector3.one * (1.45f + 0.12f * pulse); // bao trọn player
+            tacticalShieldAura.color = new Color(0.5f, 0.88f, 1f, 0.78f + 0.22f * pulse); // vòng sáng rõ
+            if (!tacticalShieldAura.gameObject.activeSelf)
+                tacticalShieldAura.gameObject.SetActive(true);
+            if (tacticalShieldCount != null)
+                tacticalShieldCount.text = layers.ToString();
+        }
+
+        void EnsureTacticalShieldVisual()
+        {
+            if (tacticalShieldAura != null)
+                return;
+            if (tacticalCellButtons.Count == 0 || tacticalCellButtons[0] == null)
+                return;
+            Transform parent = tacticalCellButtons[0].transform.parent; // gridRoot (cùng canvas với ô)
+            var go = Ui.Panel(parent, "Runtime Tactical Shield", new Color(0.5f, 0.88f, 1f, 0.8f));
+            var img = go.GetComponent<Image>();
+            img.sprite = ShieldBubbleSprite(); // vòng tròn bao quanh player
+            img.type = Image.Type.Simple;
+            img.raycastTarget = false;
+            tacticalShieldAura = img;
+
+            // Số lớp khiên đặt ở góc trên-phải trên vòng, chữ to rõ, viền tối.
+            tacticalShieldCount = Ui.Text(go.transform, "", font, 22, new Color(0.85f, 0.98f, 1f), TextAnchor.MiddleCenter);
+            tacticalShieldCount.fontStyle = FontStyle.Bold;
+            tacticalShieldCount.raycastTarget = false;
+            tacticalShieldCount.resizeTextForBestFit = true;
+            tacticalShieldCount.resizeTextMaxSize = 34;
+            tacticalShieldCount.resizeTextMinSize = 8;
+            Ui.Rect(tacticalShieldCount, new Vector2(0.60f, 0.60f), new Vector2(1.02f, 1.02f), Vector2.zero);
+            AddDarkWoodTextEdge(tacticalShieldCount, 0.9f, 1f);
+            go.transform.SetAsLastSibling();
+            go.SetActive(false);
+        }
+
+        void AnimatePieceIcon(Vector2Int pos, int w, int h, float t, float phase, float reactUntil)
+        {
+            if (pos.x < 0 || pos.x >= w || pos.y < 0 || pos.y >= h)
+                return;
+            int index = pos.y * w + pos.x;
+            if (index < 0 || index >= tacticalCellIcons.Count)
+                return;
+            var icon = tacticalCellIcons[index];
+            if (icon == null || icon.sprite == null)
+                return;
+
+            float bob = Mathf.Sin(t * 3f + phase);
+            float react = 1f;
+            if (t < reactUntil)
+                react = 1f + 0.4f * Mathf.Clamp01((reactUntil - t) / 0.3f);
+            float s = 1.18f * (1f + 0.06f * bob) * react;
+            var rt = icon.rectTransform;
+            rt.localScale = new Vector3(s, s, 1f);
+            rt.anchoredPosition = new Vector2(0f, bob * 3f);
+        }
+
+        // Chữ nổi bay lên trên một ô bàn cờ (pool FloatingLabel, tái dùng).
+        // rise nhỏ + dur ngắn = kiểu "damage popup" hiện ngay trên quân; lớn = chữ thưởng bay cao.
+        void SpawnTacticalFloat(string message, Color color, Vector2Int cell, float rise = 92f, float dur = 1.15f)
+        {
+            var label = GetFloatingLabel();
+            if (label == null)
+                return;
+            label.Play(message, color, TacticalCellScreenPos(cell) + new Vector3(0f, 12f, 0f), rise, dur);
+        }
+
+        // Toạ độ MÀN HÌNH (px) của một ô bàn cờ — bàn cờ ở canvas Screen Space Camera nên phải
+        // WorldToScreenPoint qua camera của canvas đó, rồi đặt chữ lên canvas overlay (px).
+        Vector3 TacticalCellScreenPos(Vector2Int cell)
+        {
+            if (tacticalBoard != null)
+            {
+                int w = tacticalBoard.Data.BoardWidth;
+                int index = cell.y * w + cell.x;
+                if (index >= 0 && index < tacticalCellButtons.Count && tacticalCellButtons[index] != null)
+                {
+                    var crt = (RectTransform)tacticalCellButtons[index].transform;
+                    var canvas = tacticalCellButtons[index].GetComponentInParent<Canvas>();
+                    Camera cam = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+                    Vector2 sp = RectTransformUtility.WorldToScreenPoint(cam, crt.position);
+                    return new Vector3(sp.x, sp.y, 0f);
+                }
+            }
+            return new Vector3(Screen.width * 0.5f, Screen.height * 0.6f, 0f);
+        }
+
+        Transform EnsureFloatFxRoot()
+        {
+            if (floatFxRoot != null)
+                return floatFxRoot;
+            var go = new GameObject("Runtime Float FX Canvas");
+            var cv = go.AddComponent<Canvas>();
+            cv.renderMode = RenderMode.ScreenSpaceOverlay;
+            cv.sortingOrder = 30000; // trên mọi thứ (kể cả canvas isolated của bàn cờ)
+            floatFxRoot = go.transform;
+            return floatFxRoot;
+        }
+
+        FloatingLabel GetFloatingLabel()
+        {
+            for (int i = 0; i < floatingLabelPool.Count; i++)
+                if (floatingLabelPool[i] != null && !floatingLabelPool[i].IsPlaying)
+                    return floatingLabelPool[i];
+
+            Transform parent = EnsureFloatFxRoot();
+            if (parent == null)
+                return null;
+            var txt = Ui.Text(parent, "", RuntimeArt.LoadMenuButtonFont(), 42, Color.white, TextAnchor.MiddleCenter);
+            txt.fontStyle = FontStyle.Bold;
+            txt.raycastTarget = false;
+            txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            txt.verticalOverflow = VerticalWrapMode.Overflow;
+            Ui.Rect(txt, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(380, 84));
+            AddDarkWoodTextEdge(txt, 1.3f, 0.95f);
+            var fl = txt.gameObject.AddComponent<FloatingLabel>();
+            txt.gameObject.SetActive(false);
+            floatingLabelPool.Add(fl);
+            return fl;
         }
 
         // GD v3 GĐ2: chuyển cụm tài nguyên đã kích hoạt thành hiệu ứng bàn Monster (offline).
@@ -683,12 +883,30 @@ namespace BrickStacker
                 }
             }
 
+            float now = Time.unscaledTime;
+            var playerPos = tacticalBoard.PlayerPosition;
             if (moveGain > 0)
+            {
                 tacticalBoard.AddMovementPoints(moveGain);
+                SpawnTacticalFloat("+" + moveGain + " Lượt", new Color(0.55f, 1f, 0.55f), playerPos);
+                tacticalPlayerReactUntil = now + 0.3f;
+            }
             if (shieldGain > 0)
+            {
                 tacticalBoard.AddShield(shieldGain);
+                SpawnTacticalFloat("Khiên +" + shieldGain, new Color(0.55f, 0.85f, 1f), playerPos);
+                tacticalPlayerReactUntil = now + 0.3f;
+            }
             if (knockback > 0)
+            {
+                // Chữ hiện NGAY tại Monster nơi trúng đòn (kiểu damage popup: bung nhẹ, ít trôi).
+                var hitPos = tacticalBoard.MonsterPosition;
                 tacticalBoard.KnockbackMonster(knockback);
+                SpawnTacticalFloat("ĐẨY LÙI!", new Color(1f, 0.5f, 0.3f), hitPos, 40f, 0.85f);
+                tacticalMonsterReactUntil = now + 0.3f;
+                shake = Mathf.Max(shake, 0.25f);
+                Beep(300f, 0.10f, 0.24f);
+            }
 
             RefreshTacticalBoardUi();
             return tacticalBoard.Status != TacticalBoardStatus.Running;

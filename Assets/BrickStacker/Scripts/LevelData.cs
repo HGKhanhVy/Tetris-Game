@@ -17,7 +17,8 @@ namespace BrickStacker
         public const string CoinsKey = "BLOCKFALL_COINS";
         public const string TotalLinesClearedKey = "BLOCKFALL_TOTAL_LINES_CLEARED";
 
-        public static int CurrentUnlockedLevel => Mathf.Clamp(PlayerPrefs.GetInt(UnlockedLevelKey, 1), 1, MaxLevels);
+        // Mở hết mọi màn (kể cả bản build) — bỏ khóa theo tiến trình để người chơi tự do chọn màn.
+        public static int CurrentUnlockedLevel => MaxLevels;
 
         public static string StarKey(int level)
         {
@@ -111,8 +112,9 @@ namespace BrickStacker
             rules.TacticalData = TacticalLevelData.Create(stage);
             rules.FallInterval = rules.TacticalData.InitialFallSpeed;
             rules.CoinReward = rules.TacticalData.CoinReward;
-            // GD v3: bật ghép cụm tài nguyên. Online 1v1 LUÔN dùng cụm; offline hiện bật Màn 1 để test.
-            rules.UseResourceClusters = stage == 1 || MultiplayerMatch.Active;
+            // GD v3: bật ghép cụm tài nguyên cho MỌI level (offline + online 1v1) — cơ chế cụm v3
+            // đã thay hẳn xóa-hàng-ngang cũ.
+            rules.UseResourceClusters = true;
             return rules;
         }
 

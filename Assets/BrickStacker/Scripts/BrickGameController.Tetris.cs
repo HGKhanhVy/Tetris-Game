@@ -81,8 +81,10 @@ namespace BrickStacker
 
             origin += delta;
             movedHorizontallyThisFrame = true;
-            fallTimer = 0f;
-            lockDelayTimer = 0f;
+            // KHÔNG reset fallTimer — di chuyển ngang không được làm dừng đồng hồ rơi (trước đây giữ
+            // tay kéo liên tục làm khối đứng yên, không tự rơi). Chỉ reset lock-delay khi đang chạm đất.
+            if (touchingGround)
+                lockDelayTimer = 0f;
             DrawActive();
             Beep(520f, 0.025f, 0.08f);
         }
@@ -164,6 +166,22 @@ namespace BrickStacker
                 return;
             }
 
+            // Khối VUÔNG (O): vị trí xoay = chính nó, nhưng ở chế độ cụm ta xoay CÁCH SẮP tài nguyên
+            // trong ô vuông (giữ nguyên vị trí) để người chơi rearrange được — trước đây không xoay được.
+            if (currentType == 3)
+            {
+                if (rules.UseResourceClusters && activeResources != null && activeResources.Length >= 4)
+                {
+                    int steps = direction < 0 ? 3 : 1; // ngược = xoay 3 bước cùng chiều
+                    for (int s = 0; s < steps; s++)
+                        RotateSquareResources();
+                    rotationsThisLevel++;
+                    DrawActive();
+                    Beep(720f, 0.035f, 0.08f);
+                }
+                return;
+            }
+
             int nextRotation = (rotation + direction + 4) % 4;
             var kicks = new[] { Vector2Int.zero, Vector2Int.left, Vector2Int.right, new Vector2Int(0, 1), new Vector2Int(-2, 0), new Vector2Int(2, 0) };
             foreach (var kick in kicks)
@@ -177,6 +195,27 @@ namespace BrickStacker
                     Beep(720f, 0.035f, 0.08f);
                     return;
                 }
+            }
+        }
+
+        // Xoay tài nguyên 1 bước theo chiều kim đồng hồ trong ô vuông 2×2 (shapes[3] = TL,TR,BL,BR).
+        // TL→TR→BR→BL→TL: new[1]=old[0], new[3]=old[1], new[2]=old[3], new[0]=old[2].
+        void RotateSquareResources()
+        {
+            if (activeResources == null || activeResources.Length < 4)
+                return;
+            var oldR = (Puzzle.ResourceType[])activeResources.Clone();
+            activeResources[1] = oldR[0];
+            activeResources[3] = oldR[1];
+            activeResources[2] = oldR[3];
+            activeResources[0] = oldR[2];
+            if (activeBlank != null && activeBlank.Length >= 4)
+            {
+                var oldB = (bool[])activeBlank.Clone();
+                activeBlank[1] = oldB[0];
+                activeBlank[3] = oldB[1];
+                activeBlank[2] = oldB[3];
+                activeBlank[0] = oldB[2];
             }
         }
 
@@ -264,8 +303,8 @@ namespace BrickStacker
                         continue;
 
                     bool clusters = rules.UseResourceClusters && activeResources != null && i < activeResources.Length;
-                    int blockType = clusters ? (int)activeResources[i] : currentType;
-                    grid[cell.x, cell.y] = clusters ? Puzzle.GridBridge.Encode(activeResources[i]) : currentType + 1;
+                    int blockType = clusters ? CellDisplayType(i, activeResources, activeBlank) : currentType;
+                    grid[cell.x, cell.y] = clusters ? CellLockValue(i) : currentType + 1;
                     if (!usingSceneGameplayCanvas)
                     {
                         var block = NewPieceBlock("Locked Block", blockType, settledRoot);
@@ -349,11 +388,13 @@ namespace BrickStacker
             if (nextResources != null && nextResources.Length == shape.Length)
             {
                 activeResources = nextResources;
+                activeBlank = nextBlank;
             }
             else
             {
                 activeResources = new Puzzle.ResourceType[shape.Length];
                 Puzzle.ResourceAssigner.Assign(resourceBag, puzzleRng, activeResources);
+                activeBlank = RollBlanks(shape.Length);
             }
 
             PrepareNextResources();
@@ -366,7 +407,33 @@ namespace BrickStacker
             if (nextResources == null || nextResources.Length != len || ReferenceEquals(nextResources, activeResources))
                 nextResources = new Puzzle.ResourceType[len];
             Puzzle.ResourceAssigner.Assign(resourceBag, puzzleRng, nextResources);
+            nextBlank = RollBlanks(len);
         }
+
+        // Random ô TRỐNG (rác) trong mô hình để làm loãng tài nguyên — chỉ offline; luôn chừa ≥1 ô tài nguyên.
+        bool[] RollBlanks(int len)
+        {
+            var b = new bool[len];
+            if (MultiplayerMatch.Active || len <= 1)
+                return b;
+            int blanks = 0;
+            for (int i = 0; i < len; i++)
+                if (puzzleRng.NextDouble() < OfflineBlankChance) { b[i] = true; blanks++; }
+            if (blanks >= len)
+                b[puzzleRng.Next(len)] = false;
+            return b;
+        }
+
+        // Giá trị ghi vào grid khi khóa: ô trống = rác (GarbageValue), else tài nguyên+1.
+        int CellLockValue(int i) => activeBlank != null && i < activeBlank.Length && activeBlank[i]
+            ? Puzzle.GridBridge.GarbageValue
+            : Puzzle.GridBridge.Encode(activeResources[i]);
+
+        // Loại hiển thị: ô trống → >=4 (render xám); else index tài nguyên (0-3).
+        int CellDisplayType(int i, Puzzle.ResourceType[] res, bool[] blank)
+            => blank != null && i < blank.Length && blank[i]
+                ? Puzzle.GridBridge.GarbageValue - 1
+                : (int)res[i];
 
         // GD v3 – thay xóa hàng bằng: tìm cụm 4 hướng → nổ rác sát cạnh → xóa đồng thời →
         // gravity từng cột → combo dây chuyền. Chưa nối hiệu ứng Move/Attack/Shield/Energy (GĐ2/GĐ4).
@@ -756,6 +823,7 @@ namespace BrickStacker
                 Puzzle.GridBridge.Store(puzzleBoard, grid);
                 RedrawLocked();
                 ShowClusterCombo(chain);
+                SpawnClusterBursts(clusters); // nổ tia/khói tại tâm mỗi cụm
                 Beep(720f + chain * 110f, 0.10f, 0.20f);
                 shake = Mathf.Max(shake, 0.14f);
                 yield return PlayClusterVanishFx(clusters);
@@ -769,6 +837,63 @@ namespace BrickStacker
                     Puzzle.ClusterResolutionSystem.ComboMultiplier(chain), destroyed));
                 yield return new WaitForSeconds(0.30f);
             }
+        }
+
+        // Vụ nổ tia/khói tại tâm mỗi cụm khi biến mất (mạnh hơn, không nhạt nhòa).
+        void SpawnClusterBursts(List<Puzzle.Cluster> clusters)
+        {
+            if (scenePuzzleCells == null || clusters == null)
+                return;
+            foreach (var cluster in clusters)
+            {
+                int cx = 0, cy = 0, n = 0;
+                foreach (var c in cluster.Cells) { cx += c.x; cy += c.y; n++; }
+                if (n == 0) continue;
+                cx /= n; cy /= n;
+                var burst = GetClusterBurst();
+                if (burst != null)
+                    burst.Play(PuzzleCellScreenPos(cx, cy), ClusterBurstColor(cluster.Resource));
+            }
+        }
+
+        static Color ClusterBurstColor(Puzzle.ResourceType r)
+        {
+            switch (r)
+            {
+                case Puzzle.ResourceType.Move: return new Color(0.55f, 1f, 0.55f);
+                case Puzzle.ResourceType.Attack: return new Color(1f, 0.55f, 0.3f);
+                case Puzzle.ResourceType.Shield: return new Color(0.55f, 0.8f, 1f);
+                default: return new Color(1f, 0.92f, 0.4f); // Energy/sấm sét
+            }
+        }
+
+        Vector3 PuzzleCellScreenPos(int x, int y)
+        {
+            if (scenePuzzleCells != null && x >= 0 && x < Width && y >= 0 && y < Height && scenePuzzleCells[x, y] != null)
+            {
+                var crt = scenePuzzleCells[x, y].rectTransform;
+                var canvas = scenePuzzleCells[x, y].GetComponentInParent<Canvas>();
+                Camera cam = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+                Vector2 sp = RectTransformUtility.WorldToScreenPoint(cam, crt.position);
+                return new Vector3(sp.x, sp.y, 0f);
+            }
+            return new Vector3(Screen.width * 0.4f, Screen.height * 0.5f, 0f);
+        }
+
+        ClusterBurst GetClusterBurst()
+        {
+            for (int i = 0; i < clusterBurstPool.Count; i++)
+                if (clusterBurstPool[i] != null && !clusterBurstPool[i].IsPlaying)
+                    return clusterBurstPool[i];
+            Transform parent = EnsureFloatFxRoot();
+            if (parent == null)
+                return null;
+            var go = new GameObject("Runtime Cluster Burst", typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var burst = go.AddComponent<ClusterBurst>();
+            burst.Build(10, RoundUiSprite());
+            clusterBurstPool.Add(burst);
+            return burst;
         }
 
         // Hiệu ứng ô tài nguyên biến mất: phồng to + mờ dần rồi mới vẽ lại bàn (cụm mode, bàn UI).
@@ -818,7 +943,7 @@ namespace BrickStacker
             }
         }
 
-        // Text "COMBO xN" khi có phản ứng dây chuyền (chain >= 2).
+        // Text "COMBO xN" khi có phản ứng dây chuyền (chain >= 2). Cấp càng cao màu càng nóng.
         void ShowClusterCombo(int chain)
         {
             if (!usingSceneGameplayCanvas || chain < 2)
@@ -827,6 +952,10 @@ namespace BrickStacker
             if (clusterComboText == null)
                 return;
             clusterComboText.text = "COMBO x" + chain + "!";
+            comboBaseColor = chain >= 4 ? new Color(1f, 0.32f, 0.22f)
+                : chain == 3 ? new Color(1f, 0.58f, 0.20f)
+                : new Color(1f, 0.86f, 0.35f);
+            shake = Mathf.Max(shake, 0.18f);
             if (clusterComboRoutine != null)
                 StopCoroutine(clusterComboRoutine);
             clusterComboRoutine = StartCoroutine(AnimateComboText());
@@ -836,33 +965,42 @@ namespace BrickStacker
         {
             if (clusterComboText != null)
                 return;
-            Transform parent = sceneGameplayCanvas != null ? sceneGameplayCanvas.transform
-                : (safeAreaRoot != null ? (Transform)safeAreaRoot : transform);
+            // Trên canvas overlay riêng (sortingOrder cao) để COMBO luôn nổi trên bàn.
+            Transform parent = EnsureFloatFxRoot();
+            if (parent == null)
+                parent = sceneGameplayCanvas != null ? sceneGameplayCanvas.transform
+                    : (safeAreaRoot != null ? (Transform)safeAreaRoot : transform);
             if (parent == null)
                 return;
-            clusterComboText = Ui.Text(parent, "", font, 64, new Color(1f, 0.86f, 0.35f), TextAnchor.MiddleCenter);
+            clusterComboText = Ui.Text(parent, "", RuntimeArt.LoadMenuButtonFont(), 100, new Color(1f, 0.86f, 0.35f), TextAnchor.MiddleCenter);
             clusterComboText.fontStyle = FontStyle.Bold;
             clusterComboText.raycastTarget = false;
-            Ui.Rect(clusterComboText, new Vector2(0.5f, 0.62f), new Vector2(0.5f, 0.62f), new Vector2(640, 130));
-            AddDarkWoodTextEdge(clusterComboText, 1.3f, 0.95f);
+            clusterComboText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            clusterComboText.verticalOverflow = VerticalWrapMode.Overflow;
+            Ui.Rect(clusterComboText, new Vector2(0.5f, 0.56f), new Vector2(0.5f, 0.56f), new Vector2(960, 220));
+            AddDarkWoodTextEdge(clusterComboText, 2.2f, 1f);
+            AddWarmTitleFinish(clusterComboText, 1.5f);
             var c = clusterComboText.color; c.a = 0f; clusterComboText.color = c;
         }
 
         IEnumerator AnimateComboText()
         {
             var rt = clusterComboText.rectTransform;
-            var baseCol = clusterComboText.color; baseCol.a = 1f;
-            const float dur = 0.8f;
-            for (float t = 0f; t < dur; t += Time.deltaTime)
+            var baseCol = comboBaseColor; baseCol.a = 1f;
+            const float dur = 0.95f;
+            for (float t = 0f; t < dur; t += Time.unscaledDeltaTime)
             {
                 float k = t / dur;
-                float scale = k < 0.2f ? Mathf.Lerp(0.5f, 1.25f, k / 0.2f) : Mathf.Lerp(1.25f, 1f, (k - 0.2f) / 0.8f);
+                // Bung lớn (0.4→1.5) rồi ổn định; lắc nhẹ giảm dần cho "đã".
+                float scale = k < 0.18f ? Mathf.Lerp(0.4f, 1.5f, k / 0.18f) : Mathf.Lerp(1.5f, 1.08f, Mathf.Clamp01((k - 0.18f) / 0.4f));
                 rt.localScale = new Vector3(scale, scale, 1f);
-                var col = baseCol; col.a = k < 0.6f ? 1f : Mathf.Clamp01(1f - (k - 0.6f) / 0.4f); clusterComboText.color = col;
+                rt.localEulerAngles = new Vector3(0f, 0f, Mathf.Sin(t * 38f) * (1f - k) * 6f);
+                var col = baseCol; col.a = k < 0.65f ? 1f : Mathf.Clamp01(1f - (k - 0.65f) / 0.35f); clusterComboText.color = col;
                 yield return null;
             }
             var end = clusterComboText.color; end.a = 0f; clusterComboText.color = end;
             rt.localScale = Vector3.one;
+            rt.localEulerAngles = Vector3.zero;
             clusterComboRoutine = null;
         }
 
@@ -902,7 +1040,7 @@ namespace BrickStacker
 
                     // Chế độ cụm: ghost là sprite tài nguyên mờ, đúng loại của từng ô → khớp lúc đáp.
                     if (clustersGhost && i < activeResources.Length)
-                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.34f), (int)activeResources[i]);
+                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.34f), CellDisplayType(i, activeResources, activeBlank));
                     else
                         SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.22f), -1);
                 }
@@ -932,7 +1070,7 @@ namespace BrickStacker
                         if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height)
                             continue;
 
-                        int type = clusters && i < activeResources.Length ? (int)activeResources[i] : currentType;
+                        int type = clusters && i < activeResources.Length ? CellDisplayType(i, activeResources, activeBlank) : currentType;
                         SetScenePuzzleCell(cell.x, cell.y, activeColor, type);
                     }
                 }
@@ -1051,7 +1189,7 @@ namespace BrickStacker
             for (int i = 0; i < activeShape.Length; i++)
             {
                 var cell = CellFromLocal(activeShape[i], origin, rotation);
-                int blockType = clusterActive && i < activeResources.Length ? (int)activeResources[i] : currentType;
+                int blockType = clusterActive && i < activeResources.Length ? CellDisplayType(i, activeResources, activeBlank) : currentType;
                 var block = NewPieceBlock("Active Block", blockType, activeRoot);
                 block.transform.position = CellToWorld(cell.x, cell.y);
                 activeBlocks.Add(block);
@@ -1149,7 +1287,7 @@ namespace BrickStacker
             return Mathf.Max(0.08f, interval);
         }
 
-        void RenderPiecePreview(List<Image> cells, int type, bool visible, Puzzle.ResourceType[] resources = null)
+        void RenderPiecePreview(List<Image> cells, int type, bool visible, Puzzle.ResourceType[] resources = null, bool[] blank = null)
         {
             bool clusters = rules != null && rules.UseResourceClusters && resourceSprites != null;
             for (int i = 0; i < cells.Count; i++)
@@ -1184,10 +1322,19 @@ namespace BrickStacker
                 var image = cells[i];
                 image.rectTransform.anchoredPosition = new Vector2((cell.x - shapeCenterX) * step, -(cell.y - shapeCenterY) * step);
                 // Chế độ cụm: mỗi ô một sprite tài nguyên (khớp mô hình sắp rơi), không map theo shape id.
-                image.sprite = clusters && resources != null && i < resources.Length
-                    ? GetPieceBlockSprite((int)resources[i])
-                    : GetPieceBlockSprite(type);
-                image.color = Color.white;
+                bool isBlank = clusters && blank != null && i < blank.Length && blank[i];
+                if (isBlank)
+                {
+                    image.sprite = blockSprite;
+                    image.color = new Color(0.40f, 0.43f, 0.50f, 1f); // ô trống = xám như rác
+                }
+                else
+                {
+                    image.sprite = clusters && resources != null && i < resources.Length
+                        ? GetPieceBlockSprite((int)resources[i])
+                        : GetPieceBlockSprite(type);
+                    image.color = Color.white;
+                }
                 image.preserveAspect = !clusters; // chế độ cụm: khối lấp đầy ô như bàn chính
             }
         }

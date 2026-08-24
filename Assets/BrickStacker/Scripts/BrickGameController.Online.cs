@@ -160,6 +160,7 @@ namespace BrickStacker
             if (sceneNextPanelRect != null) sceneNextPanelRect.gameObject.SetActive(false);
             if (opponentTacticalPanelRect != null) opponentTacticalPanelRect.gameObject.SetActive(false);
             if (attackButtonRect != null) attackButtonRect.gameObject.SetActive(false);
+            if (offlineInfoPanel != null) offlineInfoPanel.gameObject.SetActive(false);
 
             BuildOnlineHud(safeAreaRoot != null ? safeAreaRoot : sceneGameplayRootRect);
 

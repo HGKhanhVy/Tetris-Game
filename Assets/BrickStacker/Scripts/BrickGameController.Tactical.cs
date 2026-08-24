@@ -83,9 +83,9 @@ namespace BrickStacker
             var gridRoot = new GameObject("Runtime Tactical Grid", typeof(RectTransform));
             gridRoot.transform.SetParent(sceneTacticalBoardRect, false);
             var gridRect = gridRoot.GetComponent<RectTransform>();
-            // Phủ kín vùng lưới TRONG của khung frame-banco để chỉ còn 1 lưới game 8×8
-            // sạch (lưới in trên khung là 9×9/không vuông → phải che).
-            Ui.Rect(gridRoot, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.96f), Vector2.zero);
+            // Neo cửa sổ TRONG viền khung frame-banco (căn theo ảnh render + phản hồi thực tế):
+            // trái/phải/trên khít; minY tinh chỉnh cho mép dưới không lấn ra viền, không hụt.
+            Ui.Rect(gridRoot, new Vector2(0.034f, 0.027f), new Vector2(0.967f, 0.968f), Vector2.zero);
             gridRect.SetAsLastSibling();
 
             // Nền = màu ĐƯỜNG KẺ của khung (navy đậm), khe hở giữa ô lộ ra thành lưới —
@@ -97,16 +97,19 @@ namespace BrickStacker
             // mỗi lần khối gạch nhích (và ngược lại). Cần raycaster riêng cho nút.
             MakeIsolatedCanvas(gridRoot, true);
 
+            // Khe hở ĐỀU nhau ở cả mép ngoài lẫn giữa các ô: N ô + (N+1) khe bằng nhau.
+            // gridRoot ~vuông nên khe theo pixel đều cả 2 trục.
+            const float gap = 0.006f;
+            float cellW = (1f - (width + 1) * gap) / width;
+            float cellH = (1f - (height + 1) * gap) / height;
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
                 {
                     var cell = Ui.Panel(gridRoot.transform, "TacticalGrid (" + (y * width + x) + ")", Color.white);
-                    float minX = x / (float)width;
-                    float maxX = (x + 1) / (float)width;
-                    float minY = y / (float)height;
-                    float maxY = (y + 1) / (float)height;
-                    Ui.Rect(cell, new Vector2(minX + 0.006f, minY + 0.006f), new Vector2(maxX - 0.006f, maxY - 0.006f), Vector2.zero);
+                    float minX = gap + x * (cellW + gap);
+                    float minY = gap + y * (cellH + gap);
+                    Ui.Rect(cell, new Vector2(minX, minY), new Vector2(minX + cellW, minY + cellH), Vector2.zero);
                     SetupSceneTacticalCell(cell.GetComponent<RectTransform>(), x, y);
                 }
             }
@@ -462,7 +465,7 @@ namespace BrickStacker
                     var label = tacticalCellLabels[index];
                     var icon = index < tacticalCellIcons.Count ? tacticalCellIcons[index] : null;
 
-                    // Ô game 8×8 màu XANH khớp ô của khung (135,181,246); khe hở lộ nền navy
+                    // Ô game 10×10 màu XANH khớp ô của khung (135,181,246); khe hở lộ nền navy
                     // = đường lưới → nhìn y hệt lưới khung, quân khớp tuyệt đối với ô game.
                     image.sprite = null;
                     image.type = Image.Type.Simple;

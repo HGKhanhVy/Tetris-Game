@@ -94,8 +94,12 @@ namespace BrickStacker
 
         public static TacticalLevelData Create(int level)
         {
-            const int width = 8;
-            const int height = 8;
+            const int width = 10;
+            const int height = 10;
+            // Mẫu vị trí (player/enemy/monster/tường) được tune cho lưới 8×8 (toạ độ 0..6).
+            // Board mới 10×10 → dịch CẢ CỤM để căn giữa; khoảng cách TƯƠNG ĐỐI giữ nguyên nên
+            // cân bằng không đổi, chỉ thêm viền ô trống quanh (đúng ý "khung to hơn + thêm ô").
+            var centerOffset = new Vector2Int(2, 2);
 
             // === Độ khó CÓ KIỂM SOÁT + XEN KẼ (không màn nào quá dễ/khó vô lý) ===
             // d ∈ [0.08, 0.92]: tăng dần theo màn + sóng nhẹ (xen kẽ) + "màn nghỉ" mỗi 5 màn.
@@ -181,6 +185,13 @@ namespace BrickStacker
                 data.WallPositions.Add(new Vector2Int(2, 2));
                 data.WallPositions.Add(new Vector2Int(6, 4));
             }
+
+            // Căn giữa cụm mẫu (8×8) trên board 10×10 — giữ nguyên khoảng cách tương đối.
+            data.PlayerStartPosition += centerOffset;
+            data.EnemyStartPosition += centerOffset;
+            data.MonsterStartPosition += centerOffset;
+            for (int i = 0; i < data.WallPositions.Count; i++)
+                data.WallPositions[i] += centerOffset;
 
             // Design §2.5: quái đi theo TIMER thực (không còn số-bước-mỗi-lượt là cơ chế chính).
             // Mỗi trigger (timer hoặc player hành động) quái đi 1 bước.

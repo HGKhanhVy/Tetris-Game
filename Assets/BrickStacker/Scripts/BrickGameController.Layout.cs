@@ -601,26 +601,7 @@ namespace BrickStacker
             if (sceneLevelText != null) sceneLevelText.gameObject.SetActive(false);
             if (sceneMoveText != null) sceneMoveText.gameObject.SetActive(false);
 
-            // Banner MÀN X.
-            var title = MakeSpriteImage(safeAreaRoot.transform, "HUD Title", "screen-gameplay/frame-title.png", new Rect(0.130f, 0.398f, 0.740f, 0.270f), false);
-            hudTitleRect = title.rectTransform;
-            hudTitleText = Ui.Text(title.transform, "MÀN " + journeyLevel, RuntimeArt.LoadMenuButtonFont(), 42, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
-            hudTitleText.fontStyle = FontStyle.Bold;
-            hudTitleText.raycastTarget = false;
-            hudTitleText.resizeTextForBestFit = false;
-            var ttr = hudTitleText.rectTransform; ttr.anchorMin = new Vector2(0.14f, 0.14f); ttr.anchorMax = new Vector2(0.9f, 0.92f); ttr.offsetMin = ttr.offsetMax = Vector2.zero;
-            AddDarkWoodTextEdge(hudTitleText, 0.9f, 0.9f);
-
-            // Panel điểm | lượt.
-            var coin = MakeSpriteImage(safeAreaRoot.transform, "HUD Coin", "screen-gameplay/frame-coin.png", new Rect(0.151f, 0.422f, 0.695f, 0.234f), false);
-            hudCoinRect = coin.rectTransform;
-            // Số điểm căn GIỮA khung con ĐIỂM (nửa trái), số lượt giữa khung con LƯỢT (nửa phải).
-            hudScoreText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 28, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
-            hudScoreText.fontStyle = FontStyle.Bold; hudScoreText.raycastTarget = false;
-            var sr = hudScoreText.rectTransform; sr.anchorMin = new Vector2(0.135f, 0.06f); sr.anchorMax = new Vector2(0.475f, 0.55f); sr.offsetMin = sr.offsetMax = Vector2.zero;
-            hudTurnText = Ui.Text(coin.transform, "0", RuntimeArt.LoadMenuButtonFont(), 28, new Color(1f, 0.98f, 0.9f), TextAnchor.MiddleCenter);
-            hudTurnText.fontStyle = FontStyle.Bold; hudTurnText.raycastTarget = false;
-            var tr = hudTurnText.rectTransform; tr.anchorMin = new Vector2(0.50f, 0.06f); tr.anchorMax = new Vector2(0.84f, 0.55f); tr.offsetMin = tr.offsetMax = Vector2.zero;
+            // Banner MÀN X + panel điểm|lượt đã bỏ theo yêu cầu giao diện — HUD gọn hơn.
 
             // Nút tạm dừng: reparent về safeAreaRoot để ApplySceneRect đặt theo cả màn
             // (trước đây parent là dải header mỏng nên nút bị dẹp).
@@ -656,6 +637,67 @@ namespace BrickStacker
             // Nút vẫn bấm được: dùng skin làm targetGraphic.
             var btn = rect.GetComponent<Button>();
             if (btn != null) { btn.targetGraphic = skin; skin.raycastTarget = true; }
+        }
+
+        // Panel bên trái (offline): tài nguyên (icon Giày/Khiên) + số Lượt hiện có + đồng hồ quái.
+        // Dựng 1 lần; giá trị cập nhật trong RefreshSceneHud; ẩn khi chơi online.
+        void EnsureOfflineInfoPanel(Transform parent)
+        {
+            if (offlineInfoBuilt || parent == null)
+                return;
+            offlineInfoBuilt = true;
+
+            var uiFont = RuntimeArt.LoadMenuButtonFont();
+            var panelGo = Ui.Panel(parent, "Offline Info Panel", new Color(0.05f, 0.10f, 0.22f, 0.98f));
+            offlineInfoPanel = panelGo.GetComponent<RectTransform>();
+            // Chip HUD navy ĐẶC bo góc (đồng bộ màu bàn cờ/khung) — gọn, chữ nổi, không murky.
+            var panelImg = panelGo.GetComponent<Image>();
+            panelImg.sprite = RoundUiSprite();
+            panelImg.type = Image.Type.Sliced;
+            panelImg.raycastTarget = false;
+
+            // 2 chỉ số: Giày → "DI CHUYỂN", Khiên → "ĐỠ ĐÒN" — chữ nằm ngang cạnh icon.
+            offlineMoveValue = BuildOfflineInfoRow(panelGo.transform, uiFont, (int)Puzzle.ResourceType.Move,
+                "DI CHUYỂN", new Color(0.62f, 1f, 0.62f), 0.52f, 0.98f);
+            offlineShieldValue = BuildOfflineInfoRow(panelGo.transform, uiFont, (int)Puzzle.ResourceType.Shield,
+                "ĐỠ ĐÒN", new Color(0.62f, 0.86f, 1f), 0.12f, 0.50f);
+        }
+
+        Text BuildOfflineInfoRow(Transform parent, Font uiFont, int resType, string label, Color valueColor, float yMin, float yMax)
+        {
+            float mid = (yMin + yMax) * 0.5f;
+            // Icon bên TRÁI; nhãn + số nằm NGANG cạnh icon (nhãn trên, số dưới).
+            var iconGo = new GameObject(label + " Icon", typeof(RectTransform), typeof(Image));
+            iconGo.transform.SetParent(parent, false);
+            var img = iconGo.GetComponent<Image>();
+            img.sprite = GetPieceBlockSprite(resType);
+            img.preserveAspect = true;
+            img.raycastTarget = false;
+            Ui.Rect(iconGo, new Vector2(0.03f, mid - 0.23f), new Vector2(0.37f, mid + 0.23f), Vector2.zero);
+
+            // Nhãn: to HẾT MỨC vừa khung (best-fit) để không tràn sang bàn cờ khi panel hẹp.
+            var lbl = Ui.Text(parent, label, uiFont, 28, new Color(0.92f, 0.96f, 1f), TextAnchor.LowerLeft);
+            Ui.Rect(lbl, new Vector2(0.41f, mid), new Vector2(0.995f, yMax - 0.005f), Vector2.zero);
+            lbl.fontStyle = FontStyle.Bold;
+            lbl.resizeTextForBestFit = true;
+            lbl.resizeTextMinSize = 12;
+            lbl.resizeTextMaxSize = 30;
+            AddTextOutline(lbl);
+
+            var val = Ui.Text(parent, "0", uiFont, 40, valueColor, TextAnchor.UpperLeft);
+            Ui.Rect(val, new Vector2(0.41f, yMin + 0.005f), new Vector2(0.995f, mid), Vector2.zero);
+            val.fontStyle = FontStyle.Bold;
+            AddTextOutline(val);
+            return val;
+        }
+
+        static void AddTextOutline(Text text)
+        {
+            var ol = text.gameObject.GetComponent<Outline>();
+            if (ol == null) ol = text.gameObject.AddComponent<Outline>();
+            ol.effectColor = new Color(0f, 0f, 0f, 1f);
+            ol.effectDistance = new Vector2(2.6f, -2.6f);
+            ol.useGraphicAlpha = false;
         }
 
         void EnsureGameplayFrames()
@@ -719,106 +761,115 @@ namespace BrickStacker
                 return;
             }
 
-            const float top = 0.975f;
-            const float bottom = 0.02f;
+            const float top = 0.972f;
+            const float bottom = 0.016f;
 
-            // Header — dải trên cùng (tạm dừng trái · MÀN X giữa · điểm phải).
-            float headerH = 0.105f;
-            ApplySceneRect(sceneHeaderRect,
-                new Vector2(0.03f, top - headerH),
-                new Vector2(0.97f, top));
-            LayoutHeaderChildren();
-
-            // Board dùng toàn bộ chiều cao dưới header (không chừa dải trống) để đỡ thưa.
-            float contentTop = top - headerH - 0.012f;
-            float boardTop = contentTop;
+            // Header đã tối giản (bỏ banner MÀN X + panel điểm) → boards dùng gần trọn chiều cao,
+            // "kéo lên" tận mép trên; nút tạm dừng đặt riêng ở dải chừa góc trên-trái.
+            float boardTop = top;
             float contentH = boardTop - bottom;
 
-            // Tính bề rộng từng khối rồi CĂN GIỮA cả cụm theo chiều ngang.
+            // Dải chừa bên trái cho nút tạm dừng (không đè bàn cờ).
+            const float leftReserve = 0.072f;
+
+            // Bàn cờ: VUÔNG, dùng full chiều cao (10×10). Cỡ ô = khung ÷ 10 (render tự chia) —
+            // khung to nhưng ô GIỮ CỠ nhờ tăng số ô, không phóng to ô.
             float tacMaxW = 0.44f;
             float tacH = contentH;
             float tacW = tacH / Mathf.Max(1f, aspect);
             if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * aspect; }
+
+            // Bàn xếp gạch: cao = full, rộng theo tỉ lệ khung (hệ số 0.501) — khung + ô TO ĐỀU.
             float puzzleH = contentH;
             float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
-            float sideW = 0.10f;           // NEXT + XOAY hẹp lại (cột dọc)
-            float gap1 = 0.022f, gap2 = 0.026f;
-            float totalW = tacW + gap1 + puzzleW + gap2 + sideW;
-            float startX = (1f - totalW) * 0.5f;
 
-            // Bàn chiến thuật (vuông) — đầu cụm, căn giữa dọc.
-            float tacLeft = startX;
+            // Cột NEXT + XOAY nằm SÁT MÉP PHẢI vùng an toàn (chừa khe nhỏ).
+            const float rightEdgeMargin = 0.006f;
+            float sideW = 0.10f;
+            float rightColRight = 1f - rightEdgeMargin;
+            float rightColLeft = rightColRight - sideW;
+
+            // Đặt cặp bàn cờ + xếp gạch DỒN SÁT PHẢI (cạnh cột NEXT) thay vì căn giữa —
+            // khoảng trống dồn về bên trái, 2 khung nằm gần ô NEXT.
+            const float gapBoards = 0.030f;
+            const float gapToSide = 0.018f;
+            float regionLeft = leftReserve;
+            float regionRight = rightColLeft - gapToSide;
+            float pairW = tacW + gapBoards + puzzleW;
+            float startX = Mathf.Max(regionLeft, regionRight - pairW);
+
             float tacCy = (bottom + boardTop) * 0.5f;
+            float tacLeft = startX;
             ApplySceneRect(sceneTacticalBoardRect,
                 new Vector2(tacLeft, tacCy - tacH * 0.5f),
                 new Vector2(tacLeft + tacW, tacCy + tacH * 0.5f));
 
-            // Bàn xếp gạch ngay sau bàn cờ.
-            float puzzleLeft = tacLeft + tacW + gap1;
+            float puzzleLeft = tacLeft + tacW + gapBoards;
             ApplySceneRect(scenePuzzleBoardAnchorRect,
                 new Vector2(puzzleLeft, bottom),
                 new Vector2(puzzleLeft + puzzleW, boardTop));
 
-            // Cột phụ BÊN PHẢI (NEXT + XOAY hoặc bàn đối thủ) — ngay sau bàn xếp gạch.
-            float sideLeft = puzzleLeft + puzzleW + gap2;
-            float sideRight = sideLeft + sideW;
-            sideLeft = sideRight - sideW;
-
-            float rotW = Mathf.Clamp(sideW * 0.60f, 0.062f, 0.098f);
-            float rotH = rotW * aspect;
-            float rotCx = (sideLeft + sideRight) * 0.5f;
-
-            // Trận 1v1: ẩn ô TIẾP, cột phải dành cho bàn đối thủ + nút.
-            bool opponentColumn = MultiplayerMatch.Active && opponentMiniPanelRect != null;
-            if (sceneNextPanelRect != null)
-                sceneNextPanelRect.gameObject.SetActive(!opponentColumn);
-
-            if (opponentColumn)
+            // Nút tạm dừng: góc trên-trái, trong dải chừa (không đè ô bàn cờ).
+            if (pauseButtonRect != null)
             {
-                float rotBottom = bottom + 0.008f;
-                if (rotateButtonRect != null)
-                    ApplySceneRect(rotateButtonRect,
-                        new Vector2(rotCx - rotW * 0.5f, rotBottom),
-                        new Vector2(rotCx + rotW * 0.5f, rotBottom + rotH));
-
-                float attackBottom = rotBottom + rotH + 0.012f;
-                const float attackH = 0.052f;
-                if (attackButtonRect != null)
-                    ApplySceneRect(attackButtonRect,
-                        new Vector2(sideLeft + 0.008f, attackBottom),
-                        new Vector2(sideRight - 0.008f, attackBottom + attackH));
-
-                LayoutOpponentMiniBoard(sideLeft, sideRight, boardTop, attackBottom + attackH + 0.016f, aspect);
+                float pw = Mathf.Min(leftReserve - 0.014f, 0.055f);
+                float ph = pw * aspect;
+                ApplySceneRect(pauseButtonRect,
+                    new Vector2(0.012f, top - ph),
+                    new Vector2(0.012f + pw, top));
             }
-            else
-            {
-                // NEXT: dọc đúng tỉ lệ khung frame-next (~0.554 rộng/cao) → không bị bè.
-                // Hạ xuống 1 chút để cách panel coin.
-                float nextTop = boardTop - 0.035f;
-                float nextW = sideW;
-                float nextH = nextW * aspect / 0.554f;
-                float nextCx = (sideLeft + sideRight) * 0.5f;
-                ApplySceneRect(sceneNextPanelRect,
-                    new Vector2(nextCx - nextW * 0.5f, nextTop - nextH),
-                    new Vector2(nextCx + nextW * 0.5f, nextTop));
-                LayoutNextPreviewInPanel();
+            // Header rect gốc (ẩn) thu về dải mỏng góc trái để không cản gì.
+            ApplySceneRect(sceneHeaderRect,
+                new Vector2(0.012f, top - 0.001f),
+                new Vector2(0.30f, top));
 
-                // XOAY: nút hẹp (vuông), dưới NEXT.
-                float rw = Mathf.Clamp(sideW * 0.72f, 0.052f, 0.078f);
-                float rh = rw * aspect;
-                if (rotateButtonRect != null)
+            // Panel TÀI NGUYÊN bên trái: lấp khoảng trống, hiện Lượt/Khiên + đồng hồ quái.
+            EnsureOfflineInfoPanel(safeAreaRoot != null ? safeAreaRoot.transform : transform);
+            if (offlineInfoPanel != null)
+            {
+                float panelLeft = 0.05f;   // lùi sang phải để tránh tai thỏ/notch bên trái
+                float panelRight = startX - 0.02f;
+                bool wideEnough = (panelRight - panelLeft) >= 0.10f;
+                offlineInfoPanel.gameObject.SetActive(wideEnough);
+                if (wideEnough)
                 {
-                    float rotTop = nextTop - nextH - 0.045f;
-                    ApplySceneRect(rotateButtonRect,
-                        new Vector2(nextCx - rw * 0.5f, rotTop - rh),
-                        new Vector2(nextCx + rw * 0.5f, rotTop));
+                    // Panel GỌN (chỉ tiêu đề + 2 dòng) — không kéo full chiều cao để tránh khoảng trống.
+                    float pauseH = Mathf.Min(leftReserve - 0.014f, 0.055f) * aspect;
+                    float panelTop = top - pauseH - 0.03f;
+                    float panelH = 0.34f;
+                    ApplySceneRect(offlineInfoPanel,
+                        new Vector2(panelLeft, panelTop - panelH),
+                        new Vector2(panelRight, panelTop));
                 }
+            }
+
+            // Cột NEXT + XOAY (sát mép phải).
+            if (sceneNextPanelRect != null)
+                sceneNextPanelRect.gameObject.SetActive(true);
+
+            float nextCx = (rightColLeft + rightColRight) * 0.5f;
+            float nextTop = boardTop - 0.035f;
+            float nextW = sideW;
+            float nextH = nextW * aspect / 0.554f;
+            ApplySceneRect(sceneNextPanelRect,
+                new Vector2(nextCx - nextW * 0.5f, nextTop - nextH),
+                new Vector2(nextCx + nextW * 0.5f, nextTop));
+            LayoutNextPreviewInPanel();
+
+            float rw = Mathf.Clamp(sideW * 0.72f, 0.052f, 0.078f);
+            float rh = rw * aspect;
+            if (rotateButtonRect != null)
+            {
+                float rotTop = nextTop - nextH - 0.045f;
+                ApplySceneRect(rotateButtonRect,
+                    new Vector2(nextCx - rw * 0.5f, rotTop - rh),
+                    new Vector2(nextCx + rw * 0.5f, rotTop));
             }
 
             if (statusText != null)
                 ApplySceneRect(statusText.rectTransform,
-                    new Vector2(sideLeft, bottom),
-                    new Vector2(sideRight, bottom + 0.14f));
+                    new Vector2(rightColLeft, bottom),
+                    new Vector2(rightColRight, bottom + 0.14f));
         }
 
         void DisablePuzzleAnchorFrame()
@@ -830,15 +881,11 @@ namespace BrickStacker
 
         void LayoutHeaderChildren()
         {
-            // HUD mới: tạm dừng trái · MÀN X giữa · panel điểm|lượt phải.
-            if (hudTitleRect != null)
+            // HUD mới: chỉ còn nút tạm dừng góc trái (đã bỏ banner MÀN X + panel điểm|lượt).
+            if (gameplayHudApplied)
             {
                 // Nút tạm dừng: cách mép trái + viền trên thêm chút.
                 ApplySceneRect(pauseButtonRect, new Vector2(0.045f, 0.858f), new Vector2(0.10f, 0.952f));
-                // Banner MÀN X: to hơn.
-                ApplySceneRect(hudTitleRect, new Vector2(0.40f, 0.878f), new Vector2(0.60f, 0.995f));
-                // Panel điểm|lượt: to hơn.
-                ApplySceneRect(hudCoinRect, new Vector2(0.755f, 0.878f), new Vector2(0.982f, 0.995f));
                 return;
             }
 

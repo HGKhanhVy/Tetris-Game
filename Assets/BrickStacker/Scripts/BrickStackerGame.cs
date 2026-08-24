@@ -487,6 +487,11 @@ namespace BrickStacker
         TMP_Text sceneLevelText;
         TMP_Text sceneMoveText;
         TMP_Text sceneNextText;
+        // Panel tài nguyên bên trái (offline landscape): số Lượt, Khiên, đồng hồ quái + chú thích.
+        RectTransform offlineInfoPanel;
+        Text offlineMoveValue;
+        Text offlineShieldValue;
+        bool offlineInfoBuilt;
         RectTransform scenePuzzleBoardAnchorRect;
         RectTransform sceneTacticalBoardRect;
         Image[,] scenePuzzleCells;
@@ -1349,7 +1354,12 @@ namespace BrickStacker
 
             // Ô neo theo TỈ LỆ, có khe hở nhỏ → gaps lộ nền = đường lưới. Ô trống = tile navy nhạt
             // (nhìn rõ từng ô để di chuyển mô hình); ô có tài nguyên = khối lấp đầy.
-            const float cellGap = 0.035f;
+            // Khe hở ĐỀU nhau ở cả mép ngoài lẫn giữa ô (N ô + (N+1) khe bằng nhau).
+            // gapY suy từ gapX theo tỉ lệ Width/Height để khe tính bằng PIXEL đều (ô ~vuông).
+            const float gapX = 0.012f;
+            float gapY = gapX * Width / (float)Height;
+            float cellW = (1f - (Width + 1) * gapX) / Width;
+            float cellH = (1f - (Height + 1) * gapY) / Height;
             for (int y = 0; y < Height; y++)
             {
                 for (int x = 0; x < Width; x++)
@@ -1360,8 +1370,10 @@ namespace BrickStacker
                     cell.preserveAspect = true;
                     cell.raycastTarget = false;
                     var rect = cell.rectTransform;
-                    rect.anchorMin = new Vector2((x + cellGap) / Width, (y + cellGap) / Height);
-                    rect.anchorMax = new Vector2((x + 1f - cellGap) / Width, (y + 1f - cellGap) / Height);
+                    float cMinX = gapX + x * (cellW + gapX);
+                    float cMinY = gapY + y * (cellH + gapY);
+                    rect.anchorMin = new Vector2(cMinX, cMinY);
+                    rect.anchorMax = new Vector2(cMinX + cellW, cMinY + cellH);
                     rect.offsetMin = Vector2.zero;
                     rect.offsetMax = Vector2.zero;
                     rect.pivot = new Vector2(0.5f, 0.5f);
@@ -1433,17 +1445,24 @@ namespace BrickStacker
                     playLeft = Mathf.CeilToInt(Mathf.Max(0f, maxPlay - gameplayTime));
             }
 
-            if (sceneMoveText != null && (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond || shieldLayers != hudCachedShield || playLeft != hudCachedPlayLeft))
+            // Chỉ đụng Text khi 1 trong các giá trị đổi thật (tránh GC + dirty canvas mỗi frame).
+            if (moveBank != hudCachedMoveBank || monsterSecond != hudCachedMonsterSecond || shieldLayers != hudCachedShield || playLeft != hudCachedPlayLeft)
             {
                 hudCachedMoveBank = moveBank;
                 hudCachedMonsterSecond = monsterSecond;
                 hudCachedShield = shieldLayers;
                 hudCachedPlayLeft = playLeft;
-                string shieldPart = shieldLayers > 0 ? "   Khiên: " + shieldLayers : "";
-                string timePart = playLeft >= 0 ? "   Còn: " + (playLeft / 60) + ":" + (playLeft % 60).ToString("00") : "";
-                sceneMoveText.text = monsterSecond >= 0
-                    ? "Lượt đi: " + moveBank + shieldPart + "   Quái đi sau: " + monsterSecond + "s" + timePart
-                    : "Lượt đi: " + moveBank + shieldPart;
+                if (sceneMoveText != null)
+                {
+                    string shieldPart = shieldLayers > 0 ? "   Khiên: " + shieldLayers : "";
+                    string timePart = playLeft >= 0 ? "   Còn: " + (playLeft / 60) + ":" + (playLeft % 60).ToString("00") : "";
+                    sceneMoveText.text = monsterSecond >= 0
+                        ? "Lượt đi: " + moveBank + shieldPart + "   Quái đi sau: " + monsterSecond + "s" + timePart
+                        : "Lượt đi: " + moveBank + shieldPart;
+                }
+                // Panel TÀI NGUYÊN bên trái (offline).
+                if (offlineMoveValue != null) offlineMoveValue.text = moveBank.ToString();
+                if (offlineShieldValue != null) offlineShieldValue.text = shieldLayers.ToString();
             }
 
             if (sceneNextText != null && sceneNextText.text != "TIẾP")

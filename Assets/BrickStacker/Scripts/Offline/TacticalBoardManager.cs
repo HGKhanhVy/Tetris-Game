@@ -65,8 +65,6 @@ namespace BrickStacker
         // === Thông số luồng mới (design §2.3, §2.5, §2.6, §4) ===
         // Quái tự đi sau mỗi khoảng thời gian này (giây). Giảm dần theo độ khó.
         public float MonsterAutoMoveInterval = 6.0f;
-        // Timer tự động reset khi quái di chuyển vì player hành động (design §2.5).
-        public bool ResetMonsterTimerAfterPlayerAction = true;
         // Trần điểm di chuyển tích luỹ (design §2.3).
         public int MaxMovementPoint = 5;
         // Ngưỡng để quái đổi từ đuổi player sang enemy (design §2.6).
@@ -95,11 +93,11 @@ namespace BrickStacker
         public static TacticalLevelData Create(int level)
         {
             const int width = 10;
-            const int height = 10;
-            // Mẫu vị trí (player/enemy/monster/tường) được tune cho lưới 8×8 (toạ độ 0..6).
-            // Board mới 10×10 → dịch CẢ CỤM để căn giữa; khoảng cách TƯƠNG ĐỐI giữ nguyên nên
-            // cân bằng không đổi, chỉ thêm viền ô trống quanh (đúng ý "khung to hơn + thêm ô").
-            var centerOffset = new Vector2Int(2, 2);
+            const int height = 9;   // rộng 10, cao 9 (thêm 1 hàng trên so với 8).
+            // Mẫu vị trí (player/enemy/monster/tường) tune cho lưới 8×8 (toạ độ 0..6).
+            // Board 10×9 → dịch CẢ CỤM để căn giữa (x+2 trong 10, y+1 trong 9); khoảng cách
+            // TƯƠNG ĐỐI giữ nguyên nên cân bằng không đổi.
+            var centerOffset = new Vector2Int(2, 1);
 
             // === Độ khó CÓ KIỂM SOÁT + XEN KẼ (không màn nào quá dễ/khó vô lý) ===
             // d ∈ [0.08, 0.92]: tăng dần theo màn + sóng nhẹ (xen kẽ) + "màn nghỉ" mỗi 5 màn.
@@ -123,7 +121,9 @@ namespace BrickStacker
                 ThreeStarMoveLimit = Mathf.Max(8, 10 + level / 3),
                 TwoStarMoveLimit = Mathf.Max(14, 16 + level / 2),
                 // Gạch rơi: nhanh dần theo d nhưng KHÔNG bao giờ quá 0.48s (đủ thời gian ghép cụm).
-                InitialFallSpeed = Mathf.Lerp(0.80f, 0.48f, d),
+                // Bàn còn 11 hàng (trước 13) nên quãng rơi ngắn hơn ~15% → nới chu kỳ rơi bấy nhiêu
+                // để thời gian mỗi khối chạm đáy giữ nguyên như cũ.
+                InitialFallSpeed = Mathf.Lerp(0.92f, 0.55f, d),
                 LineToMoveRate = 1,
                 CoinReward = 45 + level * 5,
                 UnlockNextLevel = true
@@ -355,6 +355,11 @@ namespace BrickStacker
         // === Trạng thái timer quái (design §2.5, §2.7) ===
         // Đếm ngược tới lần tự đi kế tiếp. HUD dùng để vẽ đồng hồ + cảnh báo.
         public float MonsterTimer { get; private set; }
+        // Thời gian trôi kể từ bước đi gần nhất của quái (mọi nguồn: timer, player hành động).
+        float sinceLastMonsterStep;
+        // Quái không được đi 2 bước sát nhau: nếu vừa tự đi xong mà player đi ngay thì bước
+        // theo-lượt-player bị bỏ qua (chỉ reset lại đồng hồ) — tránh cảm giác quái nhảy 2 ô một lúc.
+        const float MinMonsterStepGap = 1.2f;
         public float MonsterAutoMoveInterval => Data != null ? Data.MonsterAutoMoveInterval : 6f;
         // 0 = vừa reset, 1 = sắp đi. Dùng cho thanh cảnh báo.
         public float MonsterMoveProgress => MonsterAutoMoveInterval > 0.01f ? Mathf.Clamp01(1f - MonsterTimer / MonsterAutoMoveInterval) : 0f;
@@ -461,6 +466,7 @@ namespace BrickStacker
             PatrolDirection = 1;
 
             MonsterTimer = Data.MonsterAutoMoveInterval;
+            sinceLastMonsterStep = MinMonsterStepGap;
             CurrentTarget = TacticalTarget.Player;
             RecomputeMonsterIntent();
         }
@@ -521,7 +527,7 @@ namespace BrickStacker
 
             if (moved > 0)
             {
-                MonsterTimer = MonsterAutoMoveInterval; // Attack reset timer (GD §8)
+                MarkMonsterStepped(); // Attack reset timer (GD §8)
                 if (Status == TacticalBoardStatus.Running)
                 {
                     LastMessage = "Đẩy quái lùi " + moved + " ô (Kiếm).";
@@ -602,21 +608,27 @@ namespace BrickStacker
                 return Status;
 
             // Design §2.5 (trường hợp 2): player hành động → enemy đi 1 ô → quái đi 1 bước.
-            // Timer quái reset để tránh đi 2 lần liên tiếp trong thời gian ngắn.
             MoveEnemy();
             if (Evaluate() != TacticalBoardStatus.Running)
                 return Status;
 
-            int steps = Data != null ? Mathf.Max(1, Data.MonsterStepsPerTurn) : 1;
-            for (int i = 0; i < steps; i++)
+            // Quái vừa TỰ đi xong (timer) mà player đi ngay sau đó thì bỏ bước theo lượt này:
+            // vẫn reset đồng hồ nên nhịp đi tiếp theo tính lại từ đầu.
+            if (sinceLastMonsterStep >= MinMonsterStepGap)
             {
-                StepMonsterOnce();
-                if (Evaluate() != TacticalBoardStatus.Running)
-                    return Status;
+                int steps = Data != null ? Mathf.Max(1, Data.MonsterStepsPerTurn) : 1;
+                for (int i = 0; i < steps; i++)
+                {
+                    StepMonsterOnce();
+                    if (Evaluate() != TacticalBoardStatus.Running)
+                        return Status;
+                }
+                MarkMonsterStepped();
             }
-
-            if (Data == null || Data.ResetMonsterTimerAfterPlayerAction)
+            else
+            {
                 MonsterTimer = MonsterAutoMoveInterval;
+            }
 
             RecomputeMonsterIntent();
             return Status;
@@ -630,15 +642,23 @@ namespace BrickStacker
             if (Status != TacticalBoardStatus.Running || Data == null)
                 return false;
 
+            sinceLastMonsterStep += deltaTime;
             MonsterTimer -= deltaTime;
             if (MonsterTimer > 0f)
                 return false;
 
             StepMonsterOnce();
-            MonsterTimer = MonsterAutoMoveInterval;
+            MarkMonsterStepped();
             Evaluate();
             RecomputeMonsterIntent();
             return true;
+        }
+
+        // Mọi lần quái đổi ô đều đi qua đây: đồng hồ đi tiếp tính lại từ đầu.
+        void MarkMonsterStepped()
+        {
+            MonsterTimer = MonsterAutoMoveInterval;
+            sinceLastMonsterStep = 0f;
         }
 
         public bool IsWall(Vector2Int cell)
@@ -972,7 +992,7 @@ namespace BrickStacker
                     ShieldLayers--;
                     ShieldConsumedFlag = true; // controller đọc để hiện chữ "-1 Khiên"
                     RetreatMonsterOneStep();
-                    MonsterTimer = MonsterAutoMoveInterval;
+                    MarkMonsterStepped();
                     LastMessage = "Khiên đỡ đòn! (còn " + ShieldLayers + " lớp)";
                 }
                 else

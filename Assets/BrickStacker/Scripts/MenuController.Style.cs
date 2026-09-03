@@ -51,6 +51,23 @@ namespace BrickStacker
             button.colors = colors;
         }
 
+        // Viền chữ cho giao diện v3 (tông xanh): viền navy đậm + bóng đổ nhẹ, thay cho viền nâu gỗ
+        // của bộ UI cũ. Dùng cho mọi chữ vẽ đè lên panel/nút v3.
+        void AddV3TextEdge(Text text, float thickness)
+        {
+            var outline = text.gameObject.GetComponent<Outline>();
+            if (outline == null)
+                outline = text.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0.015f, 0.055f, 0.19f, 0.95f);
+            outline.effectDistance = new Vector2(thickness, -thickness);
+            outline.useGraphicAlpha = true;
+
+            var drop = text.gameObject.AddComponent<Shadow>();
+            drop.effectColor = new Color(0f, 0.02f, 0.09f, 0.55f);
+            drop.effectDistance = new Vector2(0f, -thickness * 0.9f);
+            drop.useGraphicAlpha = true;
+        }
+
         void AddDarkWoodTextEdge(Text text, float thickness, float alpha)
         {
             var outline = text.gameObject.AddComponent<Outline>();

@@ -7,6 +7,9 @@ namespace BrickStacker
     {
         public static int SelectedLevel = 1;
         public static int JourneyLevel = 1;
+        // Bật khi vào màn chơi ở chế độ HƯỚNG DẪN (tutorial tương tác). Reset về false ngay
+        // khi vào game để các màn thường sau đó không bị coi là tutorial.
+        public static bool IsTutorial = false;
     }
 
     public static class LevelProgress
@@ -16,9 +19,59 @@ namespace BrickStacker
         public const string UnlockedLevelKey = "BLOCKFALL_TOWER_UNLOCKED_FLOOR";
         public const string CoinsKey = "BLOCKFALL_COINS";
         public const string TotalLinesClearedKey = "BLOCKFALL_TOTAL_LINES_CLEARED";
+        // CÚP = điểm CỘNG DỒN của mọi lần chơi (mỗi lần qua màn / thua đều cộng phần điểm
+        // kiếm được trong lần đó). Khác với tổng điểm-cao-nhất-mỗi-màn dùng trước đây.
+        public const string TotalScoreKey = "BLOCKFALL_TOTAL_SCORE";
 
-        // Mở hết mọi màn (kể cả bản build) — bỏ khóa theo tiến trình để người chơi tự do chọn màn.
-        public static int CurrentUnlockedLevel => MaxLevels;
+        // Mốc reset tiến trình: tăng số này để ÉP reset 1 lần cho MỌI máy (bản phát hành).
+        // Máy có version thấp hơn sẽ tự reset màn+điểm+sao+XU và ghi đè cloud.
+        public const int ProgressResetVersion = 2;
+        public const string ProgressResetVersionKey = "BLOCKFALL_PROGRESS_RESET_VERSION";
+
+        // Khóa theo tiến trình: chỉ mở tới màn cao nhất đã qua (mặc định 1 = chỉ mở màn đầu).
+        public static int CurrentUnlockedLevel =>
+            Mathf.Clamp(PlayerPrefs.GetInt(UnlockedLevelKey, 1), 1, MaxLevels);
+
+        // Chạy trước mọi scene: đảm bảo reset 1 lần được áp dụng trước khi game đọc tiến trình.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void EnsureResetBeforeLoad()
+        {
+            ApplyOneTimeResetIfNeeded();
+            MigrateTotalScoreIfNeeded();
+        }
+
+        // Máy đã chơi từ bản cũ (chưa có key cộng dồn): lấy tổng điểm cao nhất các màn làm mốc
+        // khởi đầu để không ai bị mất cúp khi đổi cách tính.
+        static void MigrateTotalScoreIfNeeded()
+        {
+            if (PlayerPrefs.HasKey(TotalScoreKey))
+                return;
+
+            PlayerPrefs.SetInt(TotalScoreKey, TotalBestScore());
+            PlayerPrefs.Save();
+        }
+
+        // Reset 1 lần theo ProgressResetVersion: mở khóa về màn 1, xoá điểm + sao mọi màn + XU.
+        // Máy mới cài phải bắt đầu với 0 xu (xu chỉ đến từ phần thưởng qua màn), nên xu cũng bị
+        // xoá ở mốc reset này. Đặt cờ version để không reset lại ở lần sau.
+        public static void ApplyOneTimeResetIfNeeded()
+        {
+            if (PlayerPrefs.GetInt(ProgressResetVersionKey, 0) >= ProgressResetVersion)
+                return;
+
+            PlayerPrefs.DeleteKey(UnlockedLevelKey); // -> CurrentUnlockedLevel về mặc định 1
+            PlayerPrefs.DeleteKey(CoinsKey);         // -> Coins về mặc định 0
+            PlayerPrefs.DeleteKey(TotalScoreKey);    // -> cúp về 0
+            PlayerPrefs.DeleteKey(TotalLinesClearedKey);
+            for (int level = 1; level <= MaxLevels; level++)
+            {
+                PlayerPrefs.DeleteKey(StarKey(level));
+                PlayerPrefs.DeleteKey(BestScoreKeyForLevel(level));
+            }
+            PlayerPrefs.SetInt(ProgressResetVersionKey, ProgressResetVersion);
+            PlayerPrefs.Save();
+            Debug.Log("[Progress] Đã reset tiến trình (màn + điểm + sao + xu) về mặc định.");
+        }
 
         public static string StarKey(int level)
         {
@@ -35,6 +88,17 @@ namespace BrickStacker
         public static void AddCoins(int amount)
         {
             PlayerPrefs.SetInt(CoinsKey, Mathf.Max(0, Coins + amount));
+        }
+
+        // Cúp hiện có (điểm cộng dồn mọi lần chơi).
+        public static int TotalScore => PlayerPrefs.GetInt(TotalScoreKey, 0);
+
+        // Cộng điểm vừa kiếm được vào cúp. Gọi MỘT lần cho mỗi lần chơi (thắng hoặc thua).
+        public static void AddScore(int amount)
+        {
+            if (amount <= 0)
+                return;
+            PlayerPrefs.SetInt(TotalScoreKey, TotalScore + amount);
         }
 
         public static int StarsForLevel(int level)
@@ -58,6 +122,16 @@ namespace BrickStacker
             string key = BestScoreKeyForLevel(level);
             if (score > PlayerPrefs.GetInt(key, 0))
                 PlayerPrefs.SetInt(key, score);
+        }
+
+        // Tổng điểm CAO NHẤT của tất cả các màn. Không còn là "cúp" (xem TotalScore) — giữ lại
+        // để làm mốc chuyển đổi cho máy chơi từ bản cũ.
+        public static int TotalBestScore()
+        {
+            int total = 0;
+            for (int level = 1; level <= MaxLevels; level++)
+                total += PlayerPrefs.GetInt(BestScoreKeyForLevel(level), 0);
+            return total;
         }
     }
 
@@ -100,7 +174,7 @@ namespace BrickStacker
                 SurpriseGarbageChance = 0f,
                 ScoreMultiplier = 1,
                 AllowSpecialBlocks = true,
-                // Shown only for the first GhostPreviewPieces drops of each game.
+                // Bóng mờ (ghost) hiện SUỐT ván ở mọi màn — người chơi luôn biết khối sẽ đáp đâu.
                 GhostPreview = true,
                 FastBlocks = stage >= 15,
                 RotationLimit = 0,
@@ -121,9 +195,7 @@ namespace BrickStacker
         static void ApplyLevelConfig(LevelRules rules, int level)
         {
             int pattern = (level - 1) % 10;
-            if (pattern == 4)
-                rules.GhostPreview = false;
-            else if (pattern == 5)
+            if (pattern == 5)
             {
                 rules.SpeedRampSeconds = Mathf.Max(80f, 180f - level * 3f);
                 rules.MaxFallSpeedMultiplier = Mathf.Min(2.8f, 1.35f + level * 0.04f);

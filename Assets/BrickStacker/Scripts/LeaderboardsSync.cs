@@ -9,7 +9,7 @@ namespace BrickStacker
 {
     // Gửi điểm và đọc bảng xếp hạng Unity Leaderboards.
     // Leaderboard "weekly" tạo trên Unity Dashboard (đặt Reset schedule = hàng tuần) —
-    // "cúp" = điểm cao nhất trong TUẦN của mỗi người chơi.
+    // "cúp" = điểm CỘNG DỒN của mọi lần chơi (xem LevelProgress.TotalScore).
     // Gửi điểm là fire-and-forget: mất mạng chỉ log warning, không chặn gameplay.
     public static class LeaderboardsSync
     {
@@ -61,6 +61,7 @@ namespace BrickStacker
         }
 
         // Tên hiển thị: bỏ hậu tố "#1234" Unity tự sinh; rỗng thì dùng tên chung.
+        // Tên trên bảng chính là tên tài khoản, đã giữ nguyên dấu tiếng Việt lúc đặt.
         public static string DisplayName(LeaderboardEntry entry)
         {
             string name = entry != null ? entry.PlayerName : null;

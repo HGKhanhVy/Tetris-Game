@@ -100,7 +100,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
           "description": "Build index of the Scene in the Build Settings."
         },
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },
@@ -114,6 +114,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
         "instanceID"
       ],
       "description": "Scene reference. Used to find a Scene."
+    },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
     },
     "AIGD.SceneDataShallow-1": {
       "type": "array",

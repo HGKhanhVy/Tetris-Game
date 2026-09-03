@@ -92,9 +92,13 @@ namespace BrickStacker
                 SceneManager.LoadScene("BrickMenu");
             });
             var rt = btn.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = new Vector2(0.045f, 0.90f);
+            // Neo góc TRÊN-TRÁI của vùng safe area (root đã fit safe area) rồi lùi vào bằng pixel
+            // — lề đều 28/26px như panel xu, không dính mép/notch dù màn hình nào.
+            const float sizePx = 96f, marginX = 52f, marginY = 30f;
+            rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(96f, 96f);
+            rt.sizeDelta = new Vector2(sizePx, sizePx);
+            rt.anchoredPosition = new Vector2(marginX + sizePx * 0.5f, -(marginY + sizePx * 0.5f));
 
             var img = btn.GetComponent<Image>();
             var spr = RuntimeArt.LoadV3SubSprite("screen-level/btn-back.png", new Rect(0.345f, 0.300f, 0.309f, 0.435f));

@@ -24,8 +24,10 @@ namespace BrickStacker
             public int unlockedLevel;
             public int coins;
             public int totalLines;
+            public int totalScore;   // cúp = điểm cộng dồn
             public int[] stars;      // index 0 = level 1
             public int[] bestScores; // index 0 = level 1
+            public int resetVersion; // mốc reset tiến trình (0 với dữ liệu cloud cũ trước reset)
         }
 
         static bool _pushing;
@@ -68,6 +70,13 @@ namespace BrickStacker
                     var cloud = JsonUtility.FromJson<ProgressData>(item.Value.GetAs<string>());
                     if (cloud != null)
                     {
+                        // Cloud là dữ liệu TRƯỚC mốc reset -> KHÔNG merge (tránh kéo tiến trình cũ về);
+                        // ghi đè cloud bằng local đã reset.
+                        if (cloud.resetVersion < LevelProgress.ProgressResetVersion)
+                        {
+                            Push();
+                            return;
+                        }
                         var local = CaptureLocal();
                         localChanged = MergeIntoLocal(cloud);
                         cloudBehind = IsAhead(local, cloud);
@@ -126,8 +135,10 @@ namespace BrickStacker
                 unlockedLevel = LevelProgress.CurrentUnlockedLevel,
                 coins = LevelProgress.Coins,
                 totalLines = PlayerPrefs.GetInt(LevelProgress.TotalLinesClearedKey, 0),
+                totalScore = LevelProgress.TotalScore,
                 stars = new int[LevelProgress.MaxLevels],
-                bestScores = new int[LevelProgress.MaxLevels]
+                bestScores = new int[LevelProgress.MaxLevels],
+                resetVersion = LevelProgress.ProgressResetVersion
             };
 
             for (int level = 1; level <= LevelProgress.MaxLevels; level++)
@@ -148,6 +159,7 @@ namespace BrickStacker
                 Mathf.Clamp(cloud.unlockedLevel, 1, LevelProgress.MaxLevels), 1);
             changed |= RaiseInt(LevelProgress.CoinsKey, cloud.coins, 0);
             changed |= RaiseInt(LevelProgress.TotalLinesClearedKey, cloud.totalLines, 0);
+            changed |= RaiseInt(LevelProgress.TotalScoreKey, cloud.totalScore, 0);
 
             for (int level = 1; level <= LevelProgress.MaxLevels; level++)
             {
@@ -175,6 +187,7 @@ namespace BrickStacker
             if (local.unlockedLevel > cloud.unlockedLevel) return true;
             if (local.coins > cloud.coins) return true;
             if (local.totalLines > cloud.totalLines) return true;
+            if (local.totalScore > cloud.totalScore) return true;
 
             for (int i = 0; i < LevelProgress.MaxLevels; i++)
             {

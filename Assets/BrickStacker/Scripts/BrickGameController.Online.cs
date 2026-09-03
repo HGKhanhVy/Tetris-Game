@@ -161,6 +161,7 @@ namespace BrickStacker
             if (opponentTacticalPanelRect != null) opponentTacticalPanelRect.gameObject.SetActive(false);
             if (attackButtonRect != null) attackButtonRect.gameObject.SetActive(false);
             if (offlineInfoPanel != null) offlineInfoPanel.gameObject.SetActive(false);
+            if (panelTopRect != null) panelTopRect.gameObject.SetActive(false);
 
             BuildOnlineHud(safeAreaRoot != null ? safeAreaRoot : sceneGameplayRootRect);
 
@@ -172,7 +173,14 @@ namespace BrickStacker
             }
             if (hudTitleRect != null) hudTitleRect.gameObject.SetActive(false);
             if (hudCoinRect != null) hudCoinRect.gameObject.SetActive(false);
-            if (pauseButtonRect != null) ApplySceneRect(pauseButtonRect, new Vector2(0.024f, 0.888f), new Vector2(0.060f, 0.978f));
+            if (pauseButtonRect != null)
+            {
+                // Offline chuyển pause vào banner (đã ẩn) → online đưa về safeAreaRoot, góc trái.
+                if (safeAreaRoot != null && pauseButtonRect.parent != safeAreaRoot.transform)
+                    pauseButtonRect.SetParent(safeAreaRoot.transform, false);
+                pauseButtonRect.gameObject.SetActive(true);
+                ApplySceneRect(pauseButtonRect, new Vector2(0.024f, 0.888f), new Vector2(0.060f, 0.978f));
+            }
 
             // Thanh trên — chừa lề, không sát mép trên/hai bên.
             if (onlineTopBarRect != null) ApplySceneRect(onlineTopBarRect, new Vector2(0.015f, 0.842f), new Vector2(0.985f, 0.972f));
@@ -625,6 +633,7 @@ namespace BrickStacker
                     break;
             }
             FireAttackProjectile(skill); // đòn/skill bay sang bàn đối thủ
+            PlaySkillCastFx(skill, SkillName(skill).ToUpperInvariant() + "!"); // nổ + chữ + rung khi tung chiêu
             RefreshSkillBar();
             SendMultiplayerState();
             if (tacticalBoard != null)
@@ -1047,6 +1056,48 @@ namespace BrickStacker
             }
         }
 
+        // Màu đặc trưng của từng chiêu (dùng chung cho projectile + hiệu ứng tung chiêu).
+        static Color SkillColor(OnlineSkill skill)
+        {
+            return skill == OnlineSkill.OverloadBlast ? new Color(1f, 0.4f, 0.95f)
+                : skill == OnlineSkill.LifeDrain ? new Color(0.55f, 1f, 0.45f)
+                : skill == OnlineSkill.GarbageDrop ? new Color(0.7f, 0.72f, 0.8f)
+                : new Color(1f, 0.7f, 0.3f);
+        }
+
+        // Hiệu ứng khi TUNG chiêu tại bàn mình: cụm nổ theo màu chiêu + chữ tên chiêu bay lên
+        // + rung (game feel). Tái dùng pool nổ/chữ có sẵn nên không tạo GC/Destroy runtime.
+        void PlaySkillCastFx(OnlineSkill skill, string label)
+        {
+            Color color = SkillColor(skill);
+            Vector3 center = PuzzleCellScreenPos(Width / 2, Height / 2);
+
+            // Vài cụm nổ quanh tâm bàn cho "đô"; chiêu Cuồng nộ mạnh nhất -> thêm 1 cụm.
+            SpawnCastBurst(center, color);
+            SpawnCastBurst(center + new Vector3(Screen.width * 0.045f, Screen.height * 0.05f, 0f), color);
+            SpawnCastBurst(center + new Vector3(-Screen.width * 0.045f, -Screen.height * 0.045f, 0f), color);
+            if (skill == OnlineSkill.OverloadBlast)
+                SpawnCastBurst(center + new Vector3(0f, -Screen.height * 0.06f, 0f), color);
+
+            var flabel = GetFloatingLabel();
+            if (flabel != null)
+                flabel.Play(label, color, center + new Vector3(0f, Screen.height * 0.02f, 0f), 120f, 0.9f);
+
+            // Rung: Cuồng nộ nặng, còn lại vừa.
+            if (skill == OnlineSkill.OverloadBlast)
+                Haptics.Heavy();
+            else
+                Haptics.Medium();
+            feedbacks.Play(GameFeedbackId.OnlineHit, center, skill == OnlineSkill.OverloadBlast ? 1.4f : 1f);
+        }
+
+        void SpawnCastBurst(Vector3 screenPos, Color color)
+        {
+            var burst = GetClusterBurst();
+            if (burst != null)
+                burst.Play(screenPos, color);
+        }
+
         // Đòn bay từ bàn mình sang bàn đối thủ khi mình tấn công/dùng skill (phản hồi "đã đánh trúng").
         void FireAttackProjectile(OnlineSkill skill)
         {
@@ -1063,10 +1114,7 @@ namespace BrickStacker
             if (attackProjectile == null)
                 yield break;
 
-            Color color = skill == OnlineSkill.OverloadBlast ? new Color(1f, 0.4f, 0.95f)
-                : skill == OnlineSkill.LifeDrain ? new Color(0.55f, 1f, 0.45f)
-                : skill == OnlineSkill.GarbageDrop ? new Color(0.7f, 0.72f, 0.8f)
-                : new Color(1f, 0.7f, 0.3f);
+            Color color = SkillColor(skill);
 
             var rt = attackProjectile.rectTransform;
             Vector3 from = scenePuzzleBoardAnchorRect.position;

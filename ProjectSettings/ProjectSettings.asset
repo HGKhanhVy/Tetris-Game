@@ -3,7 +3,7 @@
 --- !u!129 &1
 PlayerSettings:
   m_ObjectHideFlags: 0
-  serializedVersion: 28
+  serializedVersion: 29
   productGUID: b265aafef79cb134b8be6bed190789d6
   AndroidProfiler: 0
   AndroidFilterTouchesWhenObscured: 0
@@ -65,10 +65,15 @@ PlayerSettings:
   useOSAutorotation: 1
   use32BitDisplayBuffer: 1
   preserveFramebufferAlpha: 0
+  adjustIOSFPSUsingThermalState: 1
+  thermalStateSeriousIOSFPS: 30
+  thermalStateCriticalIOSFPS: 15
   disableDepthAndStencilBuffers: 0
   androidStartInFullscreen: 1
   androidRenderOutsideSafeArea: 1
   androidUseSwappy: 1
+  androidRequestedVisibleInsets: 0
+  androidSystemBarsBehavior: 2
   androidDisplayOptions: 1
   androidBlitType: 0
   androidResizeableActivity: 1
@@ -82,7 +87,7 @@ PlayerSettings:
   androidApplicationEntry: 2
   defaultIsNativeResolution: 1
   macRetinaSupport: 1
-  runInBackground: 0
+  runInBackground: 1
   muteOtherAudioSources: 0
   Prepare IOS For Recording: 0
   Force IOS Speakers When Recording: 0
@@ -200,6 +205,7 @@ PlayerSettings:
   tvOSTargetOSVersionString: 15.0
   VisionOSSdkVersion: 0
   VisionOSTargetOSVersionString: 1.0
+  xcodeProjectType: 0
   uIPrerenderedIcon: 0
   uIRequiresPersistentWiFi: 0
   uIRequiresFullScreen: 1
@@ -267,7 +273,6 @@ PlayerSettings:
   useCustomGradleSettingsTemplate: 1
   useCustomProguardFile: 0
   AndroidTargetArchitectures: 3
-  AndroidAllowedArchitectures: -13
   AndroidSplashScreenScale: 0
   androidSplashScreen: {fileID: 0}
   AndroidKeystoreName: '{inproject}: blockfall-release.keystore'
@@ -528,7 +533,6 @@ PlayerSettings:
   m_BuildTargetGraphicsJobs: []
   m_BuildTargetGraphicsJobMode: []
   m_BuildTargetGraphicsAPIs: []
-  m_BuildTargetVRSettings: []
   m_DefaultShaderChunkSizeInMB: 16
   m_DefaultShaderChunkCount: 0
   openGLRequireES31: 0
@@ -711,6 +715,8 @@ PlayerSettings:
   switchMicroSleepForYieldTime: 25
   switchRamDiskSpaceSize: 12
   switchUpgradedPlayerSettingsToNMETA: 0
+  switchCaStoreSource: 0
+  switchCaStoreFilePath: 
   ps4NPAgeRating: 12
   ps4NPTitleSecret: 
   ps4NPTrophyPackPath: 
@@ -820,31 +826,32 @@ PlayerSettings:
   webWasm2023: 0
   webEnableSubmoduleStrippingCompatibility: 0
   scriptingDefineSymbols:
-    Android: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY;LEVELPLAY_DEPENDENCIES_INSTALLED;UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    EmbeddedLinux: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    GameCoreScarlett: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    GameCoreXboxOne: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    Kepler: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    LinuxHeadlessSimulation: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    Nintendo Switch: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    Nintendo Switch 2: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    PS4: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    PS5: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    QNX: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    Server: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    Standalone: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY;UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    VisionOS: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    WebGL: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    Windows Store Apps: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    XboxOne: UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    iPhone: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY;LEVELPLAY_DEPENDENCIES_INSTALLED;UNITY_MCP_READY;UNITY_MCP_DEPS_2
-    tvOS: UNITY_MCP_READY;UNITY_MCP_DEPS_2
+    Android: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY;LEVELPLAY_DEPENDENCIES_INSTALLED;MOREMOUNTAINS_NICEVIBRATIONS_INSTALLED;UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    EmbeddedLinux: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    GameCoreScarlett: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    GameCoreXboxOne: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    Kepler: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    LinuxHeadlessSimulation: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    Nintendo Switch: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    Nintendo Switch 2: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    PS4: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    PS5: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    QNX: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    Server: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    Standalone: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY;MOREMOUNTAINS_NICEVIBRATIONS_INSTALLED;LEVELPLAY_DEPENDENCIES_INSTALLED;UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    VisionOS: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    WebGL: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    Windows Store Apps: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    XboxOne: UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    iPhone: SENTIS_ANALYTICS_ENABLED;APP_UI_EDITOR_ONLY;LEVELPLAY_DEPENDENCIES_INSTALLED;UNITY_MCP_READY;UNITY_MCP_DEPS_3
+    tvOS: UNITY_MCP_READY;UNITY_MCP_DEPS_3
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
     Android: 1
   il2cppCompilerConfiguration: {}
   il2cppCodeGeneration: {}
+  il2cppLTOMode: {}
   il2cppStacktraceInformation: {}
   managedStrippingLevel: {}
   incrementalIl2cppBuild: {}
@@ -914,7 +921,6 @@ PlayerSettings:
   XboxOneXTitleMemory: 8
   XboxOneOverrideIdentityName: 
   XboxOneOverrideIdentityPublisher: 
-  vrEditorSettings: {}
   cloudServicesEnabled:
     Purchasing: 0
   luminIcon:
@@ -938,6 +944,7 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
+  enableDirectStorage: 0
   cloudProjectId: 38ce7d14-9a47-4dd0-b6f0-348f0eb512a3
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []

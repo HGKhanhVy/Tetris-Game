@@ -216,7 +216,7 @@ namespace BrickStacker
             if (newRotateGO != null)
             {
                 rotateButtonRect = newRotateGO.GetComponent<RectTransform>();
-                EnsureSceneButton(newRotateGO, RotateFromButton);
+                EnsureSceneButton(newRotateGO, RotateFromButton, true);
             }
             Transform newHeaderTransform = FindChildLoose(toContent, "Header");
             var newPauseGO = newHeaderTransform != null
@@ -603,11 +603,7 @@ namespace BrickStacker
 
             // Banner MÀN X + panel điểm|lượt đã bỏ theo yêu cầu giao diện — HUD gọn hơn.
 
-            // Nút tạm dừng: reparent về safeAreaRoot để ApplySceneRect đặt theo cả màn
-            // (trước đây parent là dải header mỏng nên nút bị dẹp).
-            if (pauseButtonRect != null)
-                pauseButtonRect.SetParent(safeAreaRoot.transform, false);
-            ReskinButton(pauseButtonRect, "screen-gameplay/btn-tamdung.png", new Rect(0.365f, 0.309f, 0.268f, 0.430f));
+            // Nút tạm dừng giờ đặt + đổi skin (btn-pause) trong EnsurePanelTop (vòng tròn trái banner).
             ReskinButton(rotateButtonRect, "screen-gameplay/btn-xoay.png", new Rect(0.372f, 0.344f, 0.255f, 0.406f));
 
             // Bỏ hộp gỗ nhỏ trong ô NEXT (giữ preview khối), + ẩn chữ "TIẾP" cũ.
@@ -691,6 +687,102 @@ namespace BrickStacker
             return val;
         }
 
+        // Banner HUD trên cùng (panel-top.png) — dựng 1 lần, ẩn khi online.
+        void EnsurePanelTop(Transform parent)
+        {
+            if (panelTopBuilt || parent == null)
+                return;
+            var spr = RuntimeArt.LoadV3SubSprite("screen-gameplay/panel-top.png", new Rect(0f, 0f, 1f, 1f));
+            if (spr == null)
+                return;
+            panelTopBuilt = true;
+            var go = new GameObject("Panel Top", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+            var img = go.GetComponent<Image>();
+            img.sprite = spr;
+            img.preserveAspect = true;   // giữ tỉ lệ gốc, không méo
+            img.raycastTarget = false;
+            panelTopRect = go.GetComponent<RectTransform>();
+
+            // === NỘI DUNG BANNER === (toạ độ theo tỉ lệ rect banner; y band nội dung ~0.42–0.72)
+            var uiFont = RuntimeArt.LoadMenuButtonFont();
+
+            // Vòng cung đếm ngược chạy DỌC theo rãnh xanh dương đậm quanh số; phần chưa
+            // chạy để nguyên rãnh navy của huy hiệu (không phủ track). fillAmount tăng dần, đầy = hết giờ.
+            var ringSprite = RuntimeArt.CreateTimerRingSprite();
+            // AspectRatioFitter giữ vòng luôn tròn dù banner có tỉ lệ 3:1.
+            var ringGo = new GameObject("Timer Ring", typeof(RectTransform), typeof(Image), typeof(AspectRatioFitter));
+            ringGo.transform.SetParent(go.transform, false);
+            panelTimerRing = ringGo.GetComponent<Image>();
+            panelTimerRing.sprite = ringSprite;
+            panelTimerRing.type = Image.Type.Filled;
+            panelTimerRing.fillMethod = Image.FillMethod.Radial360;
+            panelTimerRing.fillOrigin = (int)Image.Origin360.Top;
+            panelTimerRing.fillClockwise = true;
+            panelTimerRing.fillAmount = 0f;
+            panelTimerRing.raycastTarget = false;
+            panelTimerRing.color = new Color(0.55f, 1f, 0.55f, 1f);
+            var ringFitter = ringGo.GetComponent<AspectRatioFitter>();
+            ringFitter.aspectMode = AspectRatioFitter.AspectMode.HeightControlsWidth;
+            ringFitter.aspectRatio = 1f;
+            // Băng dọc quanh tâm đồng hồ; chiều cao band -> đường kính vòng (co giãn theo màn).
+            var ringRect = ringGo.GetComponent<RectTransform>();
+            ringRect.anchorMin = new Vector2(0.5f, 0.383f);
+            ringRect.anchorMax = new Vector2(0.5f, 0.741f);
+            ringRect.pivot = new Vector2(0.5f, 0.5f);
+            ringRect.anchoredPosition = Vector2.zero;
+            ringRect.sizeDelta = Vector2.zero;
+
+            // Giữa (huy hiệu tròn): thời gian trận.
+            panelTimerText = Ui.Text(go.transform, "0", uiFont, 44, new Color(1f, 0.97f, 0.8f), TextAnchor.MiddleCenter);
+            Ui.Rect(panelTimerText, new Vector2(0.425f, 0.41f), new Vector2(0.575f, 0.71f), Vector2.zero);
+            panelTimerText.fontStyle = FontStyle.Bold;
+            // Auto-fit: 3 số (đếm ngược 210) tự co để không tràn vòng tròn.
+            panelTimerText.resizeTextForBestFit = true;
+            panelTimerText.resizeTextMinSize = 18;
+            panelTimerText.resizeTextMaxSize = 44;
+            AddTextOutline(panelTimerText);
+
+            // Khe phải: điểm số (căn giữa khe phải).
+            panelScoreText = Ui.Text(go.transform, "0", uiFont, 55, new Color(1f, 0.9f, 0.5f), TextAnchor.MiddleCenter);
+            Ui.Rect(panelScoreText, new Vector2(0.65f, 0.36f), new Vector2(0.95f, 0.66f), Vector2.zero);
+            panelScoreText.fontStyle = FontStyle.Bold;
+            AddTextOutline(panelScoreText);
+
+            // Khe trái: tài nguyên Giày (lượt) + Khiên.
+            panelMoveValue = AddBannerResource(go.transform, uiFont, (int)Puzzle.ResourceType.Move,
+                0.17f, 0.28f, new Color(0.7f, 1f, 0.7f));
+            panelShieldValue = AddBannerResource(go.transform, uiFont, (int)Puzzle.ResourceType.Shield,
+                0.295f, 0.405f, new Color(0.7f, 0.9f, 1f));
+
+            // Vòng tròn TRÁI: nút pause mới (btn-pause). Chuyển nút pause cũ vào đây, đổi skin.
+            if (pauseButtonRect != null)
+            {
+                pauseButtonRect.SetParent(go.transform, false);
+                ApplySceneRect(pauseButtonRect, new Vector2(0.015f, 0.38f), new Vector2(0.125f, 0.66f));
+                ReskinButton(pauseButtonRect, "screen-gameplay/btn-pause.png", new Rect(0.105f, 0.121f, 0.789f, 0.774f));
+            }
+        }
+
+        // 1 ô tài nguyên trên banner: icon + số, trong khoảng x [xMin,xMax] của rect banner. Trả về Text số.
+        Text AddBannerResource(Transform parent, Font uiFont, int resType, float xMin, float xMax, Color valueColor)
+        {
+            float mid = (xMin + xMax) * 0.5f;
+            var iconGo = new GameObject("Banner Res Icon " + resType, typeof(RectTransform), typeof(Image));
+            iconGo.transform.SetParent(parent, false);
+            var img = iconGo.GetComponent<Image>();
+            img.sprite = GetPieceBlockSprite(resType);
+            img.preserveAspect = true;
+            img.raycastTarget = false;
+            Ui.Rect(iconGo, new Vector2(xMin, 0.39f), new Vector2(mid, 0.62f), Vector2.zero);
+
+            var val = Ui.Text(parent, "0", uiFont, 40, valueColor, TextAnchor.MiddleLeft);
+            Ui.Rect(val, new Vector2(mid + 0.012f, 0.39f), new Vector2(xMax, 0.64f), Vector2.zero);
+            val.fontStyle = FontStyle.Bold;
+            AddTextOutline(val);
+            return val;
+        }
+
         static void AddTextOutline(Text text)
         {
             var ol = text.gameObject.GetComponent<Outline>();
@@ -762,93 +854,102 @@ namespace BrickStacker
             }
 
             const float top = 0.972f;
-            const float bottom = 0.016f;
+            const float bottom = 0.010f;
 
-            // Header đã tối giản (bỏ banner MÀN X + panel điểm) → boards dùng gần trọn chiều cao,
-            // "kéo lên" tận mép trên; nút tạm dừng đặt riêng ở dải chừa góc trên-trái.
-            float boardTop = top;
+            // Banner panel-top đẩy LÊN TRÊN vùng an toàn (lấn lề trên; landscape thường không có
+            // notch cạnh trên) → banner cao hơn + đáy banner lên → boards dưới to thêm.
+            const float bannerTop = 1.05f;
+            const float bannerH = 0.32f;
+            // Sprite panel-top có ~32% lề TRONG SUỐT ở đáy → boards phải kéo lên sát ĐÁY BANNER
+            // NHÌN THẤY (không phải đáy rect) để không hụt khoảng trống, boards cao hơn hẳn.
+            const float bannerBottomPad = 0.322f;
+            float boardTop = bannerTop - bannerH * (1f - bannerBottomPad) - 0.014f;
             float contentH = boardTop - bottom;
 
-            // Dải chừa bên trái cho nút tạm dừng (không đè bàn cờ).
-            const float leftReserve = 0.072f;
-
-            // Bàn cờ: VUÔNG, dùng full chiều cao (10×10). Cỡ ô = khung ÷ 10 (render tự chia) —
-            // khung to nhưng ô GIỮ CỠ nhờ tăng số ô, không phóng to ô.
-            float tacMaxW = 0.44f;
+            // Bàn cờ 10×9. Ô VUÔNG → khung tỉ lệ 10:9 = 1.111 (rộng hơn cao chút).
+            float tacMaxW = 0.50f;
             float tacH = contentH;
-            float tacW = tacH / Mathf.Max(1f, aspect);
-            if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * aspect; }
+            float tacW = tacH * (10f / 9f) / Mathf.Max(1f, aspect);
+            if (tacW > tacMaxW) { tacW = tacMaxW; tacH = tacW * Mathf.Max(1f, aspect) / (10f / 9f); }
 
-            // Bàn xếp gạch: cao = full, rộng theo tỉ lệ khung (hệ số 0.501) — khung + ô TO ĐỀU.
+            // Bàn xếp gạch 9×11 — hệ số 0.842 là tỉ lệ NGANG/DỌC vùng lưới trong khung frame-xepgach
+            // (khung không đổi khi số ô đổi); lưới 9/11 = 0.82 nên ô gần vuông.
             float puzzleH = contentH;
-            float puzzleW = puzzleH * 0.501f / Mathf.Max(1f, aspect);
+            float puzzleW = puzzleH * 0.842f / Mathf.Max(1f, aspect);
 
-            // Cột NEXT + XOAY nằm SÁT MÉP PHẢI vùng an toàn (chừa khe nhỏ).
-            const float rightEdgeMargin = 0.006f;
-            float sideW = 0.10f;
-            float rightColRight = 1f - rightEdgeMargin;
-            float rightColLeft = rightColRight - sideW;
-
-            // Đặt cặp bàn cờ + xếp gạch DỒN SÁT PHẢI (cạnh cột NEXT) thay vì căn giữa —
-            // khoảng trống dồn về bên trái, 2 khung nằm gần ô NEXT.
+            // CĂN GIỮA cả CỤM (bàn cờ + bàn xếp gạch + cột NEXT/XOAY) theo bề ngang màn hình.
+            // Trước đây chỉ căn giữa 2 bàn rồi còn dịch phải thêm, trong khi cột NEXT vẫn bám mép
+            // phải → toàn bộ màn chơi bị lệch hẳn sang phải, chừa một mảng trống lớn bên trái.
             const float gapBoards = 0.030f;
-            const float gapToSide = 0.018f;
-            float regionLeft = leftReserve;
-            float regionRight = rightColLeft - gapToSide;
-            float pairW = tacW + gapBoards + puzzleW;
-            float startX = Mathf.Max(regionLeft, regionRight - pairW);
+            const float gapToSide = 0.016f;
+            const float edgeMargin = 0.012f;
+            float sideW = 0.10f;
+            float fixedGroupParts = gapBoards + gapToSide + sideW;
 
-            float tacCy = (bottom + boardTop) * 0.5f;
-            float tacLeft = startX;
+            // Màn ngắn (tỉ lệ ~16:9) không đủ chỗ cho cả cụm khi 2 bàn cao hết vùng chơi →
+            // thu nhỏ ĐỀU 2 bàn (ô vẫn vuông) cho vừa bề ngang, thay vì để cột NEXT tràn mép.
+            float maxGroupW = 1f - 2f * edgeMargin;
+            float boardsW = tacW + puzzleW;
+            if (boardsW + fixedGroupParts > maxGroupW)
+            {
+                float scale = Mathf.Max(0.35f, (maxGroupW - fixedGroupParts) / boardsW);
+                tacW *= scale;
+                puzzleW *= scale;
+                tacH = tacW * Mathf.Max(1f, aspect) / (10f / 9f);
+                puzzleH = puzzleW * Mathf.Max(1f, aspect) / 0.842f;
+            }
+
+            float groupW = tacW + puzzleW + fixedGroupParts;
+            float groupLeft = Mathf.Max(edgeMargin, (1f - groupW) * 0.5f);
+            float groupCenterX = groupLeft + groupW * 0.5f;
+
+            float boardsCy = (bottom + boardTop) * 0.5f;
+            float tacLeft = groupLeft;
             ApplySceneRect(sceneTacticalBoardRect,
-                new Vector2(tacLeft, tacCy - tacH * 0.5f),
-                new Vector2(tacLeft + tacW, tacCy + tacH * 0.5f));
+                new Vector2(tacLeft, boardsCy - tacH * 0.5f),
+                new Vector2(tacLeft + tacW, boardsCy + tacH * 0.5f));
 
             float puzzleLeft = tacLeft + tacW + gapBoards;
+            float puzzleTop = boardsCy + puzzleH * 0.5f;
             ApplySceneRect(scenePuzzleBoardAnchorRect,
-                new Vector2(puzzleLeft, bottom),
-                new Vector2(puzzleLeft + puzzleW, boardTop));
+                new Vector2(puzzleLeft, boardsCy - puzzleH * 0.5f),
+                new Vector2(puzzleLeft + puzzleW, puzzleTop));
 
-            // Nút tạm dừng: góc trên-trái, trong dải chừa (không đè ô bàn cờ).
-            if (pauseButtonRect != null)
-            {
-                float pw = Mathf.Min(leftReserve - 0.014f, 0.055f);
-                float ph = pw * aspect;
-                ApplySceneRect(pauseButtonRect,
-                    new Vector2(0.012f, top - ph),
-                    new Vector2(0.012f + pw, top));
-            }
+            // (Nút tạm dừng giờ nằm trên banner — vòng tròn trái, đặt trong EnsurePanelTop.)
+
             // Header rect gốc (ẩn) thu về dải mỏng góc trái để không cản gì.
             ApplySceneRect(sceneHeaderRect,
                 new Vector2(0.012f, top - 0.001f),
                 new Vector2(0.30f, top));
 
-            // Panel TÀI NGUYÊN bên trái: lấp khoảng trống, hiện Lượt/Khiên + đồng hồ quái.
-            EnsureOfflineInfoPanel(safeAreaRoot != null ? safeAreaRoot.transform : transform);
-            if (offlineInfoPanel != null)
+            // Banner panel-top ở dải TRÊN — căn giữa trên cụm bàn, giữ tỉ lệ 3:1.
+            EnsurePanelTop(safeAreaRoot != null ? safeAreaRoot.transform : transform);
+            if (panelTopRect != null)
             {
-                float panelLeft = 0.05f;   // lùi sang phải để tránh tai thỏ/notch bên trái
-                float panelRight = startX - 0.02f;
-                bool wideEnough = (panelRight - panelLeft) >= 0.10f;
-                offlineInfoPanel.gameObject.SetActive(wideEnough);
-                if (wideEnough)
-                {
-                    // Panel GỌN (chỉ tiêu đề + 2 dòng) — không kéo full chiều cao để tránh khoảng trống.
-                    float pauseH = Mathf.Min(leftReserve - 0.014f, 0.055f) * aspect;
-                    float panelTop = top - pauseH - 0.03f;
-                    float panelH = 0.34f;
-                    ApplySceneRect(offlineInfoPanel,
-                        new Vector2(panelLeft, panelTop - panelH),
-                        new Vector2(panelRight, panelTop));
-                }
+                panelTopRect.gameObject.SetActive(true);
+                // Giữ ĐÚNG tỉ lệ gốc 3:1 (không bè), đẩy sát mép trên (bannerTop).
+                const float spriteAspect = 3.0f;   // W:H của panel-top.png
+                float ph = bannerH;
+                float pw = ph * spriteAspect / Mathf.Max(1f, aspect);
+                float pcx = groupCenterX;   // banner căn đúng tâm cụm bàn chơi
+                ApplySceneRect(panelTopRect,
+                    new Vector2(pcx - pw * 0.5f, bannerTop - ph),
+                    new Vector2(pcx + pw * 0.5f, bannerTop));
             }
+
+            // (Đã bỏ panel TÀI NGUYÊN bên trái theo yêu cầu — 2 khung to hơn, căn giữa.)
+            if (offlineInfoPanel != null)
+                offlineInfoPanel.gameObject.SetActive(false);
 
             // Cột NEXT + XOAY (sát mép phải).
             if (sceneNextPanelRect != null)
                 sceneNextPanelRect.gameObject.SetActive(true);
 
-            float nextCx = (rightColLeft + rightColRight) * 0.5f;
-            float nextTop = boardTop - 0.035f;
+            // Cột NEXT + XOAY bám sát mép phải bàn xếp gạch (khe nhỏ) — nằm trong cụm đã căn giữa.
+            float puzzleRight = puzzleLeft + puzzleW;
+            float nextColLeft = puzzleRight + gapToSide;
+            float nextCx = nextColLeft + sideW * 0.5f;
+            float nextTop = puzzleTop - 0.035f;
             float nextW = sideW;
             float nextH = nextW * aspect / 0.554f;
             ApplySceneRect(sceneNextPanelRect,
@@ -868,8 +969,9 @@ namespace BrickStacker
 
             if (statusText != null)
                 ApplySceneRect(statusText.rectTransform,
-                    new Vector2(rightColLeft, bottom),
-                    new Vector2(rightColRight, bottom + 0.14f));
+                    new Vector2(nextColLeft, bottom),
+                    new Vector2(nextColLeft + sideW, bottom + 0.14f));
+
         }
 
         void DisablePuzzleAnchorFrame()
@@ -1023,13 +1125,17 @@ namespace BrickStacker
             {
                 left = PuzzleGridLeft; right = PuzzleGridRight; bottom = PuzzleGridBottom; top = PuzzleGridTop;
             }
-            scenePuzzleGridRect.anchorMin        = new Vector2(left, bottom);
-            scenePuzzleGridRect.anchorMax        = new Vector2(right, top);
-            scenePuzzleGridRect.offsetMin        = Vector2.zero;
-            scenePuzzleGridRect.offsetMax        = Vector2.zero;
-            scenePuzzleGridRect.pivot            = new Vector2(0.5f, 0.5f);
-            scenePuzzleGridRect.localScale       = Vector3.one;
-            scenePuzzleGridRect.localRotation    = Quaternion.identity;
+            // Chỉ ghi khi giá trị ĐỔI THẬT: hàm này chạy trong mọi lần vẽ lại bàn (mỗi bước kéo),
+            // ghi anchor/scale vô điều kiện sẽ bắt canvas con rebuild layout liên tục -> khựng tay.
+            var wantMin = new Vector2(left, bottom);
+            var wantMax = new Vector2(right, top);
+            if (scenePuzzleGridRect.anchorMin != wantMin) scenePuzzleGridRect.anchorMin = wantMin;
+            if (scenePuzzleGridRect.anchorMax != wantMax) scenePuzzleGridRect.anchorMax = wantMax;
+            if (scenePuzzleGridRect.offsetMin != Vector2.zero) scenePuzzleGridRect.offsetMin = Vector2.zero;
+            if (scenePuzzleGridRect.offsetMax != Vector2.zero) scenePuzzleGridRect.offsetMax = Vector2.zero;
+            if (scenePuzzleGridRect.pivot != new Vector2(0.5f, 0.5f)) scenePuzzleGridRect.pivot = new Vector2(0.5f, 0.5f);
+            if (scenePuzzleGridRect.localScale != Vector3.one) scenePuzzleGridRect.localScale = Vector3.one;
+            if (scenePuzzleGridRect.localRotation != Quaternion.identity) scenePuzzleGridRect.localRotation = Quaternion.identity;
 
             // Kích thước ô (cho hiệu ứng vỡ ở chế độ xóa-hàng cũ; chế độ cụm không dùng).
             var r = scenePuzzleGridRect.rect;

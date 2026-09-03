@@ -305,6 +305,36 @@ namespace BrickStacker
             return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
         }
 
+        // Vòng nhẫn (annulus) trắng dùng cho đồng hồ đếm ngược: đặt Image type = Filled,
+        // fillMethod = Radial360 rồi tăng fillAmount -> đầy vòng = hết giờ. Tô trắng để
+        // đổi màu qua Image.color (vàng khi còn nhiều, đỏ khi sắp hết) mà không tạo texture mới.
+        public static Sprite CreateTimerRingSprite()
+        {
+            const int size = 128;
+            const float outer = 63f;   // bán kính ngoài (px) -> mép ngoài rãnh navy
+            const float inner = 40f;   // bán kính trong -> dày ~23px, khít bề rộng rãnh
+            const float aa = 1.4f;     // dải khử răng cưa
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.filterMode = FilterMode.Bilinear;
+            texture.wrapMode = TextureWrapMode.Clamp;
+
+            var center = new Vector2((size - 1) * 0.5f, (size - 1) * 0.5f);
+            for (int x = 0; x < size; x++)
+            {
+                for (int y = 0; y < size; y++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), center);
+                    // Alpha = giao của "trong bán kính ngoài" và "ngoài bán kính trong".
+                    float outerA = Mathf.Clamp01((outer - dist) / aa);
+                    float innerA = Mathf.Clamp01((dist - inner) / aa);
+                    float alpha = Mathf.Min(outerA, innerA);
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), size);
+        }
+
         // Load sprite từ thư mục Assets-v3.0.
         // Editor: đọc trực tiếp từ đĩa qua Application.dataPath.
         // Build runtime: cần copy file vào Assets/Resources/Assets-v3.0/ trước khi build.

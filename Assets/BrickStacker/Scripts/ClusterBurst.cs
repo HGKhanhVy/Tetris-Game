@@ -24,7 +24,7 @@ namespace BrickStacker
         public void Build(int sparkCount, Sprite dot)
         {
             rt = (RectTransform)transform;
-            var rng = new System.Random(GetInstanceID());
+            var rng = new System.Random(GetEntityId().GetHashCode());
 
             ring = NewPiece("Ring", dot);
             ring.rectTransform.sizeDelta = new Vector2(30, 30);

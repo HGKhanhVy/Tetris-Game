@@ -11,78 +11,251 @@ namespace BrickStacker
 {
     public partial class MenuController : MonoBehaviour
     {
-        async void PromptNameOnFirstLaunch()
+        bool namePromptRunning;
+
+        // Cổng "đặt tên trước khi chơi": máy mới, lần đầu bấm BẮT ĐẦU / 1 VS 1 thì hỏi tên rồi mới
+        // chạy tiếp hành động. Đã có tên (hoặc đã từng bỏ qua) thì chạy thẳng.
+        // Mất mạng / đăng nhập lâu → KHÔNG chặn người chơi: cho vào chơi, để lần sau hỏi lại.
+        async void RunWithPlayerName(Transform panel, Action action)
         {
-            if (PlayerPrefs.GetInt(NamePromptedKey, 0) == 1)
+            if (namePromptRunning)
                 return;
 
-            await ServicesManager.EnsureSignedInAsync();
-            if (this == null || mapOverlay != null)
-                return;
-            if (!string.IsNullOrEmpty(ServicesManager.PlayerName))
+            if (PlayerPrefs.GetInt(NamePromptedKey, 0) == 1 || !string.IsNullOrEmpty(ServicesManager.PlayerName))
             {
-                PlayerPrefs.SetInt(NamePromptedKey, 1);
+                action?.Invoke();
                 return;
             }
 
-            var panel = GameObject.Find("Menu Panel");
-            if (panel != null)
-                ShowNamePopup(panel.transform);
+            namePromptRunning = true;
+            try
+            {
+                var signIn = ServicesManager.EnsureSignedInAsync();
+                bool signedIn = await System.Threading.Tasks.Task.WhenAny(
+                    signIn, System.Threading.Tasks.Task.Delay(2500)) == signIn && signIn.Result;
+                if (this == null)
+                    return;
+
+                if (!signedIn || !string.IsNullOrEmpty(ServicesManager.PlayerName))
+                {
+                    action?.Invoke();
+                    return;
+                }
+
+                ShowNamePopup(panel, action);
+            }
+            finally
+            {
+                namePromptRunning = false;
+            }
         }
 
-        void ShowNamePopup(Transform parent)
+        // onDone: chạy sau khi đặt tên xong HOẶC người chơi bỏ qua — không chặn đường vào game.
+        // Giao diện dựng bằng bộ asset v3: khung xanh (popup-pause), banner tiêu đề + nút cam
+        // (popup-start), ô nhập kiểu thanh xanh (popup-1vs1), nút X đỏ — đồng bộ với menu/BXH/1vs1.
+        void ShowNamePopup(Transform parent, Action onDone)
         {
             if (mapOverlay != null) Destroy(mapOverlay);
-            mapOverlay = Ui.Panel(parent, "Name Overlay", new Color(0, 0, 0, 0.72f));
+            // Gắn vào canvas gốc + sorting cao (giống popup 1vs1): nền mờ phủ TRỌN màn hình và
+            // chặn chạm, không cho bấm nhầm nút menu phía sau khi đang nhập tên.
+            var rootCanvas = parent.GetComponentInParent<Canvas>();
+            Transform overlayParent = rootCanvas != null ? rootCanvas.rootCanvas.transform : parent;
+            mapOverlay = Ui.Panel(overlayParent, "Name Overlay", new Color(0.015f, 0.045f, 0.13f, 0.80f));
             Ui.Stretch(mapOverlay);
+            var ovCanvas = mapOverlay.AddComponent<Canvas>();
+            ovCanvas.overrideSorting = true;
+            ovCanvas.sortingOrder = 5000;
+            mapOverlay.AddComponent<UnityEngine.UI.GraphicRaycaster>();
 
-            var box = Ui.Panel(mapOverlay.transform, "Name Box", Color.white);
-            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(680, 560));
-            StyleWoodPopupFrame(box);
+            // Khung xanh v3 — vùng cắt 851x768 nên giữ đúng tỉ lệ đó.
+            const float boxW = 520f;   // gọn hơn, banner nhô lên vẫn nằm trong màn 1280x720
+            float boxH = boxW * 768f / 851f;
+            var box = MakeV3Image(mapOverlay.transform, "Name Box", PAUSEUI + "frame.png", new Rect(0.223f, 0.139f, 0.554f, 0.750f), true);
+            box.preserveAspect = false;
+            var boxRt = box.rectTransform;
+            boxRt.anchorMin = boxRt.anchorMax = new Vector2(0.5f, 0.5f);
+            boxRt.pivot = new Vector2(0.5f, 0.5f);
+            boxRt.sizeDelta = new Vector2(boxW, boxH);
+            Transform boxT = box.transform;
 
-            var titleLabel = Ui.Text(box.transform, "CHÀO BẠN!", font, 52, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
+            // Banner tiêu đề đè mép trên khung (banner rỗng, chữ vẽ đè lên).
+            var banner = MakeV3Image(boxT, "Name Title Banner", STARTUI + "frame-title-man.png", new Rect(0.130f, 0.398f, 0.740f, 0.270f), false);
+            banner.preserveAspect = false;
+            var bnRt = banner.rectTransform;
+            bnRt.anchorMin = bnRt.anchorMax = new Vector2(0.5f, 1f);
+            bnRt.pivot = new Vector2(0.5f, 0.5f);
+            bnRt.sizeDelta = new Vector2(boxW * 0.62f, boxW * 0.62f / 4.12f);
+            bnRt.anchoredPosition = new Vector2(0f, 4f);
+
+            bool hasName = !string.IsNullOrEmpty(ServicesManager.PlayerName);   // đã có tên -> điền sẵn để sửa
+            var titleLabel = Ui.Text(banner.transform, "Hé nhô", RuntimeArt.LoadMenuButtonFont(), 34, new Color(1f, 0.98f, 0.90f), TextAnchor.MiddleCenter);
             titleLabel.fontStyle = FontStyle.Bold;
-            Ui.Rect(titleLabel, new Vector2(0.5f, 0.84f), new Vector2(0.5f, 0.84f), new Vector2(500, 100));
-            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
-            AddWarmTitleFinish(titleLabel, 0.48f);
+            titleLabel.raycastTarget = false;
+            Ui.Rect(titleLabel, new Vector2(0.5f, 0.52f), new Vector2(0.5f, 0.52f), new Vector2(boxW * 0.46f, 52f));
+            AddV3TextEdge(titleLabel, 2.0f);
 
-            var descLabel = Ui.Text(box.transform, "Đặt tên hiển thị của bạn —\ndùng cho bảng xếp hạng và trận đấu 1v1.", font, 26, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
-            Ui.Rect(descLabel, new Vector2(0.5f, 0.655f), new Vector2(0.5f, 0.655f), new Vector2(580, 90));
-            AddDarkWoodTextEdge(descLabel, 0.6f, 0.74f);
+            // Hiệp sĩ nhô ra góc trên-trái khung (giống popup nhiệm vụ trong màn chơi).
+            var hero = MakeV3Image(boxT, "Name Hero", STARTUI + "icon-player.png", new Rect(0.357f, 0.316f, 0.286f, 0.422f), false);
+            var heRt = hero.rectTransform;
+            heRt.anchorMin = heRt.anchorMax = new Vector2(0.055f, 0.90f);
+            heRt.pivot = new Vector2(0.5f, 0.5f);
+            heRt.sizeDelta = new Vector2(108f, 108f);
 
-            var nameInput = BuildNameInput(box.transform, new Vector2(0.5f, 0.46f), new Vector2(420, 78));
+            var descLabel = Ui.Text(boxT, "Tên bạn là gì đâyyy?", font, 30, new Color(0.86f, 0.94f, 1f), TextAnchor.MiddleCenter);
+            descLabel.raycastTarget = false;
+            descLabel.lineSpacing = 1.15f;
+            Ui.Rect(descLabel, new Vector2(0.5f, 0.665f), new Vector2(0.5f, 0.665f), new Vector2(boxW * 0.86f, 80f));
+            AddV3TextEdge(descLabel, 1.2f);
 
-            var statusLabel = Ui.Text(box.transform, "", font, 22, new Color(1f, 0.86f, 0.60f, 0.9f), TextAnchor.MiddleCenter);
-            Ui.Rect(statusLabel, new Vector2(0.5f, 0.335f), new Vector2(0.5f, 0.335f), new Vector2(580, 40));
-            AddDarkWoodTextEdge(statusLabel, 0.5f, 0.7f);
+            var nameInput = BuildNameInput(boxT, new Vector2(0.5f, 0.47f), new Vector2(boxW * 0.80f, 74f));
+            if (hasName)
+                nameInput.text = ServicesManager.PlayerName;   // sửa trên tên cũ (còn dấu) cho tiện
 
-            var (confirmBtn, _) = AddMenuButton(box.transform, "XÁC NHẬN", new Vector2(0.5f, 0.185f), Vector2.zero, () => { }, new Vector2(420, 84), 34);
+            var statusLabel = Ui.Text(boxT, "", font, 21, new Color(1f, 0.86f, 0.42f), TextAnchor.MiddleCenter);
+            statusLabel.fontStyle = FontStyle.Bold;
+            statusLabel.raycastTarget = false;
+            Ui.Rect(statusLabel, new Vector2(0.5f, 0.335f), new Vector2(0.5f, 0.335f), new Vector2(boxW * 0.90f, 38f));
+            AddV3TextEdge(statusLabel, 1.2f);
+
+            // Nút XÁC NHẬN (plate cam v3, chữ vẽ đè).
+            var confirmBtn = BuildV1V1Button(boxT, STARTUI + "btn-batdau.png", new Rect(0.242f, 0.414f, 0.516f, 0.219f),
+                new Vector2(0.5f, 0.185f), new Vector2(boxW * 0.60f, boxW * 0.60f / 3.536f));
+            confirmBtn.GetComponent<Image>().preserveAspect = false;
+            var confirmLabel = Ui.Text(confirmBtn.transform, "XÁC NHẬN", RuntimeArt.LoadMenuButtonFont(), 34, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+            confirmLabel.fontStyle = FontStyle.Bold;
+            confirmLabel.raycastTarget = false;
+            confirmLabel.resizeTextForBestFit = true;
+            confirmLabel.resizeTextMinSize = 18;
+            confirmLabel.resizeTextMaxSize = 34;
+            var clRt = confirmLabel.rectTransform;
+            clRt.anchorMin = new Vector2(0.10f, 0f);
+            clRt.anchorMax = new Vector2(0.90f, 1f);
+            clRt.offsetMin = new Vector2(0f, 4f);
+            clRt.offsetMax = new Vector2(0f, 4f);
+            AddV3TextEdge(confirmLabel, 1.8f);
             confirmBtn.onClick.AddListener(() =>
             {
                 RuntimeArt.PlayUiSwitchSound();
-                ConfirmFirstName(nameInput, statusLabel, confirmBtn);
+                ConfirmFirstName(nameInput, statusLabel, confirmBtn, onDone);
+            });
+            // Bấm Enter / nút Done của bàn phím ảo = xác nhận luôn, khỏi phải với tay xuống nút.
+            nameInput.onEndEdit.AddListener(_ =>
+            {
+                if (!nameInput.wasCanceled && confirmBtn.interactable)
+                    ConfirmFirstName(nameInput, statusLabel, confirmBtn, onDone);
             });
 
-            // Nút đóng = bỏ qua (vẫn đặt được sau trong Bảng xếp hạng), không hỏi lại nữa.
-            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
+            // Nút X đỏ góc trên-phải = bỏ qua: vẫn vào chơi, không hỏi lại nữa (đặt tên sau ở BXH).
+            var closeBtn = BuildV1V1Button(boxT, V1V1 + "btn-close.png", new Rect(0.061f, 0.069f, 0.876f, 0.888f),
+                new Vector2(0.945f, 0.925f), new Vector2(64f, 64f));
+            closeBtn.onClick.AddListener(() =>
             {
                 RuntimeArt.PlayUiSwitchSound();
                 PlayerPrefs.SetInt(NamePromptedKey, 1);
                 PlayerPrefs.Save();
                 Destroy(mapOverlay);
+                onDone?.Invoke();
             });
-            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.85f), new Vector2(0.118f, 0.85f), new Vector2(60, 60));
-            StyleMapBackButton(closeBtn);
         }
 
-        async void ConfirmFirstName(InputField nameInput, Text statusLabel, Button confirmBtn)
+        // Ô nhập tên kiểu v3: dùng thanh xanh của popup 1vs1 nhưng GHÉP 2 NỬA ĐỐI XỨNG lấy từ
+        // phần bên phải của ảnh — nhờ vậy bỏ được biểu tượng chìa khoá (vốn dành cho mã phòng)
+        // mà vẫn giữ nguyên hai đầu bo tròn và dải sáng của thanh gốc.
+        InputField BuildNameInput(Transform parent, Vector2 anchor, Vector2 size)
         {
-            string name = nameInput.text != null ? nameInput.text.Trim() : "";
-            if (name.Length < 2)
+            // Cấu trúc 2 tầng là BẮT BUỘC: Unity gắn con trỏ nhập (caret) vào ĐỨNG ĐẦU danh sách con
+            // của object chứa Text. Nếu ảnh nền nằm chung chỗ đó thì caret + vệt bôi đen bị vẽ chìm
+            // dưới nền, nhìn như không có. Nên tách: [nền] rồi mới đến [ô nhập + text].
+            var root = Ui.Panel(parent, "Name Field", new Color(1f, 1f, 1f, 0f));
+            Ui.Rect(root, anchor, anchor, size);
+            root.GetComponent<Image>().raycastTarget = false;
+
+            BuildNameInputBar(root.transform);
+
+            var field = Ui.Panel(root.transform, "Name Input", new Color(1f, 1f, 1f, 0f));
+            Ui.Stretch(field);
+            var fieldImg = field.GetComponent<Image>();   // vùng bắt chạm trong suốt
+
+            var inputText = Ui.Text(field.transform, "", font, 34, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+            inputText.fontStyle = FontStyle.Bold;
+            inputText.supportRichText = false;
+            var itRt = inputText.rectTransform;
+            itRt.anchorMin = new Vector2(0.10f, 0.18f);
+            itRt.anchorMax = new Vector2(0.90f, 0.82f);
+            itRt.offsetMin = itRt.offsetMax = Vector2.zero;
+
+            var placeholder = Ui.Text(field.transform, "Tên của bạn...", font, 30, new Color(0.72f, 0.85f, 1f, 0.65f), TextAnchor.MiddleCenter);
+            placeholder.fontStyle = FontStyle.BoldAndItalic;
+            var phRt = placeholder.rectTransform;
+            phRt.anchorMin = itRt.anchorMin;
+            phRt.anchorMax = itRt.anchorMax;
+            phRt.offsetMin = phRt.offsetMax = Vector2.zero;
+
+            var input = field.AddComponent<InputField>();
+            field.AddComponent<InputSelectAllOnFocus>().Field = input;   // chạm vào là bôi đen sẵn cả tên
+            input.textComponent = inputText;
+            input.placeholder = placeholder;
+            input.targetGraphic = fieldImg;
+            input.lineType = InputField.LineType.SingleLine;
+            // Cho gõ THOẢI MÁI (tiếng Việt có dấu, khoảng trắng); việc bỏ dấu / lọc ký tự để
+            // PlayerNameFormatter lo lúc bấm lưu — chặn ngay khi gõ sẽ làm chữ biến mất khó hiểu.
+            input.contentType = InputField.ContentType.Standard;
+            // Vệt bôi đen + con trỏ phải nổi trên nền thanh xanh (màu mặc định gần như chìm).
+            input.selectionColor = new Color(1f, 0.82f, 0.30f, 0.55f);
+            input.caretColor = new Color(1f, 0.99f, 0.94f, 1f);
+            input.customCaretColor = true;
+            input.caretWidth = 3;
+            input.caretBlinkRate = 1.4f;
+            input.characterLimit = PlayerNameFormatter.MaxLength * 2;
+            return input;
+        }
+
+        // Thanh xanh làm nền ô nhập: ghép 2 NỬA ĐỐI XỨNG lấy từ phần bên phải của ảnh
+        // input-maphong — nhờ vậy bỏ được biểu tượng chìa khoá (vốn dành cho mã phòng) mà vẫn giữ
+        // nguyên hai đầu bo tròn và dải sáng của thanh gốc.
+        void BuildNameInputBar(Transform parent)
+        {
+            var bar = Ui.Panel(parent, "Name Bar", new Color(1f, 1f, 1f, 0f));
+            Ui.Stretch(bar);
+            bar.GetComponent<Image>().raycastTarget = false;
+
+            var rightHalf = MakeV3Image(bar.transform, "Bar R", V1V1 + "input-maphong.png", new Rect(0.550f, 0.200f, 0.420f, 0.588f), false);
+            rightHalf.preserveAspect = false;
+            var rhRt = rightHalf.rectTransform;
+            rhRt.anchorMin = new Vector2(0.5f, 0f);
+            rhRt.anchorMax = new Vector2(1f, 1f);
+            rhRt.offsetMin = rhRt.offsetMax = Vector2.zero;
+
+            var leftHalf = MakeV3Image(bar.transform, "Bar L", V1V1 + "input-maphong.png", new Rect(0.550f, 0.200f, 0.420f, 0.588f), false);
+            leftHalf.preserveAspect = false;
+            var lhRt = leftHalf.rectTransform;
+            lhRt.anchorMin = new Vector2(0f, 0f);
+            lhRt.anchorMax = new Vector2(0.5f, 1f);
+            lhRt.offsetMin = lhRt.offsetMax = Vector2.zero;
+            lhRt.localScale = new Vector3(-1f, 1f, 1f);   // lật ngang -> đầu bo tròn nằm bên trái
+        }
+
+        async void ConfirmFirstName(InputField nameInput, Text statusLabel, Button confirmBtn, Action onDone)
+        {
+            if (!confirmBtn.interactable)
+                return;   // đang lưu dở, tránh bấm/Enter hai lần
+
+            // Máy chủ Unity từ chối tên có khoảng trắng -> báo để người chơi tự sửa (dùng "_" hoặc
+            // viết liền), không tự ý đổi tên của họ. Dấu tiếng Việt thì giữ nguyên.
+            if (PlayerNameFormatter.HasSpace(nameInput.text))
             {
-                statusLabel.text = "Tên cần ít nhất 2 ký tự.";
+                statusLabel.text = "Tên không được có khoảng trắng.";
                 return;
             }
+
+            string name = PlayerNameFormatter.Sanitize(nameInput.text);
+            if (!PlayerNameFormatter.IsValid(name))
+            {
+                statusLabel.text = "Tên cần ít nhất 2 chữ hoặc số.";
+                return;
+            }
+            if (name != nameInput.text)
+                nameInput.text = name;
 
             confirmBtn.interactable = false;
             statusLabel.text = "Đang lưu tên...";
@@ -94,10 +267,15 @@ namespace BrickStacker
                 PlayerPrefs.SetInt(NamePromptedKey, 1);
                 PlayerPrefs.Save();
                 Destroy(mapOverlay);
+                onDone?.Invoke();
             }
             else
             {
-                statusLabel.text = "Không lưu được tên. Kiểm tra mạng rồi thử lại.";
+                // Tên đã lưu ở máy rồi (SetPlayerNameAsync lưu trước khi gọi mạng) nên chỉ còn
+                // hai khả năng: chưa kết nối được, hoặc máy chủ không nhận tên này.
+                statusLabel.text = ServicesManager.IsSignedIn
+                    ? "Tên này không dùng được, thử tên khác nhé."
+                    : "Chưa kết nối được máy chủ — tên đã lưu ở máy, sẽ tự đồng bộ sau.";
                 confirmBtn.interactable = true;
             }
         }
@@ -128,16 +306,25 @@ namespace BrickStacker
                 arf.aspectRatio = (float)bg.sprite.texture.width / bg.sprite.texture.height;
             }
 
-            // Nút back dùng chung (btn-back của trang level), đóng overlay.
-            var backBtn = Ui.Button(mapOverlay.transform, "", font, 1, () =>
+            // Vùng safe area cho nút back (overlay không tự fit safe area) → tránh tai thỏ.
+            var safeArea = Ui.Panel(mapOverlay.transform, "Safe Area", new Color(0, 0, 0, 0));
+            Ui.Stretch(safeArea);
+            safeArea.GetComponent<Image>().raycastTarget = false;
+            safeArea.AddComponent<SafeAreaFitter>();
+
+            // Nút back dùng chung (btn-back của trang level), đóng overlay. Neo góc trên-trái
+            // vùng safe area rồi lùi vào bằng pixel (đồng bộ với màn chọn level).
+            var backBtn = Ui.Button(safeArea.transform, "", font, 1, () =>
             {
                 RuntimeArt.PlayUiSwitchSound();
                 Destroy(mapOverlay);
             });
+            const float bkSize = 92f, bkMarginX = 52f, bkMarginY = 30f;
             var bkRt = backBtn.GetComponent<RectTransform>();
-            bkRt.anchorMin = bkRt.anchorMax = new Vector2(0.052f, 0.9f);
+            bkRt.anchorMin = bkRt.anchorMax = new Vector2(0f, 1f);
             bkRt.pivot = new Vector2(0.5f, 0.5f);
-            bkRt.sizeDelta = new Vector2(92f, 92f);
+            bkRt.sizeDelta = new Vector2(bkSize, bkSize);
+            bkRt.anchoredPosition = new Vector2(bkMarginX + bkSize * 0.5f, -(bkMarginY + bkSize * 0.5f));
             var bkImg = backBtn.GetComponent<Image>();
             var bkSpr = RuntimeArt.LoadV3SubSprite("screen-level/btn-back.png", new Rect(0.345f, 0.300f, 0.309f, 0.435f));
             if (bkSpr != null) { bkImg.sprite = bkSpr; bkImg.type = Image.Type.Simple; bkImg.preserveAspect = true; bkImg.color = Color.white; }
@@ -222,31 +409,48 @@ namespace BrickStacker
             stRt.anchorMax = new Vector2(0.9f, bodyTop);
             stRt.offsetMin = stRt.offsetMax = Vector2.zero;
 
-            PopulateLeaderboard(mapOverlay, ctRt, cupText, rowH, statusLabel);
+            // Nút ĐỔI TÊN ngay dưới ô cúp: đặt tên xong trước đây không có cách nào sửa, và người
+            // đã bỏ qua ở lần đầu cũng cần một đường để đặt. Đóng popup đặt tên thì quay lại BXH
+            // (dựng lại để đọc số cúp + tên mới).
+            var renameBtn = BuildV1V1Button(mapOverlay.transform, STARTUI + "btn-batdau.png", new Rect(0.242f, 0.414f, 0.516f, 0.219f),
+                new Vector2(0.5f, 0.5f), new Vector2(160f, 160f / 3.536f));
+            renameBtn.GetComponent<Image>().preserveAspect = false;
+            var rnRt = renameBtn.GetComponent<RectTransform>();
+            rnRt.anchorMin = rnRt.anchorMax = new Vector2(0.088f, 0.755f);   // cột trống bên trái, dưới nút quay lại
+            rnRt.pivot = new Vector2(0.5f, 0.5f);
+            rnRt.anchoredPosition = Vector2.zero;
+            var renameLabel = Ui.Text(renameBtn.transform, "ĐỔI TÊN",
+                RuntimeArt.LoadMenuButtonFont(), 26, new Color(1f, 0.99f, 0.94f), TextAnchor.MiddleCenter);
+            renameLabel.fontStyle = FontStyle.Bold;
+            renameLabel.raycastTarget = false;
+            renameLabel.resizeTextForBestFit = true;
+            renameLabel.resizeTextMinSize = 14;
+            renameLabel.resizeTextMaxSize = 26;
+            var rlRt = renameLabel.rectTransform;
+            rlRt.anchorMin = new Vector2(0.12f, 0f);
+            rlRt.anchorMax = new Vector2(0.88f, 1f);
+            rlRt.offsetMin = new Vector2(0f, 3f);
+            rlRt.offsetMax = new Vector2(0f, 3f);
+            AddV3TextEdge(renameLabel, 1.4f);
+            renameBtn.onClick.AddListener(() =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                ShowNamePopup(parent, () => ShowLeaderboardOverlay(parent));
+            });
+
+            PopulateLeaderboard(mapOverlay, ctRt, cupText, rowH, statusLabel, renameLabel);
         }
 
-        InputField BuildNameInput(Transform parent, Vector2 anchor, Vector2 size)
+        // Cắt tên quá dài cho vừa cột NGƯỜI CHƠI (tên Unity tự sinh kiểu "ShortOrganizedRiver").
+        static string ShortLbName(string name)
         {
-            var frame = Ui.Panel(parent, "Name Input", new Color(0.16f, 0.07f, 0.025f, 0.92f));
-            Ui.Rect(frame, anchor, anchor, size);
-
-            var placeholder = Ui.Text(frame.transform, "Tên của bạn...", font, 24, new Color(1f, 0.88f, 0.62f, 0.45f), TextAnchor.MiddleCenter);
-            Ui.Stretch(placeholder.gameObject);
-            placeholder.fontStyle = FontStyle.Italic;
-
-            var inputText = Ui.Text(frame.transform, "", font, 28, new Color(1f, 0.94f, 0.75f), TextAnchor.MiddleCenter);
-            Ui.Stretch(inputText.gameObject);
-            inputText.supportRichText = false;
-
-            var input = frame.AddComponent<InputField>();
-            input.textComponent = inputText;
-            input.placeholder = placeholder;
-            input.characterLimit = 12;
-            input.contentType = InputField.ContentType.Alphanumeric;
-            return input;
+            if (string.IsNullOrEmpty(name))
+                return "Người chơi";
+            const int max = 12;
+            return name.Length <= max ? name : name.Substring(0, max) + "…";
         }
 
-        async void PopulateLeaderboard(GameObject overlay, RectTransform content, Text cupText, float rowH, Text statusLabel)
+        async void PopulateLeaderboard(GameObject overlay, RectTransform content, Text cupText, float rowH, Text statusLabel, Text renameLabel)
         {
             var names = new System.Collections.Generic.List<string>();
             var scores = new System.Collections.Generic.List<long>();
@@ -259,37 +463,64 @@ namespace BrickStacker
             {
                 // Đọc dữ liệu THẬT của người chơi (bảng "weekly"). Có timeout để không treo khi mất mạng.
                 var loadTask = LeaderboardsSync.LoadWeeklyAsync(LbTopCount);
-                if (await System.Threading.Tasks.Task.WhenAny(loadTask, System.Threading.Tasks.Task.Delay(4000)) == loadTask)
+                if (await System.Threading.Tasks.Task.WhenAny(loadTask, System.Threading.Tasks.Task.Delay(6000)) == loadTask)
                 {
                     var (top, me) = loadTask.Result;
                     if (overlay == null) return; // đã đóng trong lúc chờ
                     loaded = true;
+                    // Nhận diện dòng CỦA MÌNH bằng PlayerId của tài khoản đang đăng nhập. Trước đây
+                    // chỉ dựa vào `me` (GetPlayerScoreAsync) — lệnh này thỉnh thoảng lỗi/timeout, khi
+                    // đó dòng của chính mình bị coi là người lạ: hiện tên Unity tự sinh, không tô
+                    // sáng, nên nhìn như "cúp của top 1" chứ không phải cúp của mình.
+                    string myId = ServicesManager.PlayerId;
+                    if (string.IsNullOrEmpty(myId) && me != null)
+                        myId = me.PlayerId;
+
                     if (top != null)
                     {
                         for (int i = 0; i < top.Count && i < LbTopCount; i++)
                         {
-                            string nm = LeaderboardsSync.DisplayName(top[i]);
-                            bool isOwn = me != null && top[i].PlayerId == me.PlayerId;
+                            string nm = ShortLbName(LeaderboardsSync.DisplayName(top[i]));
+                            bool isOwn = !string.IsNullOrEmpty(myId) && top[i].PlayerId == myId;
                             if (isOwn)
                             {
                                 ownIndex = i;
-                                if (!string.IsNullOrEmpty(ServicesManager.PlayerName)) nm = ServicesManager.PlayerName;
+                                // Dòng của mình phải NHẬN RA ĐƯỢC: có tên thì dùng tên, chưa đặt tên
+                                // thì ghi "Bạn" thay cho tên Unity tự sinh (kiểu ShortOrganizedRiver)
+                                // — nếu không người chơi tưởng dòng đó là của người lạ.
+                                nm = !string.IsNullOrEmpty(ServicesManager.PlayerName)
+                                    ? ShortLbName(ServicesManager.PlayerName) + " (Bạn)"
+                                    : "Bạn";
+                                ownScore = System.Math.Max(ownScore, (long)top[i].Score);
+                                hasOwn = true;
                             }
                             names.Add(nm);
                             scores.Add((long)top[i].Score);
                         }
                     }
-                    if (me != null) { ownScore = (long)me.Score; hasOwn = true; }
+                    if (me != null) { ownScore = System.Math.Max(ownScore, (long)me.Score); hasOwn = true; }
                 }
                 if (overlay == null) return;
             }
             catch (Exception) { if (overlay == null) return; loaded = false; }
 
-            // Số cúp của CHÍNH mình (chưa có thì "--").
-            if (cupText != null)
-                cupText.text = hasOwn ? FormatLbScore(ownScore) : "--";
+            // Tên chỉ có sau khi đăng nhập xong -> chốt nhãn nút ở đây, không phải lúc dựng overlay.
+            if (renameLabel != null)
+                renameLabel.text = string.IsNullOrEmpty(ServicesManager.PlayerName) ? "ĐẶT TÊN" : "ĐỔI TÊN";
 
-            // Bảng trống hoặc mất mạng → báo trạng thái, KHÔNG hiện dữ liệu giả.
+            // Cúp của CHÍNH mình = MAX(tổng điểm cao nhất các màn ở máy, điểm đang có trên server).
+            // Lấy local để cập nhật TỨC THÌ sau khi qua màn (không đợi độ trễ gửi điểm); lấy thêm
+            // server để không bị mất cúp cũ khi chơi trên máy mới / vừa xoá dữ liệu máy.
+            long ownCup = System.Math.Max(LevelProgress.TotalScore, hasOwn ? ownScore : 0L);
+            if (cupText != null)
+                cupText.text = ownCup > 0 ? FormatLbScore(ownCup) : "--";
+
+            // Local cao hơn server (lần gửi điểm trước bị rớt mạng) → gửi lại cho khớp.
+            if (loaded && LevelProgress.TotalScore > (hasOwn ? ownScore : 0L))
+                LeaderboardsSync.SubmitScore(LevelProgress.TotalScore);
+
+            // Bảng trống (chưa có ai hoặc chưa tải được) → luôn hiện minh hoạ "trống vắng",
+            // KHÔNG hiện dữ liệu giả và KHÔNG báo lỗi mạng.
             if (names.Count == 0)
             {
                 if (statusLabel != null)
@@ -315,7 +546,11 @@ namespace BrickStacker
             int count = Mathf.Min(names.Count, LbTopCount);
             content.sizeDelta = new Vector2(0f, count * rowH);
             for (int i = 0; i < count; i++)
-                BuildLeaderboardRow(content, i, names[i], scores[i], i == ownIndex, rowH);
+            {
+                // Dòng của chính mình: hiển thị đúng con số ở ô CÚP phía trên (cập nhật tức thì).
+                long shownScore = i == ownIndex ? ownCup : scores[i];
+                BuildLeaderboardRow(content, i, names[i], shownScore, i == ownIndex, rowH);
+            }
         }
 
         static Sprite GetRoundedBarSprite()
@@ -394,27 +629,24 @@ namespace BrickStacker
                 raRt.offsetMin = raRt.offsetMax = Vector2.zero;
             }
 
-            // Avatar: khung chân dung (input-number) + đầu nhân vật đặt trong khung.
-            var avFrame = MakeV3Image(row.transform, "AvatarFrame", "popup-1vs1/input-number.png", new Rect(0.309f, 0.237f, 0.382f, 0.532f), false);
-            avFrame.preserveAspect = false;
-            avFrame.raycastTarget = false;
-            var afRt = avFrame.rectTransform;
-            afRt.anchorMin = afRt.anchorMax = new Vector2(0.35f, 0.5f);
-            afRt.pivot = new Vector2(0.5f, 0.5f);
-            afRt.sizeDelta = new Vector2(42f, 42f);
-
+            // Avatar: chỉ đầu nhân vật (bỏ khung input-number nền trắng theo yêu cầu).
             var avatar = MakeV3Image(row.transform, "Avatar", "character/" + LbAvatars[i % LbAvatars.Length] + "_09_icon.png", new Rect(0.04f, 0.05f, 0.92f, 0.90f), false);
+            avatar.raycastTarget = false;
             var avRt = avatar.rectTransform;
             avRt.anchorMin = avRt.anchorMax = new Vector2(0.35f, 0.5f);
             avRt.pivot = new Vector2(0.5f, 0.5f);
-            avRt.sizeDelta = new Vector2(34f, 34f);
+            avRt.sizeDelta = new Vector2(40f, 40f);
 
-            // Tên người chơi.
+            // Tên người chơi. KHÔNG cho tràn ngang: tên dài (tên Unity tự sinh có thể rất dài)
+            // sẽ tự co chữ cho vừa cột, không đè lên cột CÚP bên phải.
             var nameT = Ui.Text(row.transform, name, RuntimeArt.LoadMenuButtonFont(), 22, txtColor, TextAnchor.MiddleLeft);
             nameT.fontStyle = FontStyle.Bold;
             nameT.raycastTarget = false;
-            nameT.horizontalOverflow = HorizontalWrapMode.Overflow;
-            nameT.verticalOverflow = VerticalWrapMode.Overflow;
+            nameT.horizontalOverflow = HorizontalWrapMode.Wrap;
+            nameT.verticalOverflow = VerticalWrapMode.Truncate;
+            nameT.resizeTextForBestFit = true;
+            nameT.resizeTextMinSize = 12;
+            nameT.resizeTextMaxSize = 22;
             var nmRt = nameT.rectTransform;
             nmRt.anchorMin = new Vector2(0.415f, 0f);
             nmRt.anchorMax = new Vector2(0.73f, 1f);
@@ -750,112 +982,8 @@ namespace BrickStacker
             }
         }
 
-        void ShowTutorialOverlay(Transform parent)
-        {
-            if (mapOverlay != null) Destroy(mapOverlay);
-            mapOverlay = Ui.Panel(parent, "Tutorial Overlay", new Color(0, 0, 0, 0.72f));
-            Ui.Stretch(mapOverlay);
-
-            var box = Ui.Panel(mapOverlay.transform, "Tutorial Box", Color.white);
-            Ui.Rect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(680, 820));
-            StyleWoodPopupFrame(box);
-
-            var closeBtn = Ui.Button(box.transform, "", font, 1, () =>
-            {
-                RuntimeArt.PlayUiSwitchSound();
-                Destroy(mapOverlay);
-            });
-            Ui.Rect(closeBtn.gameObject, new Vector2(0.118f, 0.892f), new Vector2(0.118f, 0.892f), new Vector2(60, 60));
-            StyleMapBackButton(closeBtn);
-
-            var titleLabel = Ui.Text(box.transform, "HƯỚNG DẪN", font, 58, new Color(1f, 0.84f, 0.50f), TextAnchor.MiddleCenter);
-            titleLabel.fontStyle = FontStyle.Bold;
-            Ui.Rect(titleLabel, new Vector2(0.5f, 0.886f), new Vector2(0.5f, 0.886f), new Vector2(500, 108));
-            AddDarkWoodTextEdge(titleLabel, 1.0f, 0.86f);
-            AddWarmTitleFinish(titleLabel, 0.48f);
-
-            var topSep = Ui.Panel(box.transform, "TopSep", new Color(0.80f, 0.48f, 0.24f, 0.58f));
-            Ui.Rect(topSep, new Vector2(0.5f, 0.822f), new Vector2(0.5f, 0.822f), new Vector2(620, 4));
-
-            int totalPages = 5;
-            var pageAccentColors = new Color[]
-            {
-                new Color(0.38f, 0.72f, 1.00f, 1f),
-                new Color(0.42f, 0.94f, 0.58f, 1f),
-                new Color(1.00f, 0.84f, 0.30f, 1f),
-                new Color(1.00f, 0.52f, 0.38f, 1f),
-                new Color(0.82f, 0.56f, 1.00f, 1f)
-            };
-            var pageTitles = new[] { "Xếp gạch", "Giành lượt đi", "Thắng bàn cờ", "Đấu 1 vs 1", "Đạn rác 1 vs 1" };
-            var pageContents = new[]
-            {
-                "Kéo khối gạch sang trái hoặc phải\nđể căn vị trí chính xác.\n\nXoay khối cho khớp khoảng trống.\n\nXếp kín hàng ngang để phá dòng.",
-                "Mỗi hàng phá được = 1 lượt đi.\n\nPhá nhiều hàng cùng lúc\n→ càng nhiều lượt đi.\n\nDùng lượt đi để đi quân\ntrên bàn cờ phía trên.",
-                "Dùng lượt đi để di chuyển\nquân của bạn (màu xanh).\n\nBạn đi 1 ô → địch (đỏ) chạy 1 ô,\nquái (tím) đuổi theo 2 ô.\n\nDụ quái bắt được địch → THẮNG.\nĐể quái bắt bạn → THUA.",
-                "GHÉP NHANH với người lạ, hoặc\nTẠO PHÒNG lấy mã 4 số gửi bạn bè.\n\nHai người chơi cùng màn,\ncùng thứ tự khối gạch.\n\nAi xong bàn cờ trước → THẮNG.",
-                "Phá 3 hàng cùng lúc nạp 1 viên rác,\n4 hàng nạp 2 viên (giữ tối đa 3).\n\nBấm nút RÁC để thả một hàng rác\nsang bàn của đối thủ.\n\nCanh bàn mini đối thủ mà bắn!"
-            };
-
-            var pages = new GameObject[totalPages];
-            var dots = new Image[totalPages];
-
-            for (int i = 0; i < totalPages; i++)
-            {
-                int idx = i;
-                var page = Ui.Panel(box.transform, "TutPage" + i, new Color(0, 0, 0, 0));
-                Ui.Rect(page, new Vector2(0.5f, 0.502f), new Vector2(0.5f, 0.502f), new Vector2(620, 480));
-                page.SetActive(i == 0);
-                pages[i] = page;
-
-                var accentColor = pageAccentColors[idx];
-                var numBg = Ui.Panel(page.transform, "NumBg", new Color(accentColor.r, accentColor.g, accentColor.b, 0.18f));
-                Ui.Rect(numBg, new Vector2(0.5f, 0.876f), new Vector2(0.5f, 0.876f), new Vector2(70, 70));
-
-                var numLabel = Ui.Text(page.transform, (idx + 1).ToString(), font, 46, accentColor, TextAnchor.MiddleCenter);
-                numLabel.fontStyle = FontStyle.Bold;
-                Ui.Rect(numLabel, new Vector2(0.5f, 0.876f), new Vector2(0.5f, 0.876f), new Vector2(70, 70));
-                AddDarkWoodTextEdge(numLabel, 0.6f, 0.85f);
-
-                var pTitle = Ui.Text(page.transform, pageTitles[idx], font, 34, new Color(1f, 0.88f, 0.60f), TextAnchor.MiddleCenter);
-                pTitle.fontStyle = FontStyle.Bold;
-                Ui.Rect(pTitle, new Vector2(0.5f, 0.736f), new Vector2(0.5f, 0.736f), new Vector2(560, 52));
-                AddDarkWoodTextEdge(pTitle, 0.9f, 0.86f);
-
-                var pLine = Ui.Panel(page.transform, "PLine", new Color(accentColor.r, accentColor.g, accentColor.b, 0.55f));
-                Ui.Rect(pLine, new Vector2(0.5f, 0.672f), new Vector2(0.5f, 0.672f), new Vector2(340, 4));
-
-                var bodyLabel = Ui.Text(page.transform, pageContents[idx], font, 26, new Color(1f, 0.91f, 0.74f), TextAnchor.MiddleCenter);
-                Ui.Rect(bodyLabel, new Vector2(0.5f, 0.348f), new Vector2(0.5f, 0.348f), new Vector2(560, 290));
-                AddDarkWoodTextEdge(bodyLabel, 0.65f, 0.74f);
-            }
-
-            for (int i = 0; i < totalPages; i++)
-            {
-                var dot = Ui.Panel(box.transform, "Dot" + i, Color.white);
-                Ui.Rect(dot, new Vector2(0.5f + (i - 2) * 0.072f, 0.112f), new Vector2(0.5f + (i - 2) * 0.072f, 0.112f), new Vector2(18, 18));
-                dots[i] = dot.GetComponent<Image>();
-                dots[i].color = i == 0 ? new Color(1f, 0.78f, 0.36f, 1f) : new Color(0.58f, 0.36f, 0.14f, 0.55f);
-            }
-
-            int[] cur = { 0 };
-            System.Action<int> goTo = null;
-            goTo = newIdx =>
-            {
-                if (newIdx < 0 || newIdx >= totalPages) return;
-                pages[cur[0]].SetActive(false);
-                dots[cur[0]].color = new Color(0.58f, 0.36f, 0.14f, 0.55f);
-                cur[0] = newIdx;
-                pages[cur[0]].SetActive(true);
-                dots[cur[0]].color = new Color(1f, 0.78f, 0.36f, 1f);
-            };
-
-            var prevBtn = Ui.Button(box.transform, "<", font, 34, () => { RuntimeArt.PlayUiSwitchSound(); goTo(cur[0] - 1); });
-            Ui.Rect(prevBtn.gameObject, new Vector2(0.152f, 0.112f), new Vector2(0.152f, 0.112f), new Vector2(64, 64));
-            StyleWoodRectButton(prevBtn, 32);
-
-            var nextBtn = Ui.Button(box.transform, ">", font, 34, () => { RuntimeArt.PlayUiSwitchSound(); goTo(cur[0] + 1); });
-            Ui.Rect(nextBtn.gameObject, new Vector2(0.848f, 0.112f), new Vector2(0.848f, 0.112f), new Vector2(64, 64));
-            StyleWoodRectButton(nextBtn, 32);
-        }
+        // Hướng dẫn cũ (overlay gỗ 5 trang) đã bỏ. Thay bằng TUTORIAL TƯƠNG TÁC:
+        // nút "Hướng dẫn" ở menu vào thẳng màn chơi thật (chế độ GameSession.IsTutorial),
+        // đến mốc thì dừng + hiện thẻ hướng dẫn — xem BrickGameController.Tutorial.cs.
     }
 }

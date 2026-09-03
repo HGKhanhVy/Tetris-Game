@@ -316,6 +316,8 @@ namespace BrickStacker
 
             piecesLocked++;
             currentPieceIsSpecial = false;
+            Haptics.Light(); // rung nhẹ xác nhận khối đã khóa
+            feedbacks.Play(GameFeedbackId.PieceLock);
             ClearActive();
             int specialKind = currentSpecialKind;
             currentSpecialKind = 0;
@@ -818,6 +820,7 @@ namespace BrickStacker
                 if (clusters == null)
                     break;
                 chain++;
+                tutorialAnyClear = true; // mốc tutorial: đã ăn cụm đầu tiên
 
                 // Bàn đang hiển thị trạng thái TRƯỚC khi xóa bậc này → cho ô phồng to + mờ dần.
                 Puzzle.GridBridge.Store(puzzleBoard, grid);
@@ -825,6 +828,8 @@ namespace BrickStacker
                 ShowClusterCombo(chain);
                 SpawnClusterBursts(clusters); // nổ tia/khói tại tâm mỗi cụm
                 Beep(720f + chain * 110f, 0.10f, 0.20f);
+                Haptics.Combo(chain); // rung mạnh dần theo cấp combo
+                feedbacks.Play(GameFeedbackId.Combo, transform.position, 1f + (chain - 1) * 0.25f);
                 shake = Mathf.Max(shake, 0.14f);
                 yield return PlayClusterVanishFx(clusters);
 
@@ -850,9 +855,11 @@ namespace BrickStacker
                 foreach (var c in cluster.Cells) { cx += c.x; cy += c.y; n++; }
                 if (n == 0) continue;
                 cx /= n; cy /= n;
+                Vector3 burstPos = PuzzleCellScreenPos(cx, cy);
                 var burst = GetClusterBurst();
                 if (burst != null)
-                    burst.Play(PuzzleCellScreenPos(cx, cy), ClusterBurstColor(cluster.Resource));
+                    burst.Play(burstPos, ClusterBurstColor(cluster.Resource));
+                feedbacks.Play(GameFeedbackId.ClusterClear, burstPos);
             }
         }
 
@@ -1004,6 +1011,10 @@ namespace BrickStacker
             clusterComboRoutine = null;
         }
 
+        // Màu bóng mờ: rất trong + ám tối theo nền bàn (navy) nên nhìn thoáng qua không nhầm với
+        // ô thật. Chỉnh alpha ở đây nếu muốn bóng đậm/nhạt hơn.
+        static readonly Color GhostTint = new Color(0.58f, 0.64f, 0.80f, 0.10f);
+
         void RefreshScenePuzzleBoardUi()
         {
             if (scenePuzzleCells == null)
@@ -1011,15 +1022,20 @@ namespace BrickStacker
 
             RefreshScenePuzzleCellSizes();
 
+            // Một lần gán cho mỗi ô (trước đây xoá rồi vẽ lại -> mỗi ô có gạch bị dirty 2 lần
+            // mỗi khung hình khi kéo, làm canvas rebuild nặng gấp đôi).
             for (int x = 0; x < Width; x++)
             {
                 for (int y = 0; y < Height; y++)
                 {
-                    SetScenePuzzleCell(x, y, Color.clear, -1);
                     if (grid[x, y] > 0)
                     {
                         int pieceType = Mathf.Clamp(grid[x, y] - 1, 0, palette.Length - 1);
                         SetScenePuzzleCell(x, y, Color.white, pieceType);
+                    }
+                    else
+                    {
+                        SetScenePuzzleCell(x, y, Color.clear, -1);
                     }
                 }
             }
@@ -1038,11 +1054,12 @@ namespace BrickStacker
                     if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height || grid[cell.x, cell.y] != 0)
                         continue;
 
-                    // Chế độ cụm: ghost là sprite tài nguyên mờ, đúng loại của từng ô → khớp lúc đáp.
+                    // Chế độ cụm: ghost là sprite tài nguyên MỜ HẲN + tối đi (ám xanh nền bàn) để chỉ
+                    // đọc như "vệt bóng", không bị nhìn nhầm thành ô tài nguyên đã đáp.
                     if (clustersGhost && i < activeResources.Length)
-                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.34f), CellDisplayType(i, activeResources, activeBlank));
+                        SetScenePuzzleCell(cell.x, cell.y, GhostTint, CellDisplayType(i, activeResources, activeBlank));
                     else
-                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.22f), -1);
+                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.07f), -1);
                 }
             }
 
@@ -1214,7 +1231,7 @@ namespace BrickStacker
 
             foreach (var cell in Cells(ghostOrigin, rotation))
             {
-                var block = NewBlock("Ghost Block", new Color(1f, 1f, 1f, 0.22f), ghostRoot);
+                var block = NewBlock("Ghost Block", new Color(1f, 1f, 1f, 0.08f), ghostRoot);
                 block.transform.position = CellToWorld(cell.x, cell.y);
                 block.transform.localScale = Vector3.one * 0.86f;
                 block.GetComponent<SpriteRenderer>().sortingOrder = 5;

@@ -29,12 +29,12 @@ namespace BrickStacker
             BuildCamera();
             BuildBackground();
             BuildUi();
-            PromptNameOnFirstLaunch();
         }
 
         const string NamePromptedKey = "BLOCKFALL_NAME_PROMPTED";
 
-        // Lần đầu vào game (chưa từng hỏi + chưa có tên trên server) → hỏi tên luôn.
+        // Máy mới KHÔNG bị hỏi tên ngay khi mở game: chỉ hỏi ở lần đầu bấm BẮT ĐẦU hoặc 1 VS 1
+        // (xem RunWithPlayerName) — lúc đó người chơi mới thật sự cần tên để lưu điểm.
 
         void BuildCamera()
         {
@@ -124,11 +124,31 @@ namespace BrickStacker
             // Mỗi ảnh có vùng plate đục lệch nhau → cắt về đúng plate rồi đặt vào cùng
             // một kích thước cố định để 4 nút bằng nhau tuyệt đối (crop chuẩn hóa gốc dưới-trái).
             BuildFrameButton(frame.transform, "screen-menu/btn-batdau.png", new Rect(0.0488f, 0.1285f, 0.9015f, 0.7804f), 0.725f, true,
-                () => { RuntimeArt.PlayUiSwitchSound(); SceneManager.LoadScene("BrickLevel"); });
+                () =>
+                {
+                    RuntimeArt.PlayUiSwitchSound();
+                    RunWithPlayerName(panel, () => SceneManager.LoadScene("BrickLevel"));
+                });
             BuildFrameButton(frame.transform, "screen-menu/btn-1vs1.png", new Rect(0.0488f, 0.1050f, 0.9052f, 0.8232f), 0.575f, false,
-                () => { RuntimeArt.PlayUiSwitchSound(); MultiplayerManager.PrewarmQuickQuery(); ShowMultiplayerOverlay(panel); });
+                () =>
+                {
+                    RuntimeArt.PlayUiSwitchSound();
+                    RunWithPlayerName(panel, () =>
+                    {
+                        MultiplayerManager.PrewarmQuickQuery();
+                        ShowMultiplayerOverlay(panel);
+                    });
+                });
             BuildFrameButton(frame.transform, "screen-menu/btn-huongdan.png", new Rect(0.0345f, 0.0801f, 0.9346f, 0.8066f), 0.425f, false,
-                () => { RuntimeArt.PlayUiSwitchSound(); ShowTutorialOverlay(panel); });
+                () =>
+                {
+                    RuntimeArt.PlayUiSwitchSound();
+                    // Tutorial tương tác: vào màn 1 (quái đứng yên) ở chế độ hướng dẫn.
+                    GameSession.IsTutorial = true;
+                    GameSession.SelectedLevel = 1;
+                    GameSession.JourneyLevel = 1;
+                    SceneManager.LoadScene("BrickGame");
+                });
             BuildFrameButton(frame.transform, "screen-menu/btn-bxh.png", new Rect(0.0580f, 0.1091f, 0.8840f, 0.7831f), 0.275f, false,
                 () => { RuntimeArt.PlayUiSwitchSound(); ShowLeaderboardOverlay(panel); });
         }
@@ -226,6 +246,8 @@ namespace BrickStacker
         // và QUICK MATCH (vàng), nút X đỏ góc phải, hai nhân vật xanh/đỏ hai bên.
         // Vẫn giữ Tạo phòng + Xem thử dạng nút phụ nhỏ dưới panel để không mất tính năng.
         const string V1V1 = "popup-1vs1/";
+        const string PAUSEUI = "popup-pause/";
+        const string STARTUI = "popup-start/";
 
         // 4 ô nhập mã: mỗi ô là sprite input-number với 1 chữ số; một InputField ẩn bắt phím,
         // onValueChanged đổ từng chữ số vào 4 ô. Bấm bất kỳ ô nào cũng focus để gõ.
@@ -325,10 +347,12 @@ namespace BrickStacker
 
     public partial class BrickGameController : MonoBehaviour
     {
-        // Khớp lưới IN của khung frame-xepgach: 7 cột (đo chắc). Hàng = 17: Height=19 làm khối thấp
-        // hơn ô khung, Height=15 làm cao hơn → 17 khớp (ô vuông trong sprite 1165/68≈17). Khác GD.
-        const int Width = 7;
-        const int Height = 17;
+        // 9 cột × 11 hàng. Khung bàn giữ nguyên kích thước, bớt 2 hàng so với trước (13) để MỖI Ô
+        // to hơn ~18% theo chiều dọc và gần vuông (khung có tỉ lệ trong ~0.84, lưới 9/11 = 0.82)
+        // → khối tài nguyên nhìn rõ, sprite hết bị kéo bẹt. Tốc rơi giảm tương ứng ở
+        // TacticalLevelData.InitialFallSpeed để nhịp chơi không bị gấp lên.
+        const int Width = 9;
+        const int Height = 11;
         readonly Color[] palette =
         {
             new Color(0.34f, 0.86f, 0.86f), new Color(0.34f, 0.62f, 0.98f), new Color(1.00f, 0.48f, 0.20f),
@@ -492,6 +516,13 @@ namespace BrickStacker
         Text offlineMoveValue;
         Text offlineShieldValue;
         bool offlineInfoBuilt;
+        RectTransform panelTopRect;   // HUD banner trên cùng (panel-top.png)
+        bool panelTopBuilt;
+        Text panelTimerText;          // giữa: thời gian trận
+        Image panelTimerRing;         // vòng cung đếm ngược quanh đồng hồ (đầy = hết giờ)
+        Text panelScoreText;          // khe phải: điểm
+        Text panelMoveValue;          // khe trái: Giày (lượt)
+        Text panelShieldValue;        // khe trái: Khiên
         RectTransform scenePuzzleBoardAnchorRect;
         RectTransform sceneTacticalBoardRect;
         Image[,] scenePuzzleCells;
@@ -509,6 +540,8 @@ namespace BrickStacker
         float gestureStartTime;
         float gameplayTime;
         bool gestureTracking;
+        float gestureDragStep;
+        readonly Vector3[] puzzleCornerBuffer = new Vector3[4];
         bool gestureMoved;
         bool gestureMovedHorizontally;
         bool movedHorizontallyThisFrame;
@@ -545,6 +578,7 @@ namespace BrickStacker
         int lines;
         int levelLines;
         int levelStartScore;
+        bool levelScoreBanked;   // đã cộng điểm lần chơi này vào cúp chưa
         int journeyLevel;
         int starsEarned;
         int rotationsThisLevel;
@@ -553,9 +587,9 @@ namespace BrickStacker
         int combo;
         int maxComboThisLevel;
         int piecesLocked;
-        // Ghost preview is a learning aid: visible only for the first few pieces.
-        const int GhostPreviewPieces = 3;
-        bool GhostVisible => rules.GhostPreview && piecesLocked < GhostPreviewPieces;
+        // Bóng mờ hiện XUYÊN SUỐT ván (không giới hạn vài khối đầu): người chơi luôn nhìn được
+        // điểm đáp của khối, đỡ đoán mò khi bàn đã cao.
+        bool GhostVisible => rules.GhostPreview;
         int lastRisingDangerTick;
         bool gameOver;
         bool paused;
@@ -570,6 +604,7 @@ namespace BrickStacker
         void Start()
         {
             RuntimeArt.ResetTacticalSpriteCache();
+            SetupFeedbacks();
             font = RuntimeArt.LoadUiFont();
             titleFont = RuntimeArt.LoadDisplayFont();
             journeyLevel = Mathf.Max(1, GameSession.JourneyLevel);
@@ -580,16 +615,23 @@ namespace BrickStacker
             blockSprite = RuntimeArt.CreateBlockSprite();
             pieceBlockSprites = RuntimeArt.LoadPieceBlockSprites();
             resourceSprites = RuntimeArt.LoadResourceSprites();
+            // Chế độ tutorial (offline): đọc cờ 1 lần rồi tắt để màn thường sau đó không dính.
+            bool isTutorial = GameSession.IsTutorial && !MultiplayerMatch.Active;
+            GameSession.IsTutorial = false;
+
             BuildWorld();
             BuildUi();
             // Trận 1v1 không có khái niệm màn/sao — vào thẳng, khỏi popup nhiệm vụ.
-            BeginLevelMission(!MultiplayerMatch.Active);
+            // Tutorial cũng bỏ popup nhiệm vụ để thẻ hướng dẫn là thứ đầu tiên hiện.
+            BeginLevelMission(!MultiplayerMatch.Active && !isTutorial);
             // Trận 1v1: cùng seed để hai bên nhận chuỗi khối giống nhau.
             if (MultiplayerMatch.Active)
                 UnityEngine.Random.InitState(MultiplayerMatch.Seed);
             FillBag();
             SpawnPiece();
             UpdateUi();
+            if (isTutorial)
+                TutorialBegin();
         }
 
         void SetupModeRules()
@@ -604,6 +646,7 @@ namespace BrickStacker
                 ConfigureResponsiveCamera();
 
             RefreshSceneHud();
+            UpdateGameplayInputBlock();
 
             if (MultiplayerMatch.Active)
             {
@@ -629,10 +672,12 @@ namespace BrickStacker
                 return;
             }
 
+            TutorialTick(); // tới mốc hướng dẫn thì hiện thẻ + đóng băng (tutorialHold)
+
             if (KeyPressed(KeyCode.P, Key.P) || KeyPressed(KeyCode.Escape, Key.Escape))
                 TogglePause();
 
-            if (paused || resolving)
+            if (paused || resolving || tutorialHold)
                 return;
 
             // Offline (design §2.5): quái tự đi theo timer thực, tạo áp lực thời gian
@@ -971,26 +1016,31 @@ namespace BrickStacker
 
             pauseOverlay = Ui.Panel(canvas.transform, "Pause Overlay", new Color(0, 0, 0, 0.65f));
             Ui.Stretch(pauseOverlay);
+            MakePopupOverlayCanvas(pauseOverlay, 20000);
             BuildPausePopup(pauseOverlay.transform);
             pauseOverlay.SetActive(false);
 
             gameOverOverlay = Ui.Panel(canvas.transform, "Game Over Overlay", new Color(0, 0, 0, 0.68f));
             Ui.Stretch(gameOverOverlay);
+            MakePopupOverlayCanvas(gameOverOverlay, 20100);
             BuildGameOverPopup(gameOverOverlay.transform);
             gameOverOverlay.SetActive(false);
 
             gameLoseOverlay = Ui.Panel(canvas.transform, "Game Lose Overlay", new Color(0.01f, 0.02f, 0.05f, 0.992f));
             Ui.Stretch(gameLoseOverlay);
+            MakePopupOverlayCanvas(gameLoseOverlay, 20100);
             BuildGameLosePopup(gameLoseOverlay.transform);
             gameLoseOverlay.SetActive(false);
 
             missionOverlay = Ui.Panel(canvas.transform, "Mission Overlay", new Color(0, 0, 0, 0.70f));
             Ui.Stretch(missionOverlay);
+            MakePopupOverlayCanvas(missionOverlay, 20050);
             BuildMissionPopup(missionOverlay.transform);
             missionOverlay.SetActive(false);
 
             levelClearOverlay = Ui.Panel(canvas.transform, "Level Clear Overlay", new Color(0.01f, 0.02f, 0.05f, 0.992f));
             Ui.Stretch(levelClearOverlay);
+            MakePopupOverlayCanvas(levelClearOverlay, 20200);
             BuildLevelClearPopup(levelClearOverlay.transform);
             levelClearOverlay.SetActive(false);
 
@@ -1053,7 +1103,7 @@ namespace BrickStacker
             pauseButton = EnsureSceneButton(FindChildLooseActive(contentRoot, "PauseButton") ?? FindChildInAnyCanvas("PauseButton"), TogglePause);
             pauseButtonRect = pauseButton != null ? pauseButton.GetComponent<RectTransform>() : null;
 
-            rotateButton = EnsureSceneButton(FindChildLooseActive(contentRoot, "RotateButton") ?? FindChildInAnyCanvas("RotateButton"), RotateFromButton);
+            rotateButton = EnsureSceneButton(FindChildLooseActive(contentRoot, "RotateButton") ?? FindChildInAnyCanvas("RotateButton"), RotateFromButton, true);
             rotateButtonRect = rotateButton != null ? rotateButton.GetComponent<RectTransform>() : null;
 
             Transform nextPreview = FindChildLoose(contentRoot, "NextPreview") ?? FindChildLoose(contentRoot, "NextPanel");
@@ -1084,26 +1134,31 @@ namespace BrickStacker
 
             pauseOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Pause Overlay", new Color(0, 0, 0, 0.65f));
             Ui.Stretch(pauseOverlay);
+            MakePopupOverlayCanvas(pauseOverlay, 20000);
             BuildPausePopup(pauseOverlay.transform);
             pauseOverlay.SetActive(false);
 
             gameOverOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Game Over Overlay", new Color(0, 0, 0, 0.68f));
             Ui.Stretch(gameOverOverlay);
+            MakePopupOverlayCanvas(gameOverOverlay, 20100);
             BuildGameOverPopup(gameOverOverlay.transform);
             gameOverOverlay.SetActive(false);
 
             gameLoseOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Game Lose Overlay", new Color(0.01f, 0.02f, 0.05f, 0.992f));
             Ui.Stretch(gameLoseOverlay);
+            MakePopupOverlayCanvas(gameLoseOverlay, 20100);
             BuildGameLosePopup(gameLoseOverlay.transform);
             gameLoseOverlay.SetActive(false);
 
             missionOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Mission Overlay", new Color(0, 0, 0, 0.70f));
             Ui.Stretch(missionOverlay);
+            MakePopupOverlayCanvas(missionOverlay, 20050);
             BuildMissionPopup(missionOverlay.transform);
             missionOverlay.SetActive(false);
 
             levelClearOverlay = Ui.Panel(sceneGameplayCanvas.transform, "Level Clear Overlay", new Color(0.01f, 0.02f, 0.05f, 0.992f));
             Ui.Stretch(levelClearOverlay);
+            MakePopupOverlayCanvas(levelClearOverlay, 20200);
             BuildLevelClearPopup(levelClearOverlay.transform);
             levelClearOverlay.SetActive(false);
 
@@ -1264,7 +1319,8 @@ namespace BrickStacker
             return child.GetComponent<TMP_Text>() ?? child.GetComponentInChildren<TMP_Text>(true);
         }
 
-        Button EnsureSceneButton(Transform target, Action action)
+        // fireOnPress: bắn hành động ngay lúc chạm xuống (nút XOAY) thay vì lúc nhả tay.
+        Button EnsureSceneButton(Transform target, Action action, bool fireOnPress = false)
         {
             if (target == null)
                 return null;
@@ -1284,11 +1340,27 @@ namespace BrickStacker
 
             button.interactable = true;
             button.onClick.RemoveAllListeners();
-            button.onClick.AddListener(() =>
+            var instantPress = target.GetComponent<InstantPressButton>();
+            if (fireOnPress)
             {
-                RuntimeArt.PlayUiSwitchSound();
-                action?.Invoke();
-            });
+                if (instantPress == null)
+                    instantPress = target.gameObject.AddComponent<InstantPressButton>();
+                instantPress.Pressed = () =>
+                {
+                    RuntimeArt.PlayUiSwitchSound();
+                    action?.Invoke();
+                };
+            }
+            else
+            {
+                if (instantPress != null)
+                    Destroy(instantPress);
+                button.onClick.AddListener(() =>
+                {
+                    RuntimeArt.PlayUiSwitchSound();
+                    action?.Invoke();
+                });
+            }
 
             if (target.TryGetComponent<PressScaleFeedback>(out var existing))
                 Destroy(existing);
@@ -1308,6 +1380,65 @@ namespace BrickStacker
 #else
             eventSystem.AddComponent<StandaloneInputModule>();
 #endif
+        }
+
+        // Popup phải nằm TRÊN mọi canvas con của vùng chơi (bàn cờ có canvas + raycaster riêng).
+        // Không ép sortingOrder thì thứ tự raycast giữa các canvas cùng order là không xác định:
+        // chạm vào popup có thể lọt xuống nút/ô bàn cờ phía dưới.
+        static void MakePopupOverlayCanvas(GameObject overlay, int sortingOrder)
+        {
+            if (overlay == null)
+                return;
+
+            var canvas = overlay.GetComponent<Canvas>();
+            if (canvas == null)
+                canvas = overlay.AddComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = sortingOrder;
+            if (overlay.GetComponent<GraphicRaycaster>() == null)
+                overlay.AddComponent<GraphicRaycaster>();
+        }
+
+        // === Khóa chạm vùng chơi khi đang có popup ===
+        CanvasGroup gameplayInputGroup;
+        bool gameplayInputBlocked;
+
+        static bool IsOverlayOpen(GameObject overlay)
+        {
+            return overlay != null && overlay.activeSelf;
+        }
+
+        bool ShouldBlockGameplayInput()
+        {
+            return tutorialHold
+                || IsOverlayOpen(missionOverlay)
+                || IsOverlayOpen(pauseOverlay)
+                || IsOverlayOpen(gameOverOverlay)
+                || IsOverlayOpen(gameLoseOverlay)
+                || IsOverlayOpen(levelClearOverlay);
+        }
+
+        // Popup mở = vùng chơi ngừng nhận chạm hoàn toàn (bàn cờ, nút xoay, nút tạm dừng).
+        // Chỉ ghi khi trạng thái ĐỔI nên chi phí mỗi khung hình gần như bằng 0.
+        void UpdateGameplayInputBlock()
+        {
+            bool blocked = ShouldBlockGameplayInput();
+            if (gameplayInputGroup == null)
+            {
+                if (safeAreaRoot == null)
+                    return;
+                gameplayInputGroup = safeAreaRoot.GetComponent<CanvasGroup>();
+                if (gameplayInputGroup == null)
+                    gameplayInputGroup = safeAreaRoot.gameObject.AddComponent<CanvasGroup>();
+                gameplayInputBlocked = !blocked; // ép áp dụng ngay ở lần đầu
+            }
+
+            if (blocked == gameplayInputBlocked)
+                return;
+
+            gameplayInputBlocked = blocked;
+            gameplayInputGroup.blocksRaycasts = !blocked;
+            gameplayInputGroup.interactable = !blocked;
         }
 
         // Canvas con cô lập vùng UI hay thay đổi — canvas cha không phải rebuild
@@ -1412,6 +1543,7 @@ namespace BrickStacker
 
         int hudCachedMoveBank = int.MinValue;
         int hudCachedShield = int.MinValue;
+        int hudCachedTimerSec = int.MinValue;
         int hudCachedPlayLeft = int.MinValue;
         int hudCachedLevel = -1;
         bool hudCachedMultiplayer;
@@ -1460,10 +1592,45 @@ namespace BrickStacker
                         ? "Lượt đi: " + moveBank + shieldPart + "   Quái đi sau: " + monsterSecond + "s" + timePart
                         : "Lượt đi: " + moveBank + shieldPart;
                 }
-                // Panel TÀI NGUYÊN bên trái (offline).
+                // Panel TÀI NGUYÊN bên trái (offline) — nếu còn dùng.
                 if (offlineMoveValue != null) offlineMoveValue.text = moveBank.ToString();
                 if (offlineShieldValue != null) offlineShieldValue.text = shieldLayers.ToString();
+                // Banner trên: khe trái = Giày (lượt) + Khiên.
+                if (panelMoveValue != null) panelMoveValue.text = moveBank.ToString();
+                if (panelShieldValue != null) panelShieldValue.text = shieldLayers.ToString();
             }
+
+            // Banner trên: giữa = thời gian trận ĐẾM NGƯỢC về 0 (mỗi màn khác nhau theo độ
+            // khó qua MaxPlaySeconds), khe phải = điểm. Hết giờ = thua (chống chơi quá lâu).
+            if (panelTimerText != null)
+            {
+                float maxPlaySec = rules != null && rules.TacticalData != null ? rules.TacticalData.MaxPlaySeconds : 0f;
+                int sec = maxPlaySec > 0f
+                    ? Mathf.CeilToInt(Mathf.Max(0f, maxPlaySec - gameplayTime))
+                    : Mathf.FloorToInt(Mathf.Max(0f, gameplayTime));
+                if (sec != hudCachedTimerSec)
+                {
+                    hudCachedTimerSec = sec;
+                    panelTimerText.text = sec.ToString();   // dạng 1 số (giây còn lại)
+                }
+                // Vòng cung: fillAmount = phần thời gian đã trôi (đầy = hết giờ). Đổi màu
+                // xanh -> vàng -> đỏ khi sắp hết để cảnh báo. Chỉ chạy khi màn có giới hạn giờ.
+                if (panelTimerRing != null && maxPlaySec > 0f)
+                {
+                    float elapsed = Mathf.Clamp01(gameplayTime / maxPlaySec);
+                    if (!Mathf.Approximately(panelTimerRing.fillAmount, elapsed))
+                    {
+                        panelTimerRing.fillAmount = elapsed;
+                        Color ringColor = elapsed < 0.6f
+                            ? Color.Lerp(new Color(0.55f, 1f, 0.55f), new Color(1f, 0.85f, 0.3f), elapsed / 0.6f)
+                            : Color.Lerp(new Color(1f, 0.85f, 0.3f), new Color(1f, 0.3f, 0.25f), (elapsed - 0.6f) / 0.4f);
+                        ringColor.a = 1f;
+                        panelTimerRing.color = ringColor;
+                    }
+                }
+            }
+            if (panelScoreText != null && panelScoreText.text != score.ToString())
+                panelScoreText.text = score.ToString();
 
             if (sceneNextText != null && sceneNextText.text != "TIẾP")
                 sceneNextText.text = "TIẾP";
@@ -1873,13 +2040,16 @@ namespace BrickStacker
                 gestureTracking = true;
                 gestureMoved = false;
                 gestureMovedHorizontally = false;
+                // Bước kéo = bề rộng THẬT của 1 ô trên màn hình -> khối bám sát ngón tay (1:1).
+                // Đo một lần lúc chạm xuống: bàn không đổi kích thước giữa chừng một cú kéo.
+                gestureDragStep = PuzzleCellDragStep();
                 return;
             }
 
             if (!gestureTracking)
                 return;
 
-            float dragStep = Mathf.Min(Screen.width, Screen.height) * 0.055f;
+            float dragStep = gestureDragStep > 1f ? gestureDragStep : PuzzleCellDragStep();
             Vector2 dragDelta = position - gestureLastPosition;
 
             while (Mathf.Abs(dragDelta.x) >= dragStep && Mathf.Abs(dragDelta.x) > Mathf.Abs(dragDelta.y) * 0.55f)
@@ -1912,6 +2082,27 @@ namespace BrickStacker
             {
                 HardDrop();
             }
+        }
+
+        // Bề rộng (px màn hình) của MỘT ô bàn xếp gạch. Kéo đúng 1 ô = khối đi 1 ô nên cảm giác
+        // dính tay; hệ số 0.92 cho khối nhỉnh hơn ngón một chút, không bị "đuối" khi vuốt nhanh.
+        float PuzzleCellDragStep()
+        {
+            float fallback = Mathf.Min(Screen.width, Screen.height) * 0.055f;
+            if (scenePuzzleGridRect == null)
+                return fallback;
+
+            scenePuzzleGridRect.GetWorldCorners(puzzleCornerBuffer);
+            Camera uiCamera = sceneGameplayCanvas != null && sceneGameplayCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? sceneGameplayCanvas.worldCamera
+                : null;
+            Vector2 left = RectTransformUtility.WorldToScreenPoint(uiCamera, puzzleCornerBuffer[0]);
+            Vector2 right = RectTransformUtility.WorldToScreenPoint(uiCamera, puzzleCornerBuffer[3]);
+            float boardWidthPx = Mathf.Abs(right.x - left.x);
+            if (boardWidthPx < 1f)
+                return fallback;
+
+            return Mathf.Max(8f, boardWidthPx / Width * 0.92f);
         }
 
         bool PointerOverInteractiveUi(Vector2 position)
@@ -2209,17 +2400,40 @@ namespace BrickStacker
                 Destroy(target);
         }
 
+        // Cache clip theo (tần số, độ dài, âm lượng): Beep được gọi ở MỌI bước di chuyển/xoay,
+        // tạo clip mới mỗi lần sẽ cấp phát mảng float + AudioClip liên tục -> GC dồn cục làm khựng
+        // tay kéo. Bộ tham số chỉ có vài giá trị cố định nên cache là đủ (không phình bộ nhớ).
+        readonly Dictionary<int, AudioClip> beepClipCache = new Dictionary<int, AudioClip>();
+
         void Beep(float frequency, float seconds, float volume)
         {
-            var clip = AudioClip.Create("beep", Mathf.CeilToInt(44100 * seconds), 1, 44100, false);
-            var data = new float[clip.samples];
+            if (audioSource == null)
+                return;
+
+            AudioClip clip = GetBeepClip(frequency, seconds, volume);
+            if (clip != null)
+                audioSource.PlayOneShot(clip);
+        }
+
+        AudioClip GetBeepClip(float frequency, float seconds, float volume)
+        {
+            int key = Mathf.RoundToInt(frequency) * 1000000
+                + Mathf.RoundToInt(seconds * 1000f) * 1000
+                + Mathf.RoundToInt(volume * 100f);
+            if (beepClipCache.TryGetValue(key, out var cached))
+                return cached;
+
+            int samples = Mathf.Max(1, Mathf.CeilToInt(44100 * seconds));
+            var clip = AudioClip.Create("beep", samples, 1, 44100, false);
+            var data = new float[samples];
             for (int i = 0; i < data.Length; i++)
             {
                 float fade = 1f - i / (float)data.Length;
                 data[i] = Mathf.Sin(2f * Mathf.PI * frequency * i / 44100f) * fade * volume;
             }
             clip.SetData(data, 0);
-            audioSource.PlayOneShot(clip);
+            beepClipCache[key] = clip;
+            return clip;
         }
 
         void StartBackgroundMusic()

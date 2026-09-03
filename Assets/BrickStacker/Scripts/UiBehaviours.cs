@@ -284,6 +284,47 @@ namespace BrickStacker
         }
     }
 
+    // Chạm vào ô nhập là bôi đen sẵn TOÀN BỘ nội dung -> gõ tên mới đè thẳng lên tên cũ,
+    // khỏi phải xoá từng ký tự. Phải đợi 1 khung hình vì InputField tự đặt lại con trỏ
+    // sau khi xử lý cú chạm.
+    public class InputSelectAllOnFocus : MonoBehaviour, IPointerClickHandler, ISelectHandler
+    {
+        public InputField Field;
+
+        public void OnPointerClick(PointerEventData eventData) => SelectAll();
+
+        public void OnSelect(BaseEventData eventData) => SelectAll();
+
+        void SelectAll()
+        {
+            if (Field == null || string.IsNullOrEmpty(Field.text) || !isActiveAndEnabled)
+                return;
+            StopAllCoroutines();
+            StartCoroutine(SelectAllNextFrame());
+        }
+
+        System.Collections.IEnumerator SelectAllNextFrame()
+        {
+            yield return null;
+            if (Field == null)
+                yield break;
+            Field.MoveTextStart(false);
+            Field.MoveTextEnd(true);
+        }
+    }
+
+    // Nút bắn hành động NGAY khi ngón chạm xuống. Button chuẩn của Unity chỉ bắn onClick lúc
+    // NHẢ tay, nên nút XOAY bị cảm giác trễ khi chơi nhanh (bấm - chờ - mới xoay).
+    public class InstantPressButton : MonoBehaviour, IPointerDownHandler
+    {
+        public System.Action Pressed;
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            Pressed?.Invoke();
+        }
+    }
+
     public class PressScaleFeedback : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
     {
         public float PressedScale = 0.94f;

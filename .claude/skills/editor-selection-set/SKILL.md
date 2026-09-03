@@ -62,7 +62,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },
@@ -70,6 +70,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
         "instanceID"
       ],
       "description": "Reference to UnityEngine.Object instance. It could be GameObject, Component, Asset, etc. Anything extended from UnityEngine.Object."
+    },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
     },
     "AIGD.ObjectRef-1": {
       "type": "array",
@@ -109,7 +113,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If it is '0' and 'path', 'name', 'assetPath' and 'assetGuid' is not provided, empty or null, then it will be used as 'null'. Priority: 1 (Recommended)"
         },
         "path": {
@@ -138,6 +142,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       ],
       "description": "Find GameObject in opened Prefab or in the active Scene."
     },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
     "System.Type": {
       "type": "string"
     },
@@ -160,7 +168,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
           "description": "Component type full name. Sample 'UnityEngine.Transform'. If the gameObject has two components of the same type, the output component is unpredictable. Priority: 3. Default value is null."
         },
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },
@@ -170,10 +178,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       ],
       "description": "Component reference. Used to find a Component at GameObject."
     },
-    "System.Int32-1": {
+    "UnityEngine.EntityId-1": {
       "type": "array",
       "items": {
-        "type": "integer"
+        "$ref": "#/$defs/UnityEngine.EntityId"
       }
     },
     "System.String-1": {
@@ -186,7 +194,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },
@@ -207,8 +215,8 @@ Read the /unity-initial-setup skill for detailed installation instructions.
           "description": "Returns the top level selection, excluding Prefabs."
         },
         "InstanceIDs": {
-          "$ref": "#/$defs/System.Int32-1",
-          "description": "The actual unfiltered selection from the Scene returned as instance ids instead of objects."
+          "$ref": "#/$defs/UnityEngine.EntityId-1",
+          "description": "The actual unfiltered selection from the Scene returned as entity IDs instead of objects."
         },
         "AssetGUIDs": {
           "$ref": "#/$defs/System.String-1",
@@ -219,8 +227,8 @@ Read the /unity-initial-setup skill for detailed installation instructions.
           "description": "Returns the active game object. (The one shown in the inspector)."
         },
         "ActiveInstanceID": {
-          "type": "integer",
-          "description": "Returns the instanceID of the actual object selection. Includes Prefabs, non-modifiable objects"
+          "$ref": "#/$defs/UnityEngine.EntityId",
+          "description": "Returns the entity ID of the actual object selection. Includes Prefabs, non-modifiable objects"
         },
         "ActiveObject": {
           "$ref": "#/$defs/AIGD.ObjectRef",

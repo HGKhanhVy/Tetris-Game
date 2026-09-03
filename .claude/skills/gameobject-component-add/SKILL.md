@@ -70,6 +70,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
         "type": "string"
       }
     },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
     "System.Type": {
       "type": "string"
     },
@@ -77,7 +81,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If it is '0' and 'path', 'name', 'assetPath' and 'assetGuid' is not provided, empty or null, then it will be used as 'null'. Priority: 1 (Recommended)"
         },
         "path": {
@@ -137,7 +141,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer"
+          "$ref": "#/$defs/UnityEngine.EntityId"
         },
         "typeName": {
           "type": "string"
@@ -155,6 +159,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
         "instanceID",
         "isEnabled"
       ]
+    },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
     },
     "System.Collections.Generic.List(System.String)": {
       "type": "array",

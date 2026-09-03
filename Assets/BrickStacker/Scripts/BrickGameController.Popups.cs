@@ -647,6 +647,7 @@ namespace BrickStacker
             GameSession.JourneyLevel = journeyLevel;
             levelLines = 0;
             levelStartScore = score;
+            levelScoreBanked = false;
             maxComboThisLevel = 0;
             combo = 0;
             rotationsThisLevel = 0;
@@ -739,9 +740,13 @@ namespace BrickStacker
             LevelProgress.SaveLevelResult(journeyLevel, starsEarned);
             LevelProgress.SaveLevelBestScore(journeyLevel, score);
             LevelProgress.AddCoins(rules.CoinReward);
+            BankLevelScore();
             PlayerPrefs.Save();
             CloudSaveSync.Push();
-            LeaderboardsSync.SubmitScore(score);
+            // Cúp = điểm CỘNG DỒN (gửi SAU khi đã cộng điểm lần chơi này).
+            LeaderboardsSync.SubmitScore(LevelProgress.TotalScore);
+            Haptics.Success(); // rung "thành công" khi thắng màn
+            feedbacks.Play(GameFeedbackId.LevelWin);
 
             // Sao đạt sáng, sao chưa đạt mờ.
             SetLevelClearStars(starsEarned);
@@ -867,11 +872,13 @@ namespace BrickStacker
             ClearActive();
             statusText.text = "";
 
-            // BXH: gửi điểm NGAY CẢ KHI THUA (offline) để bảng có dữ liệu (cúp = điểm cao nhất tuần).
+            // BXH: điểm kiếm được vẫn tính NGAY CẢ KHI THUA (offline) — cúp là điểm cộng dồn.
             if (!MultiplayerMatch.Active && score > 0)
             {
                 LevelProgress.SaveLevelBestScore(journeyLevel, score);
-                LeaderboardsSync.SubmitScore(score);
+                BankLevelScore();
+                PlayerPrefs.Save();
+                LeaderboardsSync.SubmitScore(LevelProgress.TotalScore);
             }
 
             // Thua (không phải 1v1): màn hình THẤT BẠI mới.
@@ -882,6 +889,8 @@ namespace BrickStacker
                 gameLoseOverlay.SetActive(true);
                 shake = 0.2f;
                 RuntimeArt.PlayGameOverSound();
+                Haptics.Failure(); // rung "thất bại" khi thua
+                feedbacks.Play(GameFeedbackId.LevelLose);
                 return;
             }
 
@@ -909,6 +918,16 @@ namespace BrickStacker
             return "Điểm  " + score;
         }
 
+        // Cộng phần điểm kiếm được trong LẦN CHƠI NÀY vào cúp. Cờ levelScoreBanked bảo đảm mỗi
+        // lần chơi chỉ cộng một lần (thắng rồi thua tiếp / gọi trùng đường đều không cộng đôi).
+        void BankLevelScore()
+        {
+            if (levelScoreBanked || MultiplayerMatch.Active)
+                return;
+            levelScoreBanked = true;
+            LevelProgress.AddScore(Mathf.Max(0, score - levelStartScore));
+        }
+
         void BackToMenu()
         {
             Time.timeScale = 1f;
@@ -923,6 +942,11 @@ namespace BrickStacker
         void TogglePause()
         {
             if (gameOver)
+                return;
+            // Đang có popup khác (nhiệm vụ / thắng / thua) thì bỏ qua: trước đây một cú chạm lọt
+            // xuống nút tạm dừng (hoặc phím ESC) sẽ cho game chạy tiếp NGAY DƯỚI popup.
+            if (IsOverlayOpen(missionOverlay) || IsOverlayOpen(levelClearOverlay)
+                || IsOverlayOpen(gameLoseOverlay) || IsOverlayOpen(gameOverOverlay))
                 return;
             paused = !paused;
             Time.timeScale = paused ? 0f : 1f;

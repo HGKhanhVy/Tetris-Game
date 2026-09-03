@@ -155,41 +155,6 @@ Không sửa code cũ nếu chỉ đang thêm behavior mới.
 
 ---
 
-## LSP
-
-Class con phải thay thế được class cha.
-
-Không override làm thay đổi ý nghĩa của class gốc.
-
----
-
-## ISP
-
-Không tạo interface quá lớn.
-
-Một interface chỉ nên chứa các chức năng liên quan.
-
----
-
-## DIP
-
-Class cấp cao không phụ thuộc class cấp thấp.
-
-Luôn phụ thuộc abstraction.
-
-Ví dụ:
-
-```csharp
-IRewardService
-```
-
-thay vì
-
-```csharp
-RewardService
-```
-
----
 
 # 4. Design Pattern
 
@@ -419,67 +384,7 @@ Không dùng Singleton cho Gameplay Object.
 
 ---
 
-# 10. Refactor
+# 10. Nguyên tắc bắt buộc
 
-Nếu một class:
-
-* Quá dài
-* Quá nhiều if
-* Quá nhiều switch
-* Thường xuyên phải sửa khi thêm feature
-* Có nhiều trách nhiệm
-
-=> Phải refactor.
-
-Ưu tiên:
-
-* Tách class
-* Tách method
-* Tách interface
-* Tách service
-
-Không copy-paste code.
-
-Ưu tiên tái sử dụng.
-
-Áp dụng nguyên tắc **DRY (Don't Repeat Yourself)** và **KISS (Keep It Simple, Stupid)**.
-
----
-
-# 11. Nguyên tắc bắt buộc
-
-Mỗi đoạn code trước khi trả lời phải tự kiểm tra:
-
-* Có vi phạm SOLID không?
-* Có runtime lookup không?
-* Có Destroy không?
-* Có thể dùng Pool không?
-* Có đang over-engineer không?
-* Có thể mở rộng dễ dàng không?
-* Có đúng SRP không?
-* Có đúng OCP không?
-* Có tạo GC không cần thiết không?
-* Có tách View và Logic chưa?
-* Có thể tái sử dụng không?
-* Có tối ưu cho Mobile không?
-
+Trước khi trả lời, tự kiểm tra mọi đoạn code theo toàn bộ các quy tắc từ mục 1 đến 9 ở trên.
 Nếu phát hiện vi phạm, hãy tự refactor trước khi trả lời.
-
----
-
-# 12. Mục tiêu cuối cùng
-
-Luôn sinh ra code có các đặc điểm sau:
-
-* Dễ đọc.
-* Dễ bảo trì.
-* Dễ mở rộng.
-* Hiệu năng cao.
-* Hạn chế GC.
-* Hạn chế Coupling.
-* Cohesion cao.
-* Chuẩn SOLID.
-* Chuẩn Design Pattern.
-* Data-driven.
-* Tối ưu cho Unity Mobile.
-* Sẵn sàng cho production.

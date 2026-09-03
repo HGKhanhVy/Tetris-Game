@@ -92,6 +92,10 @@ Any unknown or invalid fields and properties will be reported in the response. |
     }
   },
   "$defs": {
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
     "System.Type": {
       "type": "string"
     },
@@ -99,7 +103,7 @@ Any unknown or invalid fields and properties will be reported in the response. |
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If it is '0' and 'path', 'name', 'assetPath' and 'assetGuid' is not provided, empty or null, then it will be used as 'null'. Priority: 1 (Recommended)"
         },
         "path": {
@@ -140,7 +144,7 @@ Any unknown or invalid fields and properties will be reported in the response. |
           "description": "Component type full name. Sample 'UnityEngine.Transform'. If the gameObject has two components of the same type, the output component is unpredictable. Priority: 3. Default value is null."
         },
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },
@@ -244,7 +248,7 @@ Any unknown or invalid fields and properties will be reported in the response. |
           "description": "Component type full name. Sample 'UnityEngine.Transform'. If the gameObject has two components of the same type, the output component is unpredictable. Priority: 3. Default value is null."
         },
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },
@@ -254,11 +258,15 @@ Any unknown or invalid fields and properties will be reported in the response. |
       ],
       "description": "Component reference. Used to find a Component at GameObject."
     },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
     "AIGD.ComponentDataShallow": {
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer"
+          "$ref": "#/$defs/UnityEngine.EntityId"
         },
         "typeName": {
           "type": "string"

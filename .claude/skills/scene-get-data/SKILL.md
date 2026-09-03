@@ -178,7 +178,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If it is '0' and 'path', 'name', 'assetPath' and 'assetGuid' is not provided, empty or null, then it will be used as 'null'. Priority: 1 (Recommended)"
         },
         "path": {
@@ -206,6 +206,10 @@ Read the /unity-initial-setup skill for detailed installation instructions.
         "instanceID"
       ],
       "description": "Find GameObject in opened Prefab or in the active Scene."
+    },
+    "UnityEngine.EntityId": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
     },
     "System.Type": {
       "type": "string"
@@ -304,7 +308,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer"
+          "$ref": "#/$defs/UnityEngine.EntityId"
         },
         "path": {
           "type": "string"
@@ -350,7 +354,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
       "type": "object",
       "properties": {
         "instanceID": {
-          "type": "integer"
+          "$ref": "#/$defs/UnityEngine.EntityId"
         },
         "typeName": {
           "type": "string"
@@ -407,7 +411,7 @@ Read the /unity-initial-setup skill for detailed installation instructions.
           "description": "Build index of the Scene in the Build Settings."
         },
         "instanceID": {
-          "type": "integer",
+          "$ref": "#/$defs/UnityEngine.EntityId",
           "description": "instanceID of the UnityEngine.Object. If this is '0', then it will be used as 'null'."
         }
       },

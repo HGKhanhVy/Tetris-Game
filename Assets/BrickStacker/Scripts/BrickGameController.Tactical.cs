@@ -247,7 +247,7 @@ namespace BrickStacker
 
         void OnTacticalCellTapped(int x, int y)
         {
-            if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+            if (paused || resolving || gameOver || tutorialHold || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
                 return;
 
             var target = new Vector2Int(x, y);
@@ -366,6 +366,7 @@ namespace BrickStacker
             var result = tacticalBoard.MovePlayer(target - tacticalBoard.PlayerPosition);
             tacticalPieceSelected = false;
             tacticalDragTracking = false;
+            tutorialPlayerMoved = true; // mốc tutorial: đã đi quân trên bàn cờ lần đầu
             RuntimeArt.PlayUiSwitchSound();
 
             if (result == TacticalBoardStatus.Won)
@@ -680,33 +681,104 @@ namespace BrickStacker
             AnimatePieceIcon(tacticalBoard.MonsterPosition, w, h, t, 1.7f, tacticalMonsterReactUntil);
             AnimatePieceIcon(tacticalBoard.EnemyPosition, w, h, t, 3.1f, tacticalEnemyReactUntil);
 
-            // Nguy hiểm: quái kề sát Player (khoảng cách 1) → viền đỏ lan tỏa nhẹ + rung định kỳ.
+            UpdateDangerWarning(t);
+            UpdateTacticalShieldVisual(t);
+        }
+
+        // Ngưỡng cảnh báo sắp thua (giây còn lại của màn) và số hàng đỉnh cần soi ở bàn xếp gạch.
+        const float WarningTimeLeft = 20f;
+        const float EmergencyTimeLeft = 8f;
+        const int DangerRowScan = 3;
+
+        // Mức nguy hiểm hiện tại (0 = an toàn, 1 = cảnh báo, 2 = khẩn cấp).
+        // Ba nguồn: quái kề sát Player, sắp hết giờ màn, bàn gạch sắp đầy.
+        int CurrentDangerLevel()
+        {
+            if (tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running || gameOver)
+                return 0;
+
+            int level = 0;
+
             var mp = tacticalBoard.MonsterPosition;
             var pp = tacticalBoard.PlayerPosition;
             int dist = Mathf.Abs(mp.x - pp.x) + Mathf.Abs(mp.y - pp.y);
-            EnsureAttackFlashOverlay();
-            if (attackFlashOverlay != null)
+            if (dist <= 1)
+                level = tacticalBoard.ShieldLayers > 0 ? 1 : 2;
+
+            float maxPlay = rules != null && rules.TacticalData != null ? rules.TacticalData.MaxPlaySeconds : 0f;
+            if (maxPlay > 0f)
             {
-                float a = 0f;
-                if (dist == 1 && tacticalBoard.Status == TacticalBoardStatus.Running)
-                {
-                    float pulse = 0.55f + 0.45f * Mathf.Sin(t * 12f);
-                    a = 0.16f * pulse;
-                    if (t > nextDangerShakeTime)
-                    {
-                        shake = Mathf.Max(shake, 0.12f);
-                        nextDangerShakeTime = t + 0.55f;
-                    }
-                }
-                attackFlashOverlay.enabled = a > 0.01f;
-                if (a > 0.01f)
-                {
-                    attackFlashOverlay.color = new Color(0.92f, 0.12f, 0.10f, a);
-                    attackFlashOverlay.rectTransform.localScale = Vector3.one;
-                }
+                float left = maxPlay - gameplayTime;
+                if (left <= EmergencyTimeLeft)
+                    level = 2;
+                else if (left <= WarningTimeLeft)
+                    level = Mathf.Max(level, 1);
             }
 
-            UpdateTacticalShieldVisual(t);
+            int stackRoom = TopEmptyRows();
+            if (stackRoom <= 1)
+                level = 2;
+            else if (stackRoom <= 2)
+                level = Mathf.Max(level, 1);
+
+            return level;
+        }
+
+        // Số hàng trống liên tiếp tính từ NÓC bàn xếp gạch (tối đa DangerRowScan hàng — đủ để
+        // biết bàn sắp đầy mà không phải quét cả lưới mỗi khung hình).
+        int TopEmptyRows()
+        {
+            int empty = 0;
+            for (int offset = 1; offset <= DangerRowScan; offset++)
+            {
+                int y = Height - offset;
+                if (y < 0)
+                    break;
+                for (int x = 0; x < Width; x++)
+                {
+                    if (grid[x, y] > 0)
+                        return empty;
+                }
+                empty++;
+            }
+            return empty;
+        }
+
+        // Sắp thua = màn hình nháy đỏ + rung từng đợt, càng nguy càng gấp.
+        void UpdateDangerWarning(float t)
+        {
+            int level = CurrentDangerLevel();
+            EnsureAttackFlashOverlay();
+            if (attackFlashOverlay == null)
+                return;
+
+            if (level <= 0)
+            {
+                if (attackFlashOverlay.enabled)
+                    attackFlashOverlay.enabled = false;
+                return;
+            }
+
+            bool emergency = level >= 2;
+            float pulseSpeed = emergency ? 20f : 12f;
+            float pulse = 0.5f + 0.5f * Mathf.Sin(t * pulseSpeed);
+            float alpha = (emergency ? 0.34f : 0.16f) * (0.45f + 0.55f * pulse);
+
+            attackFlashOverlay.enabled = true;
+            attackFlashOverlay.color = new Color(0.95f, 0.10f, 0.08f, alpha);
+            float breathe = 1f + (emergency ? 0.05f : 0.03f) * pulse;
+            attackFlashOverlay.rectTransform.localScale = new Vector3(breathe, breathe, 1f);
+
+            // Rung + lắc camera theo từng đợt (không rung liên tục để đỡ nhiễu và đỡ tốn pin).
+            if (t > nextDangerShakeTime)
+            {
+                nextDangerShakeTime = t + (emergency ? 0.42f : 0.85f);
+                shake = Mathf.Max(shake, emergency ? 0.20f : 0.11f);
+                if (emergency)
+                    Haptics.Warning();
+                else
+                    Haptics.Soft();
+            }
         }
 
         // Bong bóng khiên xanh phập phồng + badge "x{N}" quanh Player khi có khiên (rõ ngay trên bàn).

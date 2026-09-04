@@ -18,6 +18,7 @@ namespace BrickStacker
 
         void Awake()
         {
+            GameAudio.PlayMusic(GameAudio.MusicMenu);   // cùng bài với menu -> đi qua lại không bị cắt nhạc
             BuildCameraBackdrop();
             BuildUi();
         }

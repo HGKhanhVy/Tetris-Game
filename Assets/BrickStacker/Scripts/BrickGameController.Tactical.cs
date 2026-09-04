@@ -756,10 +756,21 @@ namespace BrickStacker
             {
                 if (attackFlashOverlay.enabled)
                     attackFlashOverlay.enabled = false;
+                highRiskAlerted = false;   // thoát hiểm -> lần sau nguy hiểm lại báo tiếp
                 return;
             }
 
             bool emergency = level >= 2;
+            // Báo âm thanh MỘT lần lúc vừa rơi vào mức khẩn cấp, không réo suốt theo nhịp nháy.
+            if (emergency && !highRiskAlerted)
+            {
+                highRiskAlerted = true;
+                GameAudio.PlayFx(GameAudio.FxHighRisk);
+            }
+            else if (!emergency)
+            {
+                highRiskAlerted = false;
+            }
             float pulseSpeed = emergency ? 20f : 12f;
             float pulse = 0.5f + 0.5f * Mathf.Sin(t * pulseSpeed);
             float alpha = (emergency ? 0.34f : 0.16f) * (0.45f + 0.55f * pulse);

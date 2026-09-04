@@ -754,6 +754,8 @@ namespace BrickStacker
             // Phụ đề vui — chọn ngẫu nhiên theo số sao.
             levelClearBodyText.text = RandomVictorySubtitle(starsEarned);
             levelClearOverlay.SetActive(true);
+            GameAudio.PlayFx(GameAudio.FxWin);
+            GameAudio.PlayMusic(GameAudio.MusicWin);
 
             // TRANG CHỦ → bản đồ màn.
             continueButton.interactable = true;
@@ -795,7 +797,6 @@ namespace BrickStacker
                     else SceneManager.LoadScene("BrickLevel");
                 });
             }
-            Beep(1180f, 0.22f, 0.35f);
         }
 
         static string RandomVictorySubtitle(int stars)
@@ -888,7 +889,8 @@ namespace BrickStacker
                 gameLoseOverlay.transform.SetAsLastSibling();
                 gameLoseOverlay.SetActive(true);
                 shake = 0.2f;
-                RuntimeArt.PlayGameOverSound();
+                RuntimeArt.PlayGameOverSound();       // fx-lose
+                GameAudio.PlayMusic(GameAudio.MusicLose);
                 Haptics.Failure(); // rung "thất bại" khi thua
                 feedbacks.Play(GameFeedbackId.LevelLose);
                 return;
@@ -900,9 +902,15 @@ namespace BrickStacker
             gameOverOverlay.SetActive(true);
             shake = won ? 0.35f : 0.2f;
             if (won)
-                Beep(1180f, 0.22f, 0.35f);
+            {
+                GameAudio.PlayFx(GameAudio.FxWin);
+                GameAudio.PlayMusic(GameAudio.MusicWin);
+            }
             else
-                RuntimeArt.PlayGameOverSound();
+            {
+                RuntimeArt.PlayGameOverSound();       // fx-lose
+                GameAudio.PlayMusic(GameAudio.MusicLose);
+            }
         }
 
         void Restart()
@@ -955,13 +963,7 @@ namespace BrickStacker
             var pauseText = pauseButton != null ? pauseButton.GetComponentInChildren<Text>() : null;
             if (pauseText != null)
                 pauseText.text = "II";
-            if (musicSource != null)
-            {
-                if (paused)
-                    musicSource.Pause();
-                else
-                    musicSource.UnPause();
-            }
+            GameAudio.SetMusicPaused(paused);
         }
     }
 }

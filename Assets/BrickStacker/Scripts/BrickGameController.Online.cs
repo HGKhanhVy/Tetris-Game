@@ -1242,7 +1242,8 @@ namespace BrickStacker
                 WireOnlineHomeOnly(continueButton, stopButton, nextButton, goHome);
                 if (levelClearOverlay != null) { levelClearOverlay.transform.SetAsLastSibling(); levelClearOverlay.SetActive(true); }
                 shake = 0.35f;
-                Beep(1180f, 0.22f, 0.35f);
+                GameAudio.PlayFx(GameAudio.FxWin);
+                GameAudio.PlayMusic(GameAudio.MusicWin);
             }
             else
             {
@@ -1250,7 +1251,8 @@ namespace BrickStacker
                 WireOnlineHomeOnly(loseHomeButton, loseRetryButton, loseNextButton, goHome);
                 if (gameLoseOverlay != null) { gameLoseOverlay.transform.SetAsLastSibling(); gameLoseOverlay.SetActive(true); }
                 shake = 0.2f;
-                RuntimeArt.PlayGameOverSound();
+                RuntimeArt.PlayGameOverSound();       // fx-lose
+                GameAudio.PlayMusic(GameAudio.MusicLose);
             }
 
             // Chờ chút cho cờ kết thúc kịp đến đối thủ rồi mới rời phòng.

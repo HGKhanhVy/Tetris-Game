@@ -32,53 +32,17 @@ namespace BrickStacker
         static Font displayFont;
         static Font uiFont;
         static Font menuButtonFont;
-        static AudioSource oneShotSource;
-        static AudioClip uiSwitchClip;
-        static AudioClip gameOverClip;
 
+        // Hai hàm dưới giữ nguyên tên vì đã được gọi ở rất nhiều nơi; phần phát thật do
+        // GameAudio lo (một nguồn hiệu ứng dùng chung, có cache clip).
         public static void PlayUiSwitchSound()
         {
-            if (uiSwitchClip == null)
-                uiSwitchClip = Resources.Load<AudioClip>("BrickStacker/ui_switch");
-            PrepareAudioClip(uiSwitchClip, "Resources/BrickStacker/ui_switch");
-            PlayGlobalClip(uiSwitchClip, 0.42f);
+            GameAudio.PlayFx(GameAudio.FxClick, 0.55f);
         }
 
         public static void PlayGameOverSound()
         {
-            if (gameOverClip == null)
-                gameOverClip = Resources.Load<AudioClip>("BrickStacker/game_over_negative");
-            PrepareAudioClip(gameOverClip, "Resources/BrickStacker/game_over_negative");
-            PlayGlobalClip(gameOverClip, 0.70f);
-        }
-
-        static void PrepareAudioClip(AudioClip clip, string path)
-        {
-            if (clip == null)
-            {
-                Debug.LogWarning("BLOCKFALL audio missing: " + path);
-                return;
-            }
-
-            if (clip.loadState == AudioDataLoadState.Unloaded)
-                clip.LoadAudioData();
-        }
-
-        static void PlayGlobalClip(AudioClip clip, float volume)
-        {
-            if (clip == null)
-                return;
-
-            if (oneShotSource == null)
-            {
-                var audioObject = new GameObject("Blockfall One Shot Audio");
-                UnityEngine.Object.DontDestroyOnLoad(audioObject);
-                oneShotSource = audioObject.AddComponent<AudioSource>();
-                oneShotSource.playOnAwake = false;
-                oneShotSource.spatialBlend = 0f;
-            }
-
-            oneShotSource.PlayOneShot(clip, volume);
+            GameAudio.PlayFx(GameAudio.FxLose);
         }
 
         public static Font LoadDisplayFont()

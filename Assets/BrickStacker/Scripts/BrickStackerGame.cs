@@ -26,6 +26,7 @@ namespace BrickStacker
             titleFont = RuntimeArt.LoadDisplayFont();
             boldFont = Resources.Load<Font>("BrickStacker/VietnameseArial") ?? font;
             Time.timeScale = 1f;
+            GameAudio.PlayMusic(GameAudio.MusicMenu);
             BuildCamera();
             BuildBackground();
             BuildUi();
@@ -457,7 +458,6 @@ namespace BrickStacker
         Coroutine clusterComboRoutine;
         Color comboBaseColor = new Color(1f, 0.86f, 0.35f);
         AudioSource audioSource;
-        AudioSource musicSource;
         GameObject pauseOverlay;
         GameObject gameOverOverlay;
         GameObject gameLoseOverlay;
@@ -758,7 +758,6 @@ namespace BrickStacker
             if (camObject.GetComponent<AudioListener>() == null)
                 camObject.AddComponent<AudioListener>();
             audioSource = gameObject.AddComponent<AudioSource>();
-            musicSource = gameObject.AddComponent<AudioSource>();
             StartBackgroundMusic();
 
             boardRoot = new GameObject("Board").transform;
@@ -1538,6 +1537,7 @@ namespace BrickStacker
         Image tacticalShieldAura;   // bong bóng khiên xanh quanh player khi có khiên (bàn cờ offline)
         Text tacticalShieldCount;   // badge "x{N}" số lớp khiên
         float tacticalPlayerReactUntil, tacticalMonsterReactUntil, tacticalEnemyReactUntil, nextDangerShakeTime;
+        bool highRiskAlerted;   // đã báo âm thanh cho lần nguy hiểm hiện tại chưa
 
         // Sprite chướng ngại vật (chuongngaivat) — xen kẽ khối xanh / bụi xanh lá như thiết kế.
 
@@ -2436,34 +2436,15 @@ namespace BrickStacker
             return clip;
         }
 
+        // Nhạc nền màn chơi (dùng chung cho offline và 1v1).
         void StartBackgroundMusic()
         {
-            if (musicSource == null)
-                return;
-
-            var clip = Resources.Load<AudioClip>("BrickStacker/gameplay_music");
-            if (clip == null)
-            {
-                Debug.LogWarning("BLOCKFALL audio missing: Resources/BrickStacker/gameplay_music");
-                return;
-            }
-
-            if (clip.loadState == AudioDataLoadState.Unloaded)
-                clip.LoadAudioData();
-
-            musicSource.clip = clip;
-            musicSource.loop = true;
-            musicSource.playOnAwake = false;
-            musicSource.mute = false;
-            musicSource.volume = 0.18f;
-            musicSource.spatialBlend = 0f;
-            musicSource.Play();
+            GameAudio.PlayMusic(GameAudio.MusicGameplay);
         }
 
         void StopBackgroundMusic()
         {
-            if (musicSource != null)
-                musicSource.Stop();
+            GameAudio.StopMusic();
         }
     }
 

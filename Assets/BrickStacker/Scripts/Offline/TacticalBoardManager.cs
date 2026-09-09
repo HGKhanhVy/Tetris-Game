@@ -225,6 +225,33 @@ namespace BrickStacker
             return data;
         }
 
+        // Màn HƯỚNG DẪN: người chơi vừa học vừa đọc thẻ, nên gỡ hết áp lực thời gian và địa hình.
+        // Vẫn là bàn cờ thật, chỉ là phiên bản dễ thở nhất.
+        public void ApplyTutorialEasing()
+        {
+            MaxPlaySeconds = 0f;             // bỏ giới hạn giờ: đọc bao lâu cũng được
+            MonsterAutoMoveInterval = 14f;   // quái gần như chỉ đi khi người chơi đi
+            InitialFallSpeed = 1.15f;        // khối rơi thong thả, đủ thời gian ngắm chỗ ghép
+            MaxMovementPoint = 9;            // tích được nhiều lượt đi, không sợ phí
+            TargetSwitchThreshold = 2;
+            EnemyType = TacticalEnemyType.Shy;
+
+            // Bàn cờ trống trơn: đang học luật thì đừng bắt né tường, thùng, bẫy, băng, cổng.
+            WallPositions.Clear();
+            BoxPositions.Clear();
+            TrapPositions.Clear();
+            IcePositions.Clear();
+            Portals.Clear();
+            SwitchDoors.Clear();
+            EnemyPatrol.Clear();
+
+            // Mốc sao rộng rãi: qua được màn hướng dẫn là xứng đáng 3 sao.
+            ThreeStarMoveLimit = 99;
+            TwoStarMoveLimit = 99;
+            ThreeStarTime = 600f;
+            TwoStarTime = 900f;
+        }
+
         // Adds extra obstacles as levels progress. Placement is deterministic per
         // level (seeded) and never allowed to cut the board apart.
         void AddProgressiveWalls(int level)

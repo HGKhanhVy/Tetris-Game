@@ -642,7 +642,7 @@ namespace BrickStacker
 
         void BeginLevelMission(bool showPopup)
         {
-            rules = LevelRules.CreateJourney(journeyLevel);
+            rules = CreateRulesForCurrentLevel();
             SetupTacticalBoard();
             GameSession.JourneyLevel = journeyLevel;
             levelLines = 0;

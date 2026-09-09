@@ -75,6 +75,8 @@ namespace BrickStacker
         {
             if (puzzlePausedForTacticalTurn)
                 return;
+            if (TutorialBlocks(TutorialAction.MoveSideways))
+                return;   // bước hướng dẫn khác đang chạy -> khoá thao tác này
 
             if (!IsValid(origin + delta, rotation))
                 return;
@@ -87,6 +89,7 @@ namespace BrickStacker
                 lockDelayTimer = 0f;
             DrawActive();
             Beep(520f, 0.025f, 0.08f);
+            TutorialNotify(TutorialAction.MoveSideways);
         }
 
         bool CanMoveDown()
@@ -223,8 +226,11 @@ namespace BrickStacker
         {
             if (paused || resolving || gameOver || puzzlePausedForTacticalTurn)
                 return;
+            if (TutorialBlocks(TutorialAction.RotateButton))
+                return;
 
             TryRotate(1);
+            TutorialNotify(TutorialAction.RotateButton);
         }
 
         void SwapHoldPiece()
@@ -484,7 +490,18 @@ namespace BrickStacker
             // GD v3: nối cụm → hiệu ứng. Offline: bàn Monster. Online 1v1: đánh/khiên/energy (GĐ4).
             if (!MultiplayerMatch.Active && outcome.ActivatedAnything)
             {
-                if (ApplyOfflineClusterEffects(outcome))
+                // Tutorial đã chạy hiệu ứng ngay theo từng nhóm ở trên rồi — cộng dồn lần nữa ở đây
+                // là ăn đúp tài nguyên.
+                if (tutorialHandledClusterEffects)
+                {
+                    tutorialHandledClusterEffects = false;
+                    if (tacticalBoard != null && tacticalBoard.Status != TacticalBoardStatus.Running)
+                    {
+                        OnTacticalStatusResolved();
+                        yield break;
+                    }
+                }
+                else if (ApplyOfflineClusterEffects(outcome))
                 {
                     OnTacticalStatusResolved();
                     yield break;
@@ -821,27 +838,95 @@ namespace BrickStacker
                     break;
                 chain++;
                 tutorialAnyClear = true; // mốc tutorial: đã ăn cụm đầu tiên
+                TutorialNotify(TutorialAction.FormCluster);
 
                 // Bàn đang hiển thị trạng thái TRƯỚC khi xóa bậc này → cho ô phồng to + mờ dần.
                 Puzzle.GridBridge.Store(puzzleBoard, grid);
                 RedrawLocked();
-                ShowClusterCombo(chain);
-                SpawnClusterBursts(clusters); // nổ tia/khói tại tâm mỗi cụm
-                Beep(720f + chain * 110f, 0.10f, 0.20f);
-                Haptics.Combo(chain); // rung mạnh dần theo cấp combo
-                feedbacks.Play(GameFeedbackId.Combo, transform.position, 1f + (chain - 1) * 0.25f);
-                shake = Mathf.Max(shake, 0.14f);
-                yield return PlayClusterVanishFx(clusters);
 
-                // Xóa + trọng lực → vẽ trạng thái mới, dừng nhẹ để mắt kịp theo.
-                var destroyed = clusterResolver.RemoveStep(puzzleBoard, clusters);
+                // Tutorial dạy LẦN LƯỢT từng loại: tách cụm theo loại tài nguyên rồi chạy trọn mạch
+                // "giới thiệu → đúng nhóm đó biến mất → chức năng của nó" cho từng nhóm, xong mới
+                // sang loại kế. Ngoài tutorial thì cả bậc vẫn là một nhóm duy nhất như cũ.
+                BuildClusterGroups(clusters);
+
+                for (int g = 0; g < clusterGroupCount; g++)
+                {
+                    var group = clusterGroups[g];
+
+                    // Dừng đúng lúc nhóm còn nguyên trên bàn, chừa sáng riêng các ô của nó.
+                    if (tutorialActive)
+                        yield return TutorialSpotlightClusters(group);
+
+                    ShowClusterCombo(chain);
+                    SpawnClusterBursts(group); // nổ tia/khói tại tâm mỗi cụm
+                    Beep(720f + chain * 110f, 0.10f, 0.20f);
+                    Haptics.Combo(chain); // rung mạnh dần theo cấp combo
+                    feedbacks.Play(GameFeedbackId.Combo, transform.position, 1f + (chain - 1) * 0.25f);
+                    shake = Mathf.Max(shake, 0.14f);
+                    yield return PlayClusterVanishFx(group);
+
+                    // Xóa nhóm này (CHƯA rơi: rơi sớm sẽ dời chỗ các nhóm chưa xử lý).
+                    var destroyed = clusterResolver.RemoveStep(puzzleBoard, group);
+                    Puzzle.GridBridge.Store(puzzleBoard, grid);
+                    RedrawLocked();
+                    outcome.Steps.Add(new Puzzle.ResolutionStep(group, chain,
+                        Puzzle.ClusterResolutionSystem.ComboMultiplier(chain), destroyed));
+
+                    // Chức năng chỉ chạy SAU khi đúng nhóm đó đã biến mất.
+                    if (tutorialActive)
+                    {
+                        tutorialHandledClusterEffects = true;
+                        yield return TutorialExplainResources();
+                        bool boardEnded = ApplyOfflineClusterEffects(group);
+                        yield return TutorialWatchResourceEffects();
+                        if (boardEnded)
+                            yield break;
+                    }
+                }
+
+                // Trọng lực sau khi cả bậc đã biến mất → vẽ lại, dừng nhẹ để mắt kịp theo.
                 clusterResolver.ApplyGravityStep(puzzleBoard);
                 Puzzle.GridBridge.Store(puzzleBoard, grid);
                 RedrawLocked();
-                outcome.Steps.Add(new Puzzle.ResolutionStep(clusters, chain,
-                    Puzzle.ClusterResolutionSystem.ComboMultiplier(chain), destroyed));
                 yield return new WaitForSeconds(0.30f);
             }
+        }
+
+        // Tách các cụm của một bậc thành nhóm theo loại tài nguyên, giữ nguyên thứ tự gặp.
+        // Ngoài tutorial chỉ có đúng một nhóm — luồng chơi thật không đổi nhịp.
+        void BuildClusterGroups(List<Puzzle.Cluster> clusters)
+        {
+            clusterGroupOrder.Clear();
+            clusterGroupCount = 0;
+
+            if (!tutorialActive)
+            {
+                NextClusterGroup().AddRange(clusters);
+                return;
+            }
+
+            foreach (var cluster in clusters)
+            {
+                int index = clusterGroupOrder.IndexOf(cluster.Resource);
+                if (index < 0)
+                {
+                    index = clusterGroupOrder.Count;
+                    clusterGroupOrder.Add(cluster.Resource);
+                    NextClusterGroup();
+                }
+                clusterGroups[index].Add(cluster);
+            }
+        }
+
+        // Danh sách con dùng lại qua từng bậc dây chuyền, không cấp phát mới mỗi lần.
+        List<Puzzle.Cluster> NextClusterGroup()
+        {
+            while (clusterGroups.Count <= clusterGroupCount)
+                clusterGroups.Add(new List<Puzzle.Cluster>());
+            var group = clusterGroups[clusterGroupCount];
+            group.Clear();
+            clusterGroupCount++;
+            return group;
         }
 
         // Vụ nổ tia/khói tại tâm mỗi cụm khi biến mất (mạnh hơn, không nhạt nhòa).

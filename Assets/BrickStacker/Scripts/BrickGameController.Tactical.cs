@@ -247,7 +247,9 @@ namespace BrickStacker
 
         void OnTacticalCellTapped(int x, int y)
         {
-            if (paused || resolving || gameOver || tutorialHold || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+            if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return;
+            if (TutorialBlocksTactical())
                 return;
 
             var target = new Vector2Int(x, y);
@@ -292,6 +294,8 @@ namespace BrickStacker
         {
             if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
                 return;
+            if (TutorialBlocksTactical())
+                return;
 
             var cell = new Vector2Int(x, y);
             if (cell == tacticalBoard.PlayerPosition)
@@ -305,6 +309,8 @@ namespace BrickStacker
         public void HandleTacticalPointerUp(int x, int y, Vector2 screenPosition)
         {
             if (paused || resolving || gameOver || tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return;
+            if (TutorialBlocksTactical())
                 return;
 
             var cell = new Vector2Int(x, y);
@@ -367,6 +373,7 @@ namespace BrickStacker
             tacticalPieceSelected = false;
             tacticalDragTracking = false;
             tutorialPlayerMoved = true; // mốc tutorial: đã đi quân trên bàn cờ lần đầu
+            TutorialNotify(TutorialAction.TacticalMove);
             RuntimeArt.PlayUiSwitchSound();
 
             if (result == TacticalBoardStatus.Won)
@@ -662,9 +669,18 @@ namespace BrickStacker
             RefreshTacticalBoardUi();
             UpdateUi();
             if (tacticalBoard.Status == TacticalBoardStatus.Won)
-                LevelComplete();
+            {
+                // Vừa xong màn tutorial: chèn thẻ "Hoàn thành hướng dẫn" rồi mới mở popup thắng.
+                if (TutorialWantsCompletionCard())
+                    StartCoroutine(TutorialShowCompletion(LevelComplete));
+                else
+                    LevelComplete();
+            }
             else if (tacticalBoard.Status == TacticalBoardStatus.Failed)
+            {
+                TutorialFinish();
                 EndGame(false);
+            }
         }
 
         // Nhún nhẹ + react (nảy) cho Player/Monster/Enemy; cảnh báo nguy hiểm khi quái kề sát Player.
@@ -956,19 +972,42 @@ namespace BrickStacker
 
             int moveGain = 0, shieldGain = 0, knockback = 0;
             foreach (var step in outcome.Steps)
+                AccumulateClusterEffects(step.Clusters, ref moveGain, ref shieldGain, ref knockback);
+
+            return ApplyTacticalClusterGains(moveGain, shieldGain, knockback);
+        }
+
+        // Bản chạy cho ĐÚNG một nhóm cụm. Tutorial dùng để cho chức năng của từng loại tài nguyên
+        // chạy ngay sau khi đúng nhóm đó biến mất, thay vì cộng dồn hết cả chuỗi rồi mới chạy.
+        bool ApplyOfflineClusterEffects(IReadOnlyList<Puzzle.Cluster> clusters)
+        {
+            if (tacticalBoard == null || tacticalBoard.Status != TacticalBoardStatus.Running)
+                return false;
+
+            int moveGain = 0, shieldGain = 0, knockback = 0;
+            AccumulateClusterEffects(clusters, ref moveGain, ref shieldGain, ref knockback);
+
+            return ApplyTacticalClusterGains(moveGain, shieldGain, knockback);
+        }
+
+        static void AccumulateClusterEffects(IReadOnlyList<Puzzle.Cluster> clusters,
+            ref int moveGain, ref int shieldGain, ref int knockback)
+        {
+            foreach (var cluster in clusters)
             {
-                foreach (var cluster in step.Clusters)
+                bool strong = cluster.Tier == Puzzle.ClusterTier.Strong;
+                switch (cluster.Resource)
                 {
-                    bool strong = cluster.Tier == Puzzle.ClusterTier.Strong;
-                    switch (cluster.Resource)
-                    {
-                        case Puzzle.ResourceType.Move: moveGain += strong ? 2 : 1; break;
-                        case Puzzle.ResourceType.Attack: knockback += strong ? 2 : 1; break;
-                        case Puzzle.ResourceType.Shield: shieldGain += strong ? 2 : 1; break;
-                    }
+                    case Puzzle.ResourceType.Move: moveGain += strong ? 2 : 1; break;
+                    case Puzzle.ResourceType.Attack: knockback += strong ? 2 : 1; break;
+                    case Puzzle.ResourceType.Shield: shieldGain += strong ? 2 : 1; break;
                 }
             }
+        }
 
+        // Trả về true nếu bàn cờ vừa kết thúc (quái bị đẩy trúng Enemy = thắng).
+        bool ApplyTacticalClusterGains(int moveGain, int shieldGain, int knockback)
+        {
             float now = Time.unscaledTime;
             var playerPos = tacticalBoard.PlayerPosition;
             if (moveGain > 0)

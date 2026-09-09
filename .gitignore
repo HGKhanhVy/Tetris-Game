@@ -50,3 +50,6 @@ crashlytics-build.properties
 
 # Repo con rieng (policy page co git rieng)
 /PolicyPage/
+
+# Unity Recorder output
+/Recordings/

@@ -192,6 +192,27 @@ namespace BrickStacker
             return rules;
         }
 
+        // Bộ luật cho màn HƯỚNG DẪN: lấy màn 1 rồi gỡ mọi thứ gây áp lực — không tăng tốc theo
+        // thời gian, không rác, không khối đặc biệt, khối rơi chậm, bàn cờ sạch.
+        public static LevelRules CreateTutorial()
+        {
+            var rules = CreateJourney(1);
+            rules.SpeedRampSeconds = 0f;
+            rules.MaxFallSpeedMultiplier = 1f;
+            rules.GarbageEveryPieces = 0;
+            rules.SurpriseGarbageChance = 0f;
+            rules.RisingDangerSeconds = 0;
+            rules.RotationLimit = 0;
+            rules.FastBlocks = false;
+            rules.HasStoneBlocks = false;
+            rules.HasFixedObstacles = false;
+            rules.AllowSpecialBlocks = false;
+
+            rules.TacticalData.ApplyTutorialEasing();
+            rules.FallInterval = rules.TacticalData.InitialFallSpeed;
+            return rules;
+        }
+
         static void ApplyLevelConfig(LevelRules rules, int level)
         {
             int pattern = (level - 1) % 10;

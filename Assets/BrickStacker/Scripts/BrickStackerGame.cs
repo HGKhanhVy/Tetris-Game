@@ -634,10 +634,21 @@ namespace BrickStacker
                 TutorialBegin();
         }
 
+        // true suốt phiên nếu vào bằng nút "Hướng dẫn" — quyết định dùng bộ luật dễ.
+        bool tutorialSession;
+
+        LevelRules CreateRulesForCurrentLevel()
+        {
+            return tutorialSession ? LevelRules.CreateTutorial() : LevelRules.CreateJourney(journeyLevel);
+        }
+
         void SetupModeRules()
         {
             journeyLevel = Mathf.Clamp(GameSession.SelectedLevel > 0 ? GameSession.SelectedLevel : journeyLevel, 1, LevelProgress.MaxLevels);
-            rules = LevelRules.CreateJourney(journeyLevel);
+            // Cờ tutorial vẫn còn bật ở thời điểm này (Start chỉ tắt nó sau) — chốt lại vào field
+            // để mọi lần dựng luật về sau, kể cả chơi lại màn, đều dùng bộ luật đã nới.
+            tutorialSession = GameSession.IsTutorial && !MultiplayerMatch.Active;
+            rules = CreateRulesForCurrentLevel();
         }
 
         void Update()
@@ -677,8 +688,17 @@ namespace BrickStacker
             if (KeyPressed(KeyCode.P, Key.P) || KeyPressed(KeyCode.Escape, Key.Escape))
                 TogglePause();
 
-            if (paused || resolving || tutorialHold)
+            if (paused || resolving)
                 return;
+
+            // Đang ở một bước hướng dẫn: game đứng yên (khối không rơi, quái không đi) nhưng vẫn
+            // phải đọc input nếu bước đó đang chờ người chơi thao tác trên bàn xếp gạch.
+            if (tutorialHold)
+            {
+                if (TutorialAwaitsPuzzleInput())
+                    HandleInput();
+                return;
+            }
 
             // Offline (design §2.5): quái tự đi theo timer thực, tạo áp lực thời gian
             // ngay cả khi người chơi đang xếp gạch. 1v1 không dùng bàn chiến thuật kiểu này.
@@ -1409,7 +1429,7 @@ namespace BrickStacker
 
         bool ShouldBlockGameplayInput()
         {
-            return tutorialHold
+            return TutorialBlocksGameplayRaycasts()
                 || IsOverlayOpen(missionOverlay)
                 || IsOverlayOpen(pauseOverlay)
                 || IsOverlayOpen(gameOverOverlay)
@@ -2073,14 +2093,22 @@ namespace BrickStacker
 
             if (!gestureMoved && distance < swipeThreshold && elapsed < 0.35f)
             {
-                TryRotate(1);
+                if (!TutorialBlocks(TutorialAction.TapRotate))
+                {
+                    TryRotate(1);
+                    TutorialNotify(TutorialAction.TapRotate);
+                }
                 return;
             }
 
             // Allow hard drop even after horizontal drags, as long as the net gesture is clearly downward.
             if (delta.y < -swipeThreshold && Mathf.Abs(delta.y) > Mathf.Abs(delta.x) * 1.5f)
             {
-                HardDrop();
+                if (!TutorialBlocks(TutorialAction.SwipeDrop))
+                {
+                    HardDrop();
+                    TutorialNotify(TutorialAction.SwipeDrop);
+                }
             }
         }
 

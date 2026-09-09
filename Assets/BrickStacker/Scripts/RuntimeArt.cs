@@ -32,6 +32,8 @@ namespace BrickStacker
         static Font displayFont;
         static Font uiFont;
         static Font menuButtonFont;
+        static Font tutorialFont;
+        static Font tutorialBoldFont;
 
         // Hai hàm dưới giữ nguyên tên vì đã được gọi ở rất nhiều nơi; phần phát thật do
         // GameAudio lo (một nguồn hiệu ứng dùng chung, có cache clip).
@@ -80,6 +82,33 @@ namespace BrickStacker
                 return menuButtonFont;
 
             return LoadUiFont();
+        }
+
+        // Font riêng cho thẻ hướng dẫn: bản Regular cho chữ mảnh, dễ đọc.
+        public static Font LoadTutorialFont()
+        {
+            if (tutorialFont != null)
+                return tutorialFont;
+
+            tutorialFont = Resources.Load<Font>("BrickStacker/Calibri")
+                ?? Resources.Load<Font>("BrickStacker/UVNNhan_R");
+            if (tutorialFont != null)
+                return tutorialFont;
+
+            return LoadUiFont();
+        }
+
+        // Tiêu đề thẻ hướng dẫn dùng đúng bản Bold của bộ font, không để Unity bôi đậm giả.
+        public static Font LoadTutorialBoldFont()
+        {
+            if (tutorialBoldFont != null)
+                return tutorialBoldFont;
+
+            tutorialBoldFont = Resources.Load<Font>("BrickStacker/Calibri-Bold");
+            if (tutorialBoldFont != null)
+                return tutorialBoldFont;
+
+            return LoadTutorialFont();
         }
 
         public static Font LoadUiFont()

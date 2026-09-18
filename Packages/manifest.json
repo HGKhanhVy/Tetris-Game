@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=/MCPForUnity#main",
-    "com.ivanmurzak.unity.mcp": "0.90.0",
+    "com.ivanmurzak.unity.mcp": "0.91.0",
+    "com.ivanmurzak.unity.mcp.probuilder": "1.2.31",
     "com.ivanmurzak.unity.mcp.tilemap": "1.0.15",
     "com.unity.2d.animation": "15.1.0",
     "com.unity.2d.sprite": "1.0.0",

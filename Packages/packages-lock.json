@@ -17,13 +17,23 @@
       }
     },
     "com.ivanmurzak.unity.mcp": {
-      "version": "0.90.0",
+      "version": "0.91.0",
       "depth": 0,
       "source": "registry",
       "dependencies": {
         "com.unity.test-framework": "1.1.33",
         "com.unity.modules.uielements": "1.0.0",
         "extensions.unity.playerprefsex": "2.1.5"
+      },
+      "url": "https://package.openupm.com"
+    },
+    "com.ivanmurzak.unity.mcp.probuilder": {
+      "version": "1.2.31",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.ivanmurzak.unity.mcp": "0.88.0",
+        "com.unity.probuilder": "5.2.4"
       },
       "url": "https://package.openupm.com"
     },
@@ -247,6 +257,18 @@
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
+    "com.unity.probuilder": {
+      "version": "6.1.2",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.shadergraph": "17.0.3",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.settings-manager": "1.0.3"
+      },
+      "url": "https://packages.unity.com"
+    },
     "com.unity.recorder": {
       "version": "5.1.7",
       "depth": 0,
@@ -402,6 +424,13 @@
         "com.unity.nuget.newtonsoft-json": "3.2.1",
         "com.unity.services.authentication": "2.7.4"
       },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.settings-manager": {
+      "version": "2.1.1",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {},
       "url": "https://packages.unity.com"
     },
     "com.unity.shadergraph": {

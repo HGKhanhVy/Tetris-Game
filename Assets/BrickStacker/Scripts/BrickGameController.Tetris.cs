@@ -1096,9 +1096,25 @@ namespace BrickStacker
             clusterComboRoutine = null;
         }
 
-        // Màu bóng mờ: rất trong + ám tối theo nền bàn (navy) nên nhìn thoáng qua không nhầm với
-        // ô thật. Chỉnh alpha ở đây nếu muốn bóng đậm/nhạt hơn.
-        static readonly Color GhostTint = new Color(0.58f, 0.64f, 0.80f, 0.10f);
+        // Ô trống của bàn. Bóng mờ trộn lên chính màu này nên tách ra dùng chung.
+        static readonly Color EmptyCellColor = new Color(0.10f, 0.17f, 0.31f, 1f);
+
+        // Ô rác (§16): navy đá, cùng hệ màu với bàn cờ nhưng sáng hơn ô trống đủ để thấy ô bị chiếm.
+        static readonly Color GarbageCellColor = new Color(0.22f, 0.29f, 0.42f, 1f);
+
+        // Bóng mờ tô phẳng (không icon) theo đúng màu art của từng ô tài nguyên: vẫn đọc được ô nào
+        // sắp rơi ra loại gì để tính cụm trước, nhưng không có chi tiết icon gây rối mắt.
+        // Chỉnh GhostBlend nếu muốn bóng đậm/nhạt hơn.
+        const float GhostBlend = 0.35f;
+        static readonly Color[] GhostResourceTints =
+        {
+            new Color(0.19f, 0.51f, 0.85f), // Move   – block-dichuyen
+            new Color(0.71f, 0.17f, 0.20f), // Attack – block-kiem
+            new Color(0.36f, 0.71f, 0.14f), // Shield – block-khien
+            new Color(0.84f, 0.62f, 0.10f)  // Energy – block-nangluong
+        };
+        // Ô trống trong khối (rác) và bóng của chế độ không dùng cụm: xanh nhạt trung tính.
+        static readonly Color GhostNeutralTint = new Color(0.62f, 0.76f, 1f);
 
         void RefreshScenePuzzleBoardUi()
         {
@@ -1139,12 +1155,12 @@ namespace BrickStacker
                     if (cell.x < 0 || cell.x >= Width || cell.y < 0 || cell.y >= Height || grid[cell.x, cell.y] != 0)
                         continue;
 
-                    // Chế độ cụm: ghost là sprite tài nguyên MỜ HẲN + tối đi (ám xanh nền bàn) để chỉ
-                    // đọc như "vệt bóng", không bị nhìn nhầm thành ô tài nguyên đã đáp.
-                    if (clustersGhost && i < activeResources.Length)
-                        SetScenePuzzleCell(cell.x, cell.y, GhostTint, CellDisplayType(i, activeResources, activeBlank));
-                    else
-                        SetScenePuzzleCell(cell.x, cell.y, new Color(1f, 1f, 1f, 0.07f), -1);
+                    // Bóng mờ: ô màu phẳng theo loại tài nguyên, không vẽ icon. Ô đã đáp có icon và
+                    // màu đậm nên hai thứ không lẫn vào nhau.
+                    int ghostType = clustersGhost && i < activeResources.Length
+                        ? CellDisplayType(i, activeResources, activeBlank)
+                        : -1;
+                    SetSceneGhostCell(cell.x, cell.y, GhostTintForDisplayType(ghostType));
                 }
             }
 
@@ -1199,7 +1215,7 @@ namespace BrickStacker
                 {
                     cell.sprite = blockSprite;
                     cell.preserveAspect = false;
-                    cell.color = new Color(0.40f, 0.43f, 0.50f, 1f);
+                    cell.color = GarbageCellColor;
                 }
                 else
                 {
@@ -1214,10 +1230,40 @@ namespace BrickStacker
                 // đậm = đường lưới.
                 cell.sprite = null;
                 cell.preserveAspect = false;
-                cell.color = new Color(0.10f, 0.17f, 0.31f, 1f);
+                cell.color = EmptyCellColor;
             }
             cell.enabled = true;
         }
+
+        // Bóng mờ vẽ phẳng, không sprite: nó chỉ cần chỉ chỗ khối sẽ đáp.
+        void SetSceneGhostCell(int x, int y, Color tint)
+        {
+            if (scenePuzzleCells == null || x < 0 || x >= Width || y < 0 || y >= Height)
+                return;
+
+            var cell = scenePuzzleCells[x, y];
+            if (cell == null)
+                return;
+
+            cell.sprite = null;
+            cell.preserveAspect = false;
+            cell.color = GhostCellColor(tint);
+            cell.enabled = true;
+        }
+
+        // Trộn sẵn bóng với màu ô trống rồi vẽ đục. Vẽ bằng alpha thì nền phía sau ô ăn mất màu và
+        // lộ cả khe lưới, nên sắc độ thật không còn giống mức đã tính.
+        static Color GhostCellColor(Color tint)
+            => new Color(
+                Mathf.Lerp(EmptyCellColor.r, tint.r, GhostBlend),
+                Mathf.Lerp(EmptyCellColor.g, tint.g, GhostBlend),
+                Mathf.Lerp(EmptyCellColor.b, tint.b, GhostBlend),
+                1f);
+
+        static Color GhostTintForDisplayType(int displayType)
+            => displayType >= 0 && displayType < GhostResourceTints.Length
+                ? GhostResourceTints[displayType]
+                : GhostNeutralTint;
 
         Sprite GetPieceBlockSprite(int type)
         {

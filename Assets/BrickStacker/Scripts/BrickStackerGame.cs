@@ -236,7 +236,6 @@ namespace BrickStacker
         const string BXH = "screen-bxh/";
 
         // Avatar mẫu (icon nhân vật) xoay vòng cho từng dòng — leaderboard thật không kèm avatar.
-        static readonly string[] LbAvatars = { "red_demon", "purple_monster", "green_knight", "red_robot", "blue_knight", "purple_bat" };
 
         static string FormatLbScore(long v) => v.ToString("#,0").Replace(',', '.');
 

@@ -553,6 +553,22 @@ namespace BrickStacker
             }
         }
 
+        // Same value on every launch (string.GetHashCode is not guaranteed to be), so a player
+        // keeps the same placeholder avatar each time the board is opened.
+        static uint StableHash(string text)
+        {
+            uint hash = 2166136261;
+            if (text == null)
+            {
+                return hash;
+            }
+            foreach (char c in text)
+            {
+                hash = (hash ^ c) * 16777619;
+            }
+            return hash;
+        }
+
         static Sprite GetRoundedBarSprite()
         {
             if (lbRoundedBar != null) return lbRoundedBar;
@@ -629,8 +645,11 @@ namespace BrickStacker
                 raRt.offsetMin = raRt.offsetMax = Vector2.zero;
             }
 
-            // Avatar: chỉ đầu nhân vật (bỏ khung input-number nền trắng theo yêu cầu).
-            var avatar = MakeV3Image(row.transform, "Avatar", "character/" + LbAvatars[i % LbAvatars.Length] + "_09_icon.png", new Rect(0.04f, 0.05f, 0.92f, 0.90f), false);
+            // Placeholder avatar until players can pick one: the blue or red character badge.
+            bool useEnemyAvatar = StableHash(name) % 2 == 1;
+            var avatar = useEnemyAvatar
+                ? MakeV3Image(row.transform, "Avatar", STARTUI + "icon-enemy.png", new Rect(0.367f, 0.340f, 0.266f, 0.383f), false)
+                : MakeV3Image(row.transform, "Avatar", STARTUI + "icon-player.png", new Rect(0.357f, 0.316f, 0.286f, 0.422f), false);
             avatar.raycastTarget = false;
             var avRt = avatar.rectTransform;
             avRt.anchorMin = avRt.anchorMax = new Vector2(0.35f, 0.5f);

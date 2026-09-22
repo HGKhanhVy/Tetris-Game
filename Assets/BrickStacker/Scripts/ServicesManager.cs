@@ -33,6 +33,33 @@ namespace BrickStacker
         }
 
 
+        // Lives in PlayerPrefs, so uninstalling the app removes it together with levels and coins.
+        const string InstallMarkerKey = "BLOCKFALL_INSTALL_MARKER";
+
+        // A reinstall wipes PlayerPrefs, but the anonymous session can outlive it on the device,
+        // which would bring the old account's leaderboard cups back while everything else starts
+        // from zero. A fresh install therefore always starts a new anonymous account.
+        static void ForgetAccountOnFreshInstall()
+        {
+            if (PlayerPrefs.HasKey(InstallMarkerKey))
+            {
+                return;
+            }
+
+            // Builds from before the marker existed: the player already has local progress, so this
+            // is an update, not a reinstall — keep their account.
+            bool hasLocalProgress = PlayerPrefs.HasKey(LocalNameKey)
+                || PlayerPrefs.HasKey(LevelProgress.UnlockedLevelKey)
+                || PlayerPrefs.HasKey(LevelProgress.CoinsKey);
+            if (!hasLocalProgress && AuthenticationService.Instance.SessionTokenExists)
+            {
+                AuthenticationService.Instance.ClearSessionToken();
+                Debug.Log("[Services] Fresh install: discarded the previous anonymous account.");
+            }
+            PlayerPrefs.SetInt(InstallMarkerKey, 1);
+            PlayerPrefs.Save();
+        }
+
         public static event Action SignedIn;
 
         static Task<bool> _signInTask;
@@ -62,7 +89,10 @@ namespace BrickStacker
                     await UnityServices.InitializeAsync();
 
                 if (!AuthenticationService.Instance.IsSignedIn)
+                {
+                    ForgetAccountOnFreshInstall();
                     await AuthenticationService.Instance.SignInAnonymouslyAsync();
+                }
 
                 Debug.Log($"[Services] Đã đăng nhập. PlayerId: {AuthenticationService.Instance.PlayerId}");
 

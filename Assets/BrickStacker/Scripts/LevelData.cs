@@ -150,7 +150,8 @@ namespace BrickStacker
         // GD v3: bật cơ chế ghép cụm tài nguyên thay cho xóa hàng ngang. Mặc định tắt để
         // giữ nguyên game hiện tại cho tới khi cơ chế mới được playtest.
         public bool UseResourceClusters = false;
-        public bool GhostPreview = true;
+        // Bóng mờ báo chỗ khối sẽ đáp. Đang tắt để playtest xem bàn cờ có dễ nhìn hơn không.
+        public bool GhostPreview = false;
         public bool FastBlocks;
         public bool HasStoneBlocks;
         public bool HasFixedObstacles;
@@ -174,8 +175,8 @@ namespace BrickStacker
                 SurpriseGarbageChance = 0f,
                 ScoreMultiplier = 1,
                 AllowSpecialBlocks = true,
-                // Bóng mờ (ghost) hiện SUỐT ván ở mọi màn — người chơi luôn biết khối sẽ đáp đâu.
-                GhostPreview = true,
+                // Đang tắt bóng mờ để playtest. Bật lại thành true nếu thấy khó canh chỗ đáp.
+                GhostPreview = false,
                 FastBlocks = stage >= 15,
                 RotationLimit = 0,
                 RisingDangerSeconds = 0,

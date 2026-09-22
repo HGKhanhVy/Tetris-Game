@@ -134,9 +134,14 @@ namespace BrickStacker
                 () =>
                 {
                     RuntimeArt.PlayUiSwitchSound();
+                    if (IsOnlineModeLocked)
+                    {
+                        ShowComingSoonPopup(panel);
+                        return;
+                    }
                     RunWithPlayerName(panel, () =>
                     {
-                        MultiplayerManager.PrewarmQuickQuery();
+                        MultiplayerManager.PrewarmConnection();
                         ShowMultiplayerOverlay(panel);
                     });
                 });
@@ -407,8 +412,6 @@ namespace BrickStacker
         bool impactFlashStrong;     // đòn vừa trúng là đòn MẠNH → viền đậm hơn
         Text incomingWarnText;      // banner tên đòn/skill đang tới (§12.4 nhắc bấm Khiên)
         RectTransform incomingWarnPanel; // nền tối của banner (bật/tắt + phập phồng)
-        Image attackProjectile;     // đòn bay từ bàn mình sang bàn đối thủ (tái dùng)
-        Coroutine attackProjectileRoutine;
         float nextAttackTime;       // chống spam: giãn cách giữa hai lần dùng kỹ năng
         Button attackButton;        // = skillGarbageButton (giữ tên cũ cho layout/legacy)
         RectTransform attackButtonRect;
@@ -419,6 +422,8 @@ namespace BrickStacker
 
         // HUD online mới (design #7): thanh máu trên, nhân vật/VS, tấn công/phòng thủ,
         // thanh năng lượng, 3 nút kỹ năng có giá.
+        // VFX prefabs live outside Resources and must be linked through the Inspector.
+        [SerializeField] private OnlineVfxPlayer onlineVfxPlayer;
         bool onlineHudBuilt;
         // Thanh trên (avatar + tên + cúp + máu + VS).
         RectTransform onlineTopBarRect;
@@ -426,15 +431,19 @@ namespace BrickStacker
         Image hpYouFill, hpOppFill;
         Text hpYouText, hpOppText, playerNameText, oppNameText, playerCupText, oppCupText;
         Text oppShieldText;         // trạng thái Khiên của đối thủ (HUD §13)
-        // Cột giữa (nhân vật + 3 lá kỹ năng + TẤN CÔNG/PHÒNG THỦ).
-        RectTransform onlineCenterRect;
+        // Left column under the player's fighter: shield button + three skill cards.
+        RectTransform onlineSkillPanelRect;
+        // Character anchors position combat VFX at the torso or feet.
+        RectTransform onlineHeroRect;
+        RectTransform onlineEnemyRect;
+        bool onlineShieldBubbleShown;
         RectTransform onlineAtkRect, onlineDefRect;
         Text onlineAtkText, onlineDefText;
         RectTransform[] onlineSkillRect = new RectTransform[3];
         Button[] onlineSkillBtn = new Button[3];
         Text[] onlineSkillCount = new Text[3];
         // Khung bàn + thanh năng lượng dưới mỗi bàn.
-        Image playerBoardFrameImg, oppBoardFrameImg;
+        Image playerBoardFrameImg;
         RectTransform onlineYouEnergyRect, onlineOppEnergyRect;
         Image[] youEnergySeg = new Image[10];
         Image[] oppEnergySeg = new Image[10];
@@ -662,6 +671,7 @@ namespace BrickStacker
             if (MultiplayerMatch.Active)
             {
                 healthSystem.Tick(Time.deltaTime); // GD §13: đếm giờ Active Shield
+                SyncOnlineShieldBubble();
                 if (!gameOver)
                 {
                     CheckOpponentMatchEvents();
@@ -671,9 +681,6 @@ namespace BrickStacker
                 }
                 UpdateOnlineHud(); // giữ 2 thanh máu/năng lượng luôn khớp máu mình + máu đối thủ (mạng)
                 ApplyPendingGarbage();
-                SendBoardSnapshotIfNeeded();
-                if (MultiplayerMatch.OpponentBoardDirty)
-                    RepaintOpponentMiniBoard();
             }
 
             if (gameOver)
@@ -939,9 +946,6 @@ namespace BrickStacker
             levelText.alignment = TextAnchor.MiddleRight;
             Ui.Rect(levelText, new Vector2(0.50f, 0.12f), new Vector2(0.96f, 0.88f), new Vector2(0, 0));
 
-            if (MultiplayerMatch.Active)
-                BuildOpponentMiniBoard(safe.transform); // fallback path (không có scene canvas)
-
             bestText = Ui.Text(hudPanel.transform, "", font, 31, new Color(1f, 0.72f, 0.32f), TextAnchor.MiddleLeft);
             Ui.Rect(bestText, new Vector2(0.00f, 0.22f), new Vector2(0.98f, 0.58f), new Vector2(0, 0));
             AddDarkWoodTextEdge(bestText, 1.05f, 0.88f);
@@ -1145,9 +1149,6 @@ namespace BrickStacker
             Ui.Rect(statusText, new Vector2(0.08f, 0.43f), new Vector2(0.92f, 0.52f), Vector2.zero);
             statusText.raycastTarget = false;
             AddDarkWoodTextEdge(statusText, 0.65f, 0.70f);
-
-            if (MultiplayerMatch.Active)
-                BuildOpponentMiniBoard(contentRoot); // vị trí do ApplyXGameplayRegionLayout đặt
 
             EnsureSceneEventSystem();
 
@@ -1865,12 +1866,10 @@ namespace BrickStacker
 
         // Thanh năng lượng: icon sét + 10 ô + "x/10".
 
-        static Sprite _roundUiSprite;
+        // Unity 6 removed the legacy built-in UI sprite, so reuse the cached procedural sprite.
         static Sprite RoundUiSprite()
         {
-            if (_roundUiSprite == null)
-                _roundUiSprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
-            return _roundUiSprite;
+            return PillSprite();
         }
 
         // Sprite bo góc lớn (9-slice) → khi thanh thấp thì 2 đầu thành nửa tròn (viên thuốc).

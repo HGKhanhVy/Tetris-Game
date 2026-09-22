@@ -676,6 +676,12 @@ namespace BrickStacker
                 pendingAttacks.Clear();
                 lastAttackScheduledAt = 0f;
                 impactFlashUntil = 0f;
+                // Xem thử: nạp sẵn năng lượng + khiên để bấm được cả 3 chiêu ngay, khỏi phải
+                // ngồi xếp gạch gom tài nguyên mới thấy được hiệu ứng.
+                if (MultiplayerMatch.Preview)
+                {
+                    FillResourcesForPreview();
+                }
                 RefreshSkillBar();
             }
 

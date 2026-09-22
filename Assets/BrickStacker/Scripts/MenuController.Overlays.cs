@@ -744,6 +744,28 @@ namespace BrickStacker
             quickBtn.onClick.AddListener(() => { RuntimeArt.PlayUiSwitchSound(); QuickMatch(box, statusLabel, buttons); });
             createBtn.onClick.AddListener(() => { RuntimeArt.PlayUiSwitchSound(); CreateRoom(box, codeInput, statusLabel, buttons); });
             joinBtn.onClick.AddListener(() => { RuntimeArt.PlayUiSwitchSound(); JoinRoom(box, codeInput, statusLabel, buttons); });
+
+            AddPreviewButton(box.transform);
+        }
+
+        // Nút chỉ có ở Editor / Development Build: vào thẳng giao diện online một mình, không mạng,
+        // không đối thủ — để soi bố cục và VFX mà không phải ghép hai máy.
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+        void AddPreviewButton(Transform parent)
+        {
+            var previewBtn = Ui.Button(parent, "XEM THỬ (DEV)", font, 20, () =>
+            {
+                RuntimeArt.PlayUiSwitchSound();
+                MultiplayerMatch.BeginPreview(1, UnityEngine.Random.Range(1, 999999));
+                GameSession.SelectedLevel = 1;
+                GameSession.JourneyLevel = 1;
+                SceneManager.LoadScene("BrickGame");
+            });
+            Ui.Rect(previewBtn.GetComponent<Image>(), new Vector2(0.5f, 0.02f), new Vector2(0.5f, 0.02f), Vector2.zero);
+            var rect = previewBtn.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(200f, 44f);
+            rect.anchoredPosition = new Vector2(0f, -28f);
         }
 
         // Nút ảnh 1vs1: sprite (đã baked chữ+icon) lấp khung, có phản hồi nhấn.

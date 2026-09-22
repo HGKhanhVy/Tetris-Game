@@ -88,6 +88,14 @@ namespace BrickStacker
             // OpponentName giữ nguyên — có thể đã nhận từ bắt tay trước khi Begin chạy.
         }
 
+        // Chế độ xem thử: dựng nguyên giao diện + luật online nhưng KHÔNG có mạng và không có
+        // đối thủ thật. Dùng để soi bố cục và VFX một mình, không phải ghép hai máy.
+        public static void BeginPreview(int level, int seed)
+        {
+            Begin(level, seed);
+            Preview = true;
+        }
+
         public static void Reset()
         {
             Active = false;
@@ -183,20 +191,43 @@ namespace BrickStacker
         // NGO tắt bất đồng bộ sau LeaveAsync — start host mới khi shutdown chưa xong
         // sẽ làm session mới treo vĩnh viễn. Đợi tối đa ~8 giây (vượt qua cả watchdog
         // 5s trong EnsureNetworkStoppedAfterLeave) cho tắt hẳn.
+        // Vượt qua cả watchdog 5s trong EnsureNetworkStoppedAfterLeave.
+        const float NetworkIdleTimeoutSeconds = 8f;
+
+        // Đo từng chặng để biết chặng nào ăn thời gian. Chỉ bật ở Editor/Development Build.
+        [System.Diagnostics.Conditional("UNITY_EDITOR")]
+        [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+        static void LogStep(string step, float startedAt)
+        {
+            Debug.Log($"[Multiplayer] {step}: {(Time.realtimeSinceStartup - startedAt) * 1000f:F0} ms");
+        }
+
         static async Task WaitForNetworkIdleAsync()
         {
             var networkManager = NetworkManager.Singleton;
-            for (int i = 0; i < 480 && networkManager != null
-                 && (networkManager.IsListening || networkManager.ShutdownInProgress); i++)
+            // Chặn theo THỜI GIAN THẬT, không theo số khung hình: vòng cũ chạy 480 lần Task.Yield
+            // tức 480 khung, nên máy chạy 15-30 fps phải đợi 16-32 giây thay vì 8 giây như ý định.
+            float deadline = Time.realtimeSinceStartup + NetworkIdleTimeoutSeconds;
+            while (networkManager != null
+                   && (networkManager.IsListening || networkManager.ShutdownInProgress)
+                   && Time.realtimeSinceStartup < deadline)
+            {
                 await Task.Yield();
+            }
         }
 
         public async Task<string> CreateRoomAsync()
         {
+            float t = Time.realtimeSinceStartup;
             if (!await ServicesManager.EnsureSignedInAsync())
                 throw new InvalidOperationException("Không kết nối được Unity Services");
-            await WaitForNetworkIdleAsync();
+            LogStep("Tạo phòng / đăng nhập", t);
 
+            t = Time.realtimeSinceStartup;
+            await WaitForNetworkIdleAsync();
+            LogStep("Tạo phòng / đợi mạng rảnh", t);
+
+            t = Time.realtimeSinceStartup;
             roomCode = UnityEngine.Random.Range(0, 10000).ToString("D4");
             session = await CreateRelaySessionAsync(() => new SessionOptions
             {
@@ -209,6 +240,7 @@ namespace BrickStacker
                     { CodePropertyKey, new SessionProperty(roomCode, VisibilityPropertyOptions.Public, PropertyIndex.String2) }
                 }
             });
+            LogStep("Tạo phòng / tạo session Relay", t);
             HookSession();
             return roomCode;
         }
@@ -231,12 +263,18 @@ namespace BrickStacker
 
         public async Task JoinRoomAsync(string code)
         {
+            float t = Time.realtimeSinceStartup;
             if (!await ServicesManager.EnsureSignedInAsync())
                 throw new InvalidOperationException("Không kết nối được Unity Services");
+            LogStep("Vào phòng / đăng nhập", t);
+
+            t = Time.realtimeSinceStartup;
             await WaitForNetworkIdleAsync();
+            LogStep("Vào phòng / đợi mạng rảnh", t);
 
             code = (code ?? "").Trim();
 
+            t = Time.realtimeSinceStartup;
             var results = await MultiplayerService.Instance.QuerySessionsAsync(new QuerySessionsOptions
             {
                 Count = 5,
@@ -247,10 +285,14 @@ namespace BrickStacker
                 }
             });
 
+            LogStep("Vào phòng / tìm phòng theo mã", t);
+
             if (results.Sessions.Count == 0)
                 throw new InvalidOperationException("Không tìm thấy phòng " + code + ".\nKiểm tra lại mã nhé!");
 
+            t = Time.realtimeSinceStartup;
             session = await MultiplayerService.Instance.JoinSessionByIdAsync(results.Sessions[0].Id);
+            LogStep("Vào phòng / nối Relay", t);
             roomCode = code;
             HookSession();
         }
@@ -259,6 +301,29 @@ namespace BrickStacker
         // bấm GHÉP NHANH là có kết quả liền, đỡ một vòng round-trip (~0.5-1s).
         static Task<QuerySessionsResults> prewarmedQuickQuery;
         static float prewarmedQuickAt = float.NegativeInfinity;
+
+        // Gọi khi mở overlay 1 vs 1. Dọn trước đúng những chặng mà CreateRoom/JoinRoom phải đợi,
+        // để lúc bấm nút chúng đã xong: người chơi còn phải đọc/gõ mã nên có sẵn vài giây.
+        public static void PrewarmConnection()
+        {
+            Ensure();
+            _ = WarmUpAsync();
+        }
+
+        static async Task WarmUpAsync()
+        {
+            try
+            {
+                await ServicesManager.EnsureSignedInAsync();
+                await WaitForNetworkIdleAsync();
+                // Chỉ prewarm query sau khi đã đăng nhập — gọi sớm hơn thì nó tự bỏ qua.
+                PrewarmQuickQuery();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Multiplayer] Khởi động trước thất bại: {e.Message}");
+            }
+        }
 
         public static void PrewarmQuickQuery()
         {
@@ -279,10 +344,16 @@ namespace BrickStacker
         // Trả về true nếu vào được phòng có sẵn, false nếu đang làm host chờ người lạ.
         public async Task<bool> QuickMatchAsync()
         {
+            float t = Time.realtimeSinceStartup;
             if (!await ServicesManager.EnsureSignedInAsync())
                 throw new InvalidOperationException("Không kết nối được Unity Services");
-            await WaitForNetworkIdleAsync();
+            LogStep("Ghép nhanh / đăng nhập", t);
 
+            t = Time.realtimeSinceStartup;
+            await WaitForNetworkIdleAsync();
+            LogStep("Ghép nhanh / đợi mạng rảnh", t);
+
+            t = Time.realtimeSinceStartup;
             QuerySessionsResults results = null;
             var warm = prewarmedQuickQuery;
             prewarmedQuickQuery = null;
@@ -293,12 +364,15 @@ namespace BrickStacker
             }
             if (results == null)
                 results = await QueryQuickSessionsAsync();
+            LogStep("Ghép nhanh / tìm phòng đang chờ", t);
 
+            t = Time.realtimeSinceStartup;
             foreach (var info in results.Sessions)
             {
                 try
                 {
                     session = await MultiplayerService.Instance.JoinSessionByIdAsync(info.Id);
+                    LogStep("Ghép nhanh / nối vào phòng có sẵn", t);
                     roomCode = null;
                     HookSession();
                     return true;
@@ -319,6 +393,7 @@ namespace BrickStacker
                     { ModePropertyKey, new SessionProperty(ModeQuick, VisibilityPropertyOptions.Public, PropertyIndex.String1) }
                 }
             });
+            LogStep("Ghép nhanh / tự mở phòng chờ", t);
             roomCode = null;
             HookSession();
             // Hai người bấm ghép nhanh gần cùng lúc sẽ cùng không thấy nhau (query chạy

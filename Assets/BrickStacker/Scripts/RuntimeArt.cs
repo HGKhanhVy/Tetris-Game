@@ -907,5 +907,98 @@ namespace BrickStacker
             particles.Stop();
             return particles;
         }
+
+        static Sprite skillButtonSprite;
+        static Sprite hudPanelSprite;
+
+        // Rounded-square button face, white so Image.color tints it: dark outline, a bright inner
+        // rim for the bevel, and a body that is lighter at the top. 9-sliced so any size keeps crisp
+        // corners.
+        public static Sprite SkillButtonSprite()
+        {
+            if (skillButtonSprite != null)
+                return skillButtonSprite;
+
+            const int size = 96;
+            const float radius = 20f;
+            const float outline = 3f;
+            const float rim = 3f;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float d = RoundedRectDistance(x, y, size, radius);
+                    float alpha = Mathf.Clamp01(0.5f - d);
+                    float lum;
+                    if (d > -outline)
+                        lum = 0.28f;
+                    else if (d > -(outline + rim))
+                        lum = 1f;
+                    else
+                        lum = Mathf.Lerp(0.70f, 1f, y / (size - 1f)); // texture y grows upward
+                    tex.SetPixel(x, y, new Color(lum, lum, lum, alpha));
+                }
+            }
+            tex.Apply();
+
+            float border = radius + outline + rim;
+            skillButtonSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0,
+                SpriteMeshType.FullRect, new Vector4(border, border, border, border));
+            return skillButtonSprite;
+        }
+
+        // Dark translucent HUD panel with a light blue border, colours baked in (not meant to be tinted).
+        public static Sprite HudPanelSprite()
+        {
+            if (hudPanelSprite != null)
+                return hudPanelSprite;
+
+            const int size = 64;
+            const float radius = 14f;
+            const float border = 2.5f;
+            var fill = new Color(0.04f, 0.09f, 0.20f, 0.80f);
+            var edge = new Color(0.40f, 0.65f, 1f, 1f);
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float d = RoundedRectDistance(x, y, size, radius);
+                    float alpha = Mathf.Clamp01(0.5f - d);
+                    Color c = d > -border ? edge : fill;
+                    c.a *= alpha;
+                    tex.SetPixel(x, y, c);
+                }
+            }
+            tex.Apply();
+
+            float slice = radius + border;
+            hudPanelSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0,
+                SpriteMeshType.FullRect, new Vector4(slice, slice, slice, slice));
+            return hudPanelSprite;
+        }
+
+        // Signed distance from a texel to the edge of a rounded square filling a size×size texture:
+        // negative inside, positive outside.
+        static float RoundedRectDistance(float x, float y, int size, float radius)
+        {
+            float centre = (size - 1) * 0.5f;
+            float qx = Mathf.Abs(x - centre) - (centre - radius);
+            float qy = Mathf.Abs(y - centre) - (centre - radius);
+            float outside = Mathf.Sqrt(Mathf.Max(qx, 0f) * Mathf.Max(qx, 0f) + Mathf.Max(qy, 0f) * Mathf.Max(qy, 0f));
+            float inside = Mathf.Min(Mathf.Max(qx, qy), 0f);
+            return outside + inside - radius;
+        }
     }
 }

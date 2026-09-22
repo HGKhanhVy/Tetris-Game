@@ -1099,8 +1099,9 @@ namespace BrickStacker
         // Ô trống của bàn. Bóng mờ trộn lên chính màu này nên tách ra dùng chung.
         static readonly Color EmptyCellColor = new Color(0.10f, 0.17f, 0.31f, 1f);
 
-        // Ô rác (§16): navy đá, cùng hệ màu với bàn cờ nhưng sáng hơn ô trống đủ để thấy ô bị chiếm.
-        static readonly Color GarbageCellColor = new Color(0.22f, 0.29f, 0.42f, 1f);
+        // Ô rỗng / ô rác (§16): dùng CHUNG một màu ở mọi nơi — khối đang rơi, khung NEXT và cả sau khi
+        // đã đáp xuống bàn. Đổi màu lúc đáp làm ô nhấp nháy và khiến ô rỗng chìm mất vào nền.
+        static readonly Color BlankCellColor = new Color(0.58f, 0.66f, 0.80f, 1f);
 
         // Bóng mờ tô phẳng (không icon) theo đúng màu art của từng ô tài nguyên: vẫn đọc được ô nào
         // sắp rơi ra loại gì để tính cụm trước, nhưng không có chi tiết icon gây rối mắt.
@@ -1215,7 +1216,7 @@ namespace BrickStacker
                 {
                     cell.sprite = blockSprite;
                     cell.preserveAspect = false;
-                    cell.color = GarbageCellColor;
+                    cell.color = BlankCellColor;
                 }
                 else
                 {
@@ -1474,7 +1475,7 @@ namespace BrickStacker
                 if (isBlank)
                 {
                     image.sprite = blockSprite;
-                    image.color = new Color(0.40f, 0.43f, 0.50f, 1f); // ô trống = xám như rác
+                    image.color = BlankCellColor;
                 }
                 else
                 {

@@ -18,115 +18,147 @@ namespace BrickStacker
         {
             if (onlineHudBuilt) return;
             onlineHudBuilt = true;
+            if (onlineVfxPlayer != null)
+            {
+                onlineVfxPlayer.Initialize(sceneGameplayCanvas);
+            }
+
             const string DIR = "screen-online/";
             var titleFont = RuntimeArt.LoadMenuButtonFont();
             var hpGreen = new Color(0.36f, 0.84f, 0.30f, 1f);
             var cupGold = new Color(1f, 0.86f, 0.35f);
 
-            // ================= THANH TRÊN (avatar + tên + cúp + máu + VS) =================
+            // ================= TOP BAR: a framed panel per player, VS between them =================
+            // Each panel: avatar, name + trophies, then HP (top row) over energy (bottom row).
             var topBar = Ui.Panel(parent, "Runtime Online TopBar", new Color(0, 0, 0, 0));
             onlineTopBarRect = topBar.GetComponent<RectTransform>();
             topBar.GetComponent<Image>().raycastTarget = false;
             var tb = topBar.transform;
 
-            // Avatar + tên + cúp (người chơi bên trái).
-            playerAvatarImg = BuildAvatar(tb, DIR + "khungavar-player.png", new Rect(0.262f, 0.108f, 0.475f, 0.784f),
-                DIR + "player.png", new Rect(0.401f, 0.590f, 0.166f, 0.273f), new Vector2(0.098f, 0.12f), new Vector2(0.158f, 0.88f));
-            playerNameText = MakeBarText(tb, "Player1", titleFont, 28, TextAnchor.UpperLeft, new Vector2(0.166f, 0.46f), new Vector2(0.260f, 0.83f));
-            var cup1 = MakeSpriteImage(tb, "Runtime Cup1", DIR + "decor-cup.png", new Rect(0.319f, 0.261f, 0.366f, 0.518f), false);
-            Ui.Rect(cup1, new Vector2(0.166f, 0.12f), new Vector2(0.185f, 0.40f), Vector2.zero);
-            playerCupText = MakeBarText(tb, "1280", titleFont, 24, TextAnchor.MiddleLeft, new Vector2(0.190f, 0.06f), new Vector2(0.260f, 0.46f));
-            playerCupText.color = cupGold;
-            // Tim + thanh máu (bên trái, gần giữa).
-            var heart1 = MakeSpriteImage(tb, "Runtime Heart1", DIR + "decor-tim.png", new Rect(0.327f, 0.298f, 0.348f, 0.461f), false);
-            Ui.Rect(heart1, new Vector2(0.260f, 0.34f), new Vector2(0.288f, 0.72f), Vector2.zero);
-            hpYouFill = MakeHpFill(tb, new Vector2(0.29f, 0.40f), new Vector2(0.428f, 0.70f), false);
-            hpYouFill.color = hpGreen;
-            hpYouText = MakeBarText(tb, "100/100", font, 22, TextAnchor.MiddleCenter, new Vector2(0.29f, 0.37f), new Vector2(0.428f, 0.73f));
+            // Panels first so everything else draws on top of them.
+            MakeHudPanel(tb, "Runtime Online Panel You", new Vector2(0.068f, 0.02f), new Vector2(0.438f, 0.98f));
+            MakeHudPanel(tb, "Runtime Online Panel Opp", new Vector2(0.562f, 0.02f), new Vector2(0.932f, 0.98f));
 
-            // VS giữa.
+            // Player (left panel).
+            playerAvatarImg = BuildAvatar(tb, DIR + "khungavar-player.png", new Rect(0.262f, 0.108f, 0.475f, 0.784f),
+                DIR + "player.png", new Rect(0.401f, 0.590f, 0.166f, 0.273f), new Vector2(0.076f, 0.10f), new Vector2(0.138f, 0.90f));
+            playerNameText = MakeBarText(tb, "Player1", titleFont, 28, TextAnchor.UpperLeft, new Vector2(0.146f, 0.50f), new Vector2(0.245f, 0.94f));
+            var cup1 = MakeSpriteImage(tb, "Runtime Cup1", DIR + "decor-cup.png", new Rect(0.319f, 0.261f, 0.366f, 0.518f), false);
+            Ui.Rect(cup1, new Vector2(0.146f, 0.10f), new Vector2(0.165f, 0.44f), Vector2.zero);
+            playerCupText = MakeBarText(tb, "1280", titleFont, 24, TextAnchor.MiddleLeft, new Vector2(0.168f, 0.06f), new Vector2(0.245f, 0.48f));
+            playerCupText.color = cupGold;
+            var heart1 = MakeSpriteImage(tb, "Runtime Heart1", DIR + "decor-tim.png", new Rect(0.327f, 0.298f, 0.348f, 0.461f), false);
+            Ui.Rect(heart1, new Vector2(0.250f, 0.52f), new Vector2(0.274f, 0.94f), Vector2.zero);
+            hpYouFill = MakeHpFill(tb, new Vector2(0.278f, 0.56f), new Vector2(0.428f, 0.90f), false);
+            hpYouFill.color = hpGreen;
+            hpYouText = MakeBarText(tb, "100/100", font, 22, TextAnchor.MiddleCenter, new Vector2(0.278f, 0.53f), new Vector2(0.428f, 0.93f));
+            onlineYouEnergyRect = BuildEnergyBar(tb, "You", DIR + "icon-nangluong-player.png", new Rect(0.335f, 0.292f, 0.331f, 0.438f), youEnergyColor, youEnergySeg, out onlineEnergyText);
+            Ui.Rect(onlineYouEnergyRect, new Vector2(0.250f, 0.08f), new Vector2(0.398f, 0.46f), Vector2.zero);
+
             var vs = MakeSpriteImage(tb, "Runtime Online VS", DIR + "decor-vs.png", new Rect(0.214f, 0.307f, 0.570f, 0.440f), false);
             Ui.Rect(vs, new Vector2(0.444f, 0.16f), new Vector2(0.556f, 0.92f), Vector2.zero);
 
-            // Đối thủ (mirror bên phải).
-            hpOppFill = MakeHpFill(tb, new Vector2(0.572f, 0.40f), new Vector2(0.710f, 0.70f), false);
+            // Opponent (right panel, mirrored: bars first, then name, avatar at the far edge).
+            hpOppFill = MakeHpFill(tb, new Vector2(0.572f, 0.56f), new Vector2(0.722f, 0.90f), false);
             hpOppFill.color = hpGreen;
-            hpOppText = MakeBarText(tb, "100/100", font, 22, TextAnchor.MiddleCenter, new Vector2(0.572f, 0.37f), new Vector2(0.710f, 0.73f));
-            // Trạng thái Khiên đối thủ ngay dưới thanh máu (biết đối thủ đang thủ hay có sẵn khiên).
-            oppShieldText = MakeBarText(tb, "", font, 19, TextAnchor.MiddleCenter, new Vector2(0.560f, 0.02f), new Vector2(0.722f, 0.34f));
-            oppShieldText.color = new Color(0.62f, 0.86f, 1f);
+            hpOppText = MakeBarText(tb, "100/100", font, 22, TextAnchor.MiddleCenter, new Vector2(0.572f, 0.53f), new Vector2(0.722f, 0.93f));
             var heart2 = MakeSpriteImage(tb, "Runtime Heart2", DIR + "decor-tim.png", new Rect(0.327f, 0.298f, 0.348f, 0.461f), false);
-            Ui.Rect(heart2, new Vector2(0.712f, 0.34f), new Vector2(0.740f, 0.72f), Vector2.zero);
-            oppNameText = MakeBarText(tb, "Player2", titleFont, 28, TextAnchor.UpperRight, new Vector2(0.740f, 0.46f), new Vector2(0.834f, 0.83f));
+            Ui.Rect(heart2, new Vector2(0.726f, 0.52f), new Vector2(0.750f, 0.94f), Vector2.zero);
+            onlineOppEnergyRect = BuildEnergyBar(tb, "Opp", DIR + "icon-nangluong-doithu.png", new Rect(0.292f, 0.247f, 0.395f, 0.553f), oppEnergyColor, oppEnergySeg, out onlineOppEnergyText);
+            Ui.Rect(onlineOppEnergyRect, new Vector2(0.572f, 0.08f), new Vector2(0.720f, 0.46f), Vector2.zero);
+            oppNameText = MakeBarText(tb, "Player2", titleFont, 28, TextAnchor.UpperRight, new Vector2(0.755f, 0.50f), new Vector2(0.852f, 0.94f));
             var cup2 = MakeSpriteImage(tb, "Runtime Cup2", DIR + "decor-cup.png", new Rect(0.319f, 0.261f, 0.366f, 0.518f), false);
-            Ui.Rect(cup2, new Vector2(0.815f, 0.12f), new Vector2(0.834f, 0.40f), Vector2.zero);
-            oppCupText = MakeBarText(tb, "1295", titleFont, 24, TextAnchor.MiddleRight, new Vector2(0.740f, 0.06f), new Vector2(0.810f, 0.46f));
+            Ui.Rect(cup2, new Vector2(0.833f, 0.10f), new Vector2(0.852f, 0.44f), Vector2.zero);
+            oppCupText = MakeBarText(tb, "1295", titleFont, 24, TextAnchor.MiddleRight, new Vector2(0.755f, 0.06f), new Vector2(0.830f, 0.48f));
             oppCupText.color = cupGold;
             oppAvatarImg = BuildAvatar(tb, DIR + "khungavar-doithu.png", new Rect(0.260f, 0.108f, 0.495f, 0.801f),
-                DIR + "doithu.png", new Rect(0.542f, 0.588f, 0.197f, 0.319f), new Vector2(0.842f, 0.12f), new Vector2(0.902f, 0.88f));
+                DIR + "doithu.png", new Rect(0.542f, 0.588f, 0.197f, 0.319f), new Vector2(0.860f, 0.10f), new Vector2(0.922f, 0.90f));
+            // The opponent's shield state is not in the mock-up but is needed to decide when to strike;
+            // it sits just under their panel, clear of the board.
+            oppShieldText = MakeBarText(tb, "", font, 19, TextAnchor.MiddleRight, new Vector2(0.750f, -0.30f), new Vector2(0.930f, -0.02f));
+            oppShieldText.color = new Color(0.62f, 0.86f, 1f);
 
-            // ================= KHUNG BÀN (đặt sau lưng bàn chức năng ở layout) =================
+            // Only the player's own board is shown. The opponent's side is a HUD (fighter, HP, energy,
+            // shield) in the 3Q Match-3 layout: their board was display-only and cost a network send
+            // on every board change.
             playerBoardFrameImg = MakeSpriteImage(parent, "Runtime Board Frame You", DIR + "board-player.png", new Rect(0.324f, 0.044f, 0.350f, 0.929f), false);
             playerBoardFrameImg.preserveAspect = false;
-            oppBoardFrameImg = MakeSpriteImage(parent, "Runtime Board Frame Opp", DIR + "board-doithu.png", new Rect(0.324f, 0.041f, 0.327f, 0.932f), false);
-            oppBoardFrameImg.preserveAspect = false;
 
-            // ================= THANH NĂNG LƯỢNG (dưới mỗi bàn) =================
-            onlineYouEnergyRect = BuildEnergyBar(parent, "You", DIR + "icon-nangluong-player.png", new Rect(0.335f, 0.292f, 0.331f, 0.438f), youEnergyColor, youEnergySeg, out onlineEnergyText);
-            onlineOppEnergyRect = BuildEnergyBar(parent, "Opp", DIR + "icon-nangluong-doithu.png", new Rect(0.292f, 0.247f, 0.395f, 0.553f), oppEnergyColor, oppEnergySeg, out onlineOppEnergyText);
+            // Fighters are direct children of the HUD root so the layout can size them at a fixed
+            // pixel aspect (see HeroRectAspect) — the VFX body/feet anchors depend on it.
+            var enemy = MakeSpriteImage(parent, "Runtime Online Enemy", DIR + "doithu.png", new Rect(0.346f, 0.209f, 0.516f, 0.698f), false);
+            onlineEnemyRect = enemy.rectTransform;
+            var hero = MakeSpriteImage(parent, "Runtime Online Hero", DIR + "player.png", new Rect(0.283f, 0.271f, 0.475f, 0.593f), false);
+            onlineHeroRect = hero.rectTransform;
+            if (onlineVfxPlayer != null)
+            {
+                onlineVfxPlayer.RegisterCharacters(onlineHeroRect, onlineEnemyRect);
+            }
 
-            // ================= CỘT GIỮA (nhân vật + 3 lá kỹ năng + ATTACK/SHIELD) =================
-            var center = Ui.Panel(parent, "Runtime Online Center", new Color(0, 0, 0, 0));
-            onlineCenterRect = center.GetComponent<RectTransform>();
-            center.GetComponent<Image>().raycastTarget = false;
-            var cc = center.transform;
+            // Action row under the board: one framed panel holding four same-size square buttons,
+            // shield first. Each button is a tinted procedural tile with its icon and label inside.
+            var skillPanel = Ui.Panel(parent, "Runtime Online Skills", new Color(0, 0, 0, 0));
+            onlineSkillPanelRect = skillPanel.GetComponent<RectTransform>();
+            skillPanel.GetComponent<Image>().raycastTarget = false;
+            var cc = skillPanel.transform;
+            MakeHudPanel(cc, "Runtime Online Skills Frame", Vector2.zero, Vector2.one);
 
-            // Nhân vật đối đầu.
-            // Hai nhân vật xích sát, chồng nhẹ ở giữa cho ra dáng lao vào đánh nhau.
-            var enemy = MakeSpriteImage(cc, "Runtime Online Enemy", DIR + "doithu.png", new Rect(0.346f, 0.209f, 0.516f, 0.698f), false);
-            Ui.Rect(enemy, new Vector2(0.42f, 0.50f), new Vector2(1.04f, 1.03f), Vector2.zero);
-            var hero = MakeSpriteImage(cc, "Runtime Online Hero", DIR + "player.png", new Rect(0.283f, 0.271f, 0.475f, 0.593f), false);
-            Ui.Rect(hero, new Vector2(-0.09f, 0.50f), new Vector2(0.58f, 1.03f), Vector2.zero); // rộng hơn để cao bằng nhân vật đỏ
+            var def = MakeSkillTile(cc, "Runtime Online Def", 0, DIR + "icon-skill-khien.png", new Color(1f, 0.78f, 0.18f), () => TryActivateShield(), out onlineDefText);
+            onlineDefRect = def.GetComponent<RectTransform>();
 
-            // 3 lá kỹ năng (THẢ RÁC / HÚT MÁU / CUỒNG NỘ) — icon + badge cost baked; tên dưới.
-            string[] skillAssets = { "btn-chieu1-tharac.png", "btn-chieu2-hoimau.png", "btn-chieu3-cuongno.png" };
-            Rect[] skillCrops = { new Rect(0.115f, 0.109f, 0.770f, 0.829f), new Rect(0.089f, 0.082f, 0.821f, 0.891f), new Rect(0.104f, 0.077f, 0.790f, 0.885f) };
-            string[] skillNames = { "THẢ RÁC", "HÚT MÁU", "CUỒNG NỘ" };
+            string[] skillIcons = { "icon-skill-tharac.png", "icon-skill-hutmau.png", "icon-skill-cuongno.png" };
+            string[] skillNames = { "Thả rác", "Hút máu", "Cuồng nộ" };
+            Color[] skillColors = { new Color(0.20f, 0.55f, 0.98f), new Color(0.35f, 0.78f, 0.25f), new Color(0.92f, 0.22f, 0.22f) };
             OnlineSkill[] map = { OnlineSkill.GarbageDrop, OnlineSkill.LifeDrain, OnlineSkill.OverloadBlast };
-            float[] cx = { 0.243f, 0.50f, 0.757f };
-            float half = 0.104f; // hẹp lại cho lá chiêu đỡ bè
             for (int i = 0; i < 3; i++)
             {
-                var si = i;
-                var b = MakeSpriteButton(cc, "Runtime Online Skill " + (i + 1), DIR + skillAssets[i], skillCrops[i],
-                    new Vector2(0.5f, 0.5f), new Vector2(120, 120), () => TryUseSkill(map[si]));
+                var skill = map[i];
+                var b = MakeSkillTile(cc, "Runtime Online Skill " + (i + 1), i + 1, DIR + skillIcons[i], skillColors[i], () => TryUseSkill(skill), out var label);
+                label.text = skillNames[i];
                 onlineSkillBtn[i] = b;
                 onlineSkillRect[i] = b.GetComponent<RectTransform>();
-                var bImg = b.GetComponent<Image>(); if (bImg != null) bImg.preserveAspect = false; // vuông hơn theo rect
-                Ui.Rect(b.gameObject, new Vector2(cx[i] - half, 0.27f), new Vector2(cx[i] + half, 0.49f), Vector2.zero);
-                var skLbl = MakeBarText(cc, skillNames[i], titleFont, 27, TextAnchor.UpperCenter, new Vector2(cx[i] - half - 0.02f, 0.175f), new Vector2(cx[i] + half + 0.02f, 0.25f));
-                skLbl.horizontalOverflow = HorizontalWrapMode.Overflow;
-                var skOutline = skLbl.gameObject.AddComponent<Outline>();
-                skOutline.effectColor = new Color(0f, 0f, 0f, 0.95f);
-                skOutline.effectDistance = new Vector2(2.2f, -2.2f);
             }
+        }
 
-            // GD §12: Đánh TỰ ĐỘNG (không nút). Chỉ còn 1 nút KHIÊN (btn-khienbv, đã baked chữ+icon)
-            // để bấm bật Active Shield (§13). Số Shield Charge / trạng thái BẬT hiện ở phần phải nút.
-            var def = MakeSpriteButton(cc, "Runtime Online Def", DIR + "btn-khienbv.png", new Rect(0.134f, 0.327f, 0.728f, 0.402f),
-                new Vector2(0.5f, 0.5f), new Vector2(100, 40), () => TryActivateShield());
-            var defImg = def.GetComponent<Image>(); if (defImg != null) defImg.preserveAspect = true;
-            onlineDefRect = def.GetComponent<RectTransform>();
-            Ui.Rect(def.gameObject, new Vector2(0.235f, 0.035f), new Vector2(0.765f, 0.225f), Vector2.zero);
-            onlineDefText = MakeBarText(def.transform, "", RuntimeArt.LoadMenuButtonFont(), 46, TextAnchor.MiddleLeft, new Vector2(0.72f, 0.08f), new Vector2(1.10f, 0.92f));
-            onlineDefText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            // Viền dày hơn để chữ "x0" khớp với chữ "Khiên" đã baked trên nút.
-            var defOutline = onlineDefText.GetComponent<Outline>();
-            if (defOutline != null)
-            {
-                defOutline.effectColor = new Color(0.16f, 0.065f, 0.02f, 1f);
-                defOutline.effectDistance = new Vector2(1.7f, -1.7f);
-            }
+        // Four equal slots across the action row with even gaps.
+        const int SkillTileCount = 4;
+        const float SkillTileGap = 0.04f;
+
+        Button MakeSkillTile(Transform parent, string name, int slot, string iconAsset, Color tint, UnityEngine.Events.UnityAction action, out Text label)
+        {
+            var go = Ui.Panel(parent, name, tint);
+            var img = go.GetComponent<Image>();
+            img.sprite = RuntimeArt.SkillButtonSprite();
+            img.type = Image.Type.Sliced;
+            float w = (1f - SkillTileGap * (SkillTileCount + 1)) / SkillTileCount;
+            float x0 = SkillTileGap + slot * (w + SkillTileGap);
+            Ui.Rect(go, new Vector2(x0, 0.10f), new Vector2(x0 + w, 0.90f), Vector2.zero);
+
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.onClick.AddListener(action);
+            var pf = go.AddComponent<PressScaleFeedback>();
+            pf.PressedScale = 0.93f;
+
+            var icon = MakeSpriteImage(go.transform, "Icon", iconAsset, new Rect(0f, 0f, 1f, 1f), false);
+            Ui.Rect(icon, new Vector2(0.18f, 0.36f), new Vector2(0.82f, 0.92f), Vector2.zero);
+
+            label = MakeBarText(go.transform, "", titleFont, 26, TextAnchor.MiddleCenter, new Vector2(0.02f, 0.04f), new Vector2(0.98f, 0.36f));
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            var outline = label.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(2f, -2f);
+            return btn;
+        }
+
+        // Dark translucent rounded panel with a thin blue rim (top-bar player cards, action row frame).
+        void MakeHudPanel(Transform parent, string name, Vector2 min, Vector2 max)
+        {
+            var img = Ui.Panel(parent, name, Color.white).GetComponent<Image>();
+            img.sprite = RuntimeArt.HudPanelSprite();
+            img.type = Image.Type.Sliced;
+            img.raycastTarget = false;
+            Ui.Rect(img, min, max, Vector2.zero);
         }
 
         RectTransform BuildEnergyBar(Transform parent, string tag, string iconAsset, Rect iconCrop, Color onColor, Image[] segs, out Text valueText)
@@ -180,43 +212,113 @@ namespace BrickStacker
                     pauseButtonRect.SetParent(safeAreaRoot.transform, false);
                 pauseButtonRect.gameObject.SetActive(true);
                 ApplySceneRect(pauseButtonRect, new Vector2(0.024f, 0.888f), new Vector2(0.060f, 0.978f));
+                // Cùng skin v3 với offline — online trước đây chỉ đặt vị trí nên còn giữ nút cũ.
+                ReskinButton(pauseButtonRect, "screen-gameplay/btn-pause.png", new Rect(0.105f, 0.121f, 0.789f, 0.774f));
             }
 
             // Thanh trên — chừa lề, không sát mép trên/hai bên.
             if (onlineTopBarRect != null) ApplySceneRect(onlineTopBarRect, new Vector2(0.015f, 0.842f), new Vector2(0.985f, 0.972f));
 
-            // --- Hai bàn cùng cỡ. Bàn hẹp/cao hơn (0.500) để ô 7×17 không bị bè (cao ~ bằng rộng). ---
-            float boardTop = 0.825f, boardBottom = 0.145f;
-            float boardH = boardTop - boardBottom;
-            float boardW = boardH * 0.500f / Mathf.Max(1f, aspect);
+            // --- 3Q Match-3 layout: the player's board centred with the action row (shield + skills)
+            // under it, and a fighter standing at the bottom of each side column. ---
+            const float playBottom = 0.03f, playTop = 0.83f;
+            const float boardMaxW = 0.40f;    // cap so the side columns keep room for a fighter
+            const float columnMargin = 0.02f;
+            const float columnGap = 0.015f;
+            const float actionRowH = 0.17f;
+            const float actionRowGap = 0.015f;
 
-            // Bàn người chơi (trái) — dời vào trong.
-            float youLeft = 0.138f, youRight = youLeft + boardW;
-            ApplySceneRect(scenePuzzleBoardAnchorRect, new Vector2(youLeft, boardBottom), new Vector2(youRight, boardTop));
-            DisablePuzzleAnchorFrame();
-            PlaceBoardFrame(playerBoardFrameImg, scenePuzzleBoardAnchorRect, youLeft, boardBottom, youRight, boardTop, 0.030f, 0.016f, 0.939f, 0.971f);
+            // The grid stretches to fill its frame (cell X and Y sizes are separate), so the frame must
+            // have the grid's own proportions or the blocks get squashed. Derive it from the cell counts
+            // and the frame border the grid is inset by, instead of a hand-tuned constant.
+            float gridSpanX = PuzzleGridRight - PuzzleGridLeft;
+            float gridSpanY = PuzzleGridTop - PuzzleGridBottom;
+            float frameRatio = (Width / gridSpanX) / (Height / gridSpanY);
+            float safeAspect = Mathf.Max(1f, aspect);
 
-            // Bỏ nút XOAY khỏi giao diện online.
-            if (rotateButtonRect != null) rotateButtonRect.gameObject.SetActive(false);
-
-            // Bàn đối thủ (phải) — dời vào trong.
-            float oppRight = 0.862f, oppLeft = oppRight - boardW;
-            if (opponentMiniPanelRect != null)
+            // The board gets the band above the action row.
+            float boardBandBottom = playBottom + actionRowH + actionRowGap;
+            float boardH = playTop - boardBandBottom;
+            float boardW = boardH * frameRatio / safeAspect;
+            if (boardW > boardMaxW)
             {
-                ApplySceneRect(opponentMiniPanelRect, new Vector2(oppLeft, boardBottom), new Vector2(oppRight, boardTop));
-                PlaceBoardFrame(oppBoardFrameImg, opponentMiniPanelRect, oppLeft, boardBottom, oppRight, boardTop, 0.034f, 0.020f, 0.938f, 0.966f);
+                // Very wide screen: cap the width and derive the height back, cells stay square.
+                boardW = boardMaxW;
+                boardH = boardW * safeAspect / frameRatio;
             }
 
-            // Thanh năng lượng dưới mỗi bàn.
-            float enTop = boardBottom - 0.010f, enBottom = enTop - 0.090f;
-            if (onlineYouEnergyRect != null) ApplySceneRect(onlineYouEnergyRect, new Vector2(youLeft - 0.006f, enBottom), new Vector2(youRight + 0.038f, enTop));
-            if (onlineOppEnergyRect != null) ApplySceneRect(onlineOppEnergyRect, new Vector2(oppLeft - 0.006f, enBottom), new Vector2(oppRight + 0.038f, enTop));
+            float boardLeft = 0.5f - boardW * 0.5f;
+            float boardRight = 0.5f + boardW * 0.5f;
+            float boardBottom = boardBandBottom + (playTop - boardBandBottom - boardH) * 0.5f;
+            float boardTop = boardBottom + boardH;
 
-            // Cột giữa lấp khoảng trống giữa hai bàn.
-            float cLeft = youRight + 0.028f, cRight = oppLeft - 0.028f;
-            if (onlineCenterRect != null) ApplySceneRect(onlineCenterRect, new Vector2(cLeft, 0.035f), new Vector2(cRight, boardTop));
+            ApplySceneRect(scenePuzzleBoardAnchorRect, new Vector2(boardLeft, boardBottom), new Vector2(boardRight, boardTop));
+            DisablePuzzleAnchorFrame();
+            PlaceBoardFrame(playerBoardFrameImg, scenePuzzleBoardAnchorRect, boardLeft, boardBottom, boardRight, boardTop, 0.030f, 0.016f, 0.939f, 0.971f);
+            if (rotateButtonRect != null) rotateButtonRect.gameObject.SetActive(false);
+
+            float leftX0 = columnMargin, leftX1 = boardLeft - columnGap;
+            float rightX0 = boardRight + columnGap, rightX1 = 1f - columnMargin;
+
+            // Fighters stand on the bottom edge, facing each other across the board. Energy lives in
+            // the top bar, so they get the full height under it.
+            const float fighterBottom = 0.05f;
+            const float fighterH = 0.50f;
+            float parentAspect = ParentAspect(onlineHeroRect, safeAspect);
+            Vector2 heroSpan = PlaceFighter(onlineHeroRect, leftX0, leftX1, fighterBottom, fighterBottom + fighterH, HeroRectAspect, parentAspect);
+            Vector2 enemySpan = PlaceFighter(onlineEnemyRect, rightX0, rightX1, fighterBottom, fighterBottom + fighterH, EnemyRectAspect, parentAspect);
+
+            // Action row under the board. Four buttons in just the board's width are too cramped to
+            // tap on a phone, and at this height the fighters leave the space between them free, so
+            // widen the row into it — never narrower than the board, never overlapping a fighter.
+            if (onlineSkillPanelRect != null)
+            {
+                const float maxRowToBoard = 1.6f;
+                float freeW = (enemySpan.x - columnGap) - (heroSpan.y + columnGap);
+                float rowW = Mathf.Clamp(freeW, boardW, boardW * maxRowToBoard);
+                float rowTop = boardBottom - actionRowGap;
+                float rowBottom = Mathf.Max(playBottom, rowTop - actionRowH);
+                ApplySceneRect(onlineSkillPanelRect, new Vector2(0.5f - rowW * 0.5f, rowBottom), new Vector2(0.5f + rowW * 0.5f, rowTop));
+            }
 
             UpdateOnlineHud();
+        }
+
+        // Pixel aspect (w/h) the fighter rects had when OnlineVfxPlayer's body/feet anchors were
+        // measured. The image uses preserveAspect, so the empty band around it scales with the rect;
+        // holding the rect at this aspect keeps those normalised anchors on the torso and feet.
+        const float HeroRectAspect = 511f / 527f;
+        const float EnemyRectAspect = 473f / 527f;
+
+        static float ParentAspect(RectTransform child, float fallback)
+        {
+            var parentRect = child != null ? child.parent as RectTransform : null;
+            if (parentRect != null && parentRect.rect.height > 1f)
+                return parentRect.rect.width / parentRect.rect.height;
+            return fallback;
+        }
+
+        // Bottom-aligned in the column (feet on the ground line), centred horizontally, at a fixed
+        // pixel aspect. Shrinks to the column width if the column is too narrow, keeping the aspect
+        // and the feet where they are.
+        // Returns the horizontal span (xMin, xMax) it was placed at, so neighbours can avoid it.
+        Vector2 PlaceFighter(RectTransform fighter, float colX0, float colX1, float bottom, float top, float pixelAspect, float parentAspect)
+        {
+            if (fighter == null)
+                return new Vector2(colX0, colX1);
+
+            float h = top - bottom;
+            float w = h * pixelAspect / parentAspect;
+            float colW = colX1 - colX0;
+            if (w > colW)
+            {
+                w = colW;
+                h = w * parentAspect / pixelAspect;
+            }
+
+            float cx = (colX0 + colX1) * 0.5f;
+            ApplySceneRect(fighter, new Vector2(cx - w * 0.5f, bottom), new Vector2(cx + w * 0.5f, bottom + h));
+            return new Vector2(cx - w * 0.5f, cx + w * 0.5f);
         }
 
         void SetEnergySegments(Image[] segs, int on, Color onColor)
@@ -253,11 +355,13 @@ namespace BrickStacker
             for (int i = 0; i < 3; i++)
                 if (onlineSkillCount[i] != null) onlineSkillCount[i].text = (youEn / cardCost[i]).ToString();
 
-            // GD v3: nút Khiên (chữ baked) chỉ hiện số Shield Charge / trạng thái BẬT ở phần phải.
+            // Shield tile label: charges left, or the active shield's remaining HP.
             if (onlineDefText != null)
+            {
                 onlineDefText.text = healthSystem.IsShieldActive
-                    ? "BẬT " + healthSystem.ActiveShieldHP
-                    : "x" + healthSystem.ShieldCharges;
+                    ? "Khiên " + healthSystem.ActiveShieldHP
+                    : "Khiên x" + healthSystem.ShieldCharges;
+            }
 
             // Khiên đối thủ (§13): đang bật → "KHIÊN {HP}" xanh sáng; else số charge; hết thì ẩn.
             if (oppShieldText != null)
@@ -632,7 +736,7 @@ namespace BrickStacker
                     msg = "Thả " + OnlineConfig.GarbageDropLines + " hàng rác sang đối thủ!";
                     break;
             }
-            FireAttackProjectile(skill); // đòn/skill bay sang bàn đối thủ
+            PlayOutgoingSkillVfx(skill);
             PlaySkillCastFx(skill, SkillName(skill).ToUpperInvariant() + "!"); // nổ + chữ + rung khi tung chiêu
             RefreshSkillBar();
             SendMultiplayerState();
@@ -640,6 +744,69 @@ namespace BrickStacker
             {
                 tacticalBoard.LastMessage = msg;
                 RefreshTacticalBoardUi();
+            }
+        }
+
+        void PlayOutgoingSkillVfx(OnlineSkill skill)
+        {
+            if (onlineVfxPlayer == null)
+            {
+                return;
+            }
+
+            switch (skill)
+            {
+                case OnlineSkill.OverloadBlast:
+                    onlineVfxPlayer.PlayOverload(onlineEnemyRect, onlineHeroRect);
+                    break;
+                case OnlineSkill.LifeDrain:
+                    // Chạy ngay lúc tung chiêu, KHÔNG đợi lượng máu hồi thực tế: phần hồi máu chờ
+                    // đối thủ gửi DrainHeal xác nhận qua mạng, và chỉ ra > 0 khi mình đang hụt máu.
+                    // Buộc VFX vào đó thì đầy máu hoặc chế độ xem thử (không có đối thủ) sẽ không
+                    // bao giờ thấy hiệu ứng.
+                    onlineVfxPlayer.PlayDrainHeal(onlineHeroRect);
+                    break;
+            }
+        }
+
+        // Chỉ dùng cho chế độ xem thử: bơm năng lượng tới trần và tích đủ khiên, để mọi chiêu
+        // bấm được ngay từ giây đầu. Cụm tài nguyên là nguồn duy nhất nên phải gọi lặp.
+        void FillResourcesForPreview()
+        {
+            for (int i = 0; i < 20 && energySystem.Energy < energySystem.Max; i++)
+            {
+                energySystem.GainFromCluster(true);
+            }
+            for (int i = 0; i < 10 && healthSystem.ShieldCharges < OnlineConfig.MaxShieldCharge; i++)
+            {
+                healthSystem.AddShieldCharge(true);
+            }
+        }
+
+        // Bong bóng khiên bám theo trạng thái khiên THẬT: bật khi Active Shield còn, tắt khi hết giờ
+        // hoặc bị đánh vỡ (HealthSystem.TakeDamage có thể dập khiên bất cứ lúc nào). Chỉ gọi xuống
+        // view khi trạng thái đổi, không phải mỗi khung.
+        void SyncOnlineShieldBubble()
+        {
+            if (onlineVfxPlayer == null)
+            {
+                return;
+            }
+
+            bool shouldShow = healthSystem.IsShieldActive && !gameOver;
+            if (shouldShow == onlineShieldBubbleShown)
+            {
+                return;
+            }
+
+            onlineShieldBubbleShown = shouldShow;
+            if (shouldShow)
+            {
+                onlineVfxPlayer.ShowShield(onlineHeroRect, ShieldBubbleSprite());
+            }
+            else
+            {
+                onlineVfxPlayer.HideShield();
             }
         }
 
@@ -752,7 +919,10 @@ namespace BrickStacker
             {
                 MultiplayerManager.Instance?.SendSkill(OnlineSkill.Attack, (byte)Mathf.Clamp(attackDamage, 1, 255));
                 shake = 0.15f;
-                FireAttackProjectile(OnlineSkill.Attack); // đòn Kiếm bay sang bàn đối thủ
+                if (onlineVfxPlayer != null)
+                {
+                    onlineVfxPlayer.PlayAttack(onlineEnemyRect, onlineHeroRect);
+                }
             }
 
             RefreshSkillBar();
@@ -792,6 +962,8 @@ namespace BrickStacker
                 MultiplayerMatch.PendingDrainHeal = 0;
                 if (healed > 0)
                 {
+                    // VFX hồi máu đã chạy lúc tung chiêu (PlayOutgoingSkillVfx) — ở đây chỉ còn
+                    // cộng máu thật, chạy lại nữa là hiệu ứng nhân đôi.
                     RefreshSkillBar();
                     SendMultiplayerState();
                     if (tacticalBoard != null)
@@ -1098,64 +1270,6 @@ namespace BrickStacker
                 burst.Play(screenPos, color);
         }
 
-        // Đòn bay từ bàn mình sang bàn đối thủ khi mình tấn công/dùng skill (phản hồi "đã đánh trúng").
-        void FireAttackProjectile(OnlineSkill skill)
-        {
-            if (scenePuzzleBoardAnchorRect == null || opponentMiniPanelRect == null)
-                return;
-            if (attackProjectileRoutine != null)
-                StopCoroutine(attackProjectileRoutine);
-            attackProjectileRoutine = StartCoroutine(FlyAttackProjectile(skill));
-        }
-
-        System.Collections.IEnumerator FlyAttackProjectile(OnlineSkill skill)
-        {
-            EnsureAttackProjectile();
-            if (attackProjectile == null)
-                yield break;
-
-            Color color = SkillColor(skill);
-
-            var rt = attackProjectile.rectTransform;
-            Vector3 from = scenePuzzleBoardAnchorRect.position;
-            Vector3 to = opponentMiniPanelRect.position;
-            attackProjectile.gameObject.SetActive(true);
-            attackProjectile.color = color;
-
-            const float dur = 0.42f;
-            for (float t = 0f; t < dur; t += Time.deltaTime)
-            {
-                float k = Mathf.Clamp01(t / dur);
-                rt.position = Vector3.Lerp(from, to, k);
-                float s = Mathf.Lerp(1.1f, 0.5f, k);
-                rt.localScale = new Vector3(s, s, 1f);
-                var c = color; c.a = 1f - 0.3f * k; attackProjectile.color = c;
-                yield return null;
-            }
-            attackProjectile.gameObject.SetActive(false);
-            attackProjectileRoutine = null;
-        }
-
-        void EnsureAttackProjectile()
-        {
-            if (attackProjectile != null)
-                return;
-            Transform parent = sceneGameplayCanvas != null ? sceneGameplayCanvas.transform
-                : (safeAreaRoot != null ? (Transform)safeAreaRoot : null);
-            if (parent == null)
-                return;
-            var go = Ui.Panel(parent, "Runtime Attack Projectile", Color.white);
-            var img = go.GetComponent<Image>();
-            img.sprite = GetPieceBlockSprite((int)Puzzle.ResourceType.Attack);
-            img.preserveAspect = true;
-            img.raycastTarget = false;
-            var rt = img.rectTransform;
-            rt.sizeDelta = new Vector2(70, 70);
-            go.transform.SetAsLastSibling();
-            go.SetActive(false);
-            attackProjectile = img;
-        }
-
         // Popup kết quả online chỉ cần 1 nút TRANG CHỦ (Chơi lại/Tiếp không hợp 1v1 P2P): ẩn 2 nút kia,
         // căn giữa nút Trang chủ và đổi hành động sang rời phòng + về menu chính.
         void WireOnlineHomeOnly(Button home, Button hide1, Button hide2, System.Action onHome)
@@ -1213,7 +1327,6 @@ namespace BrickStacker
             ClearActive();
             statusText.text = "";
             if (incomingWarnPanel != null) incomingWarnPanel.gameObject.SetActive(false);
-            if (attackProjectile != null) attackProjectile.gameObject.SetActive(false);
 
             var manager = MultiplayerManager.Instance;
             if (manager != null)

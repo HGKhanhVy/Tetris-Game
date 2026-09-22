@@ -129,6 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 400000}
   - component: {fileID: 11400000}
+  - component: {fileID: 11400001}
   m_Layer: 0
   m_Name: Brick Game Controller
   m_TagString: Untagged
@@ -300,6 +301,25 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6d8ef91054054e478773c330376c67a1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  onlineVfxPlayer: {fileID: 11400001}
+--- !u!114 &11400001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 33400ea31ec70cb4fbe781ad21dd1ff1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BrickStacker.OnlineVfxPlayer
+  attackVfxPrefab: {fileID: 6112655535052497127, guid: 8f767d0b23c8e3b4cb2ead5380b1074d, type: 3}
+  overloadVfxPrefab: {fileID: 6847671187197783445, guid: 6555300494081614fa6b6a823cca9f64, type: 3}
+  drainHealVfxPrefab: {fileID: 406406655129928164, guid: cd2a6771c578ec3478980c2e5a5f41ea, type: 3}
+  vfxScale: 1
+  overloadEuler: {x: 0, y: 0, z: -90}
+  inFrontOfCanvas: 0.5
 --- !u!1 &38263203
 GameObject:
   m_ObjectHideFlags: 0

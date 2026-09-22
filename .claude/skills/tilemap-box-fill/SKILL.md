@@ -1,6 +1,8 @@
 ---
 name: tilemap-box-fill
 description: Fill a rectangular region of a Tilemap with a single TileBase asset using Tilemap.BoxFill. The region is defined by an inclusive min and max cell coordinate.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Box Fill

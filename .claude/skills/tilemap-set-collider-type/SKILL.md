@@ -1,6 +1,8 @@
 ---
 name: tilemap-set-collider-type
 description: Set the per-cell Tile.ColliderType (None / Sprite / Grid) of a tile painted into a Tilemap. Pair with a TilemapCollider2D to generate physics colliders from the tiles.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Set Tile Collider Type

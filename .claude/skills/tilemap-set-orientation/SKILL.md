@@ -1,6 +1,8 @@
 ---
 name: tilemap-set-orientation
 description: Set the tile anchor (sub-cell pivot, default (0.5,0.5,0)) and/or the layout orientation (XY/XZ/YX/YZ/ZX/ZY/Custom) of a Tilemap.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Set Anchor + Orientation

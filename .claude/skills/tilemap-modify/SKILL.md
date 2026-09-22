@@ -1,6 +1,8 @@
 ---
 name: tilemap-modify
 description: "Generic write: apply a `SerializedMember` diff to a Tilemap-related `Component` on a GameObject via ReflectorNet `TryModify`. Fields go through the `fields` channel, properties through `props`. Use 'tilemap-get' first to inspect the structure."
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Modify Component

@@ -1,6 +1,8 @@
 ---
 name: tilemap-clear
 description: "Clear tiles from a Tilemap: either every tile (ClearAllTiles) or a rectangular region (by erasing each cell in the inclusive min..max range). Destructive."
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Clear Tiles

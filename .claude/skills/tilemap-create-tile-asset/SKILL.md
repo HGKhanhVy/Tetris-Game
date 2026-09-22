@@ -1,6 +1,8 @@
 ---
 name: tilemap-create-tile-asset
 description: Create a UnityEngine.Tilemaps.Tile asset at an Assets/-rooted path and assign a Sprite (loaded from a sprite asset path) plus an optional color and collider type. Returns the created asset path.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Create Tile Asset

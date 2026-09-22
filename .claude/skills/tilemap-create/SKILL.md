@@ -1,6 +1,8 @@
 ---
 name: tilemap-create
 description: Create a Grid GameObject with a child Tilemap + TilemapRenderer in the active scene. Optionally parent the Grid under an existing GameObject and name the tilemap. Returns the new tilemap GameObject reference and its instanceId.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Create Grid + Tilemap

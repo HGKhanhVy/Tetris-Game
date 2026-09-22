@@ -1,6 +1,8 @@
 ---
 name: tilemap-set-tile
 description: Paint a single tile (a TileBase asset such as a Tile or RuleTile) into a Tilemap at a given cell coordinate. Pass a null/empty tileAssetPath to erase the cell.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Set Tile

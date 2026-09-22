@@ -1,6 +1,8 @@
 ---
 name: tilemap-list
 description: List every Tilemap in the active scene with its name, painted-tile count, cell bounds, and orientation. Read-only.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / List Tilemaps

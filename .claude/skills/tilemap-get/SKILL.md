@@ -1,6 +1,8 @@
 ---
 name: tilemap-get
 description: "Generic read: serialize a Tilemap-related `Component` (Tilemap, TilemapRenderer, Grid, or a Tile/RuleTile asset's host) on a GameObject via ReflectorNet. Pair with 'tilemap-modify' to write changes back. Read-only."
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Get Component

@@ -1,6 +1,8 @@
 ---
 name: tilemap-get-tile
 description: "Read the tile occupying a single cell of a Tilemap: returns whether the cell has a tile, the tile asset name + path, the tile color, and the collider type at that cell. Read-only."
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Get Tile

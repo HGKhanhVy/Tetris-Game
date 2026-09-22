@@ -1,6 +1,8 @@
 ---
 name: tilemap-set-tile-flags
 description: Set the per-cell tint color and/or transform (flip X/Y, Z rotation, scale) of a tile already painted into a Tilemap. Unlocks the relevant TileFlags so the overrides take effect.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Set Tile Color + Transform

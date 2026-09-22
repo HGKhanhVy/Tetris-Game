@@ -1,6 +1,8 @@
 ---
 name: tilemap-create-rule-tile
 description: Create a UnityEngine.RuleTile asset (from the 2D Tilemap Extras package) at an Assets/-rooted path, with an optional default Sprite. RuleTiles auto-pick sprites based on neighbour rules — paint them like any tile and add rules afterward via the Inspector or 'tilemap-modify'.
+metadata:
+  generated-by: mcp-plugin-dotnet
 ---
 
 # Tilemap / Create Rule Tile

@@ -121,31 +121,34 @@ namespace BrickStacker
             const float frameAspect = 1067f / 1474f; // tỉ lệ ngang/dọc của ảnh khung mới
             PlaceV3(frame, new Vector2(0.735f, 0.5f), new Vector2(frameHeight * frameAspect, frameHeight));
 
-            // 4 nút chia đều trong lòng khung (tâm theo chiều dọc, fraction từ đáy).
+            // Các nút chia đều trong lòng khung (tâm theo chiều dọc, fraction từ đáy).
             // Mỗi ảnh có vùng plate đục lệch nhau → cắt về đúng plate rồi đặt vào cùng
-            // một kích thước cố định để 4 nút bằng nhau tuyệt đối (crop chuẩn hóa gốc dưới-trái).
-            BuildFrameButton(frame.transform, "screen-menu/btn-batdau.png", new Rect(0.0488f, 0.1285f, 0.9015f, 0.7804f), 0.725f, true,
+            // một kích thước cố định để các nút bằng nhau tuyệt đối (crop chuẩn hóa gốc dưới-trái).
+            // While 1 VS 1 is hidden the remaining buttons re-centre, so the frame never shows a gap.
+            float[] slots = IsOnlineModeLocked
+                ? new[] { 0.65f, 0f, 0.50f, 0.35f }
+                : new[] { 0.725f, 0.575f, 0.425f, 0.275f };
+
+            BuildFrameButton(frame.transform, "screen-menu/btn-batdau.png", new Rect(0.0488f, 0.1285f, 0.9015f, 0.7804f), slots[0], true,
                 () =>
                 {
                     RuntimeArt.PlayUiSwitchSound();
                     RunWithPlayerName(panel, () => SceneManager.LoadScene("BrickLevel"));
                 });
-            BuildFrameButton(frame.transform, "screen-menu/btn-1vs1.png", new Rect(0.0488f, 0.1050f, 0.9052f, 0.8232f), 0.575f, false,
-                () =>
-                {
-                    RuntimeArt.PlayUiSwitchSound();
-                    if (IsOnlineModeLocked)
+            if (!IsOnlineModeLocked)
+            {
+                BuildFrameButton(frame.transform, "screen-menu/btn-1vs1.png", new Rect(0.0488f, 0.1050f, 0.9052f, 0.8232f), slots[1], false,
+                    () =>
                     {
-                        ShowComingSoonPopup(panel);
-                        return;
-                    }
-                    RunWithPlayerName(panel, () =>
-                    {
-                        MultiplayerManager.PrewarmConnection();
-                        ShowMultiplayerOverlay(panel);
+                        RuntimeArt.PlayUiSwitchSound();
+                        RunWithPlayerName(panel, () =>
+                        {
+                            MultiplayerManager.PrewarmConnection();
+                            ShowMultiplayerOverlay(panel);
+                        });
                     });
-                });
-            BuildFrameButton(frame.transform, "screen-menu/btn-huongdan.png", new Rect(0.0345f, 0.0801f, 0.9346f, 0.8066f), 0.425f, false,
+            }
+            BuildFrameButton(frame.transform, "screen-menu/btn-huongdan.png", new Rect(0.0345f, 0.0801f, 0.9346f, 0.8066f), slots[2], false,
                 () =>
                 {
                     RuntimeArt.PlayUiSwitchSound();
@@ -155,7 +158,7 @@ namespace BrickStacker
                     GameSession.JourneyLevel = 1;
                     SceneManager.LoadScene("BrickGame");
                 });
-            BuildFrameButton(frame.transform, "screen-menu/btn-bxh.png", new Rect(0.0580f, 0.1091f, 0.8840f, 0.7831f), 0.275f, false,
+            BuildFrameButton(frame.transform, "screen-menu/btn-bxh.png", new Rect(0.0580f, 0.1091f, 0.8840f, 0.7831f), slots[3], false,
                 () => { RuntimeArt.PlayUiSwitchSound(); ShowLeaderboardOverlay(panel); });
         }
 
